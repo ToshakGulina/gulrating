@@ -5,12 +5,12 @@ import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
-// Фирменные иконки источников оценок (inline SVG, без внешних запросов):
-// Кинопоиск — оранжевая звезда их рейтинговой шкалы,
-// TMDb — зелёный квадрат фирменного цвета (#90cea4),
-// друзья — розовый силуэт компании.
-const KP_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><path fill="#ff5c00" d="M12 1.8l3 6.5 7.1.8-5.3 4.9 1.5 7-6.3-3.6-6.3 3.6 1.5-7L2 9.1l7.1-.8z"/></svg>';
-const TMDB_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#90cea4"/><text x="12" y="15.5" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="7.5" font-weight="700" fill="#0d253f">TMDb</text></svg>';
+// Фирменные иконки источников оценок (inline SVG по оригинальным логотипам):
+// Кинопоиск — квадратная иконка сервиса: оранжевый фон и белая киноплёнка
+// с четырьмя отверстиями; TMDb — зелёный (#90cea4) контур-«пузырь» с буквами
+// TM/DB; друзья — розовый силуэт компании.
+const KP_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0 rounded" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#ff5c00"/><circle cx="16" cy="16" r="10.5" fill="#fdfbf7"/><g fill="#ff5c00"><circle cx="11.6" cy="11.6" r="3.1"/><circle cx="20.4" cy="11.6" r="3.1"/><circle cx="11.6" cy="20.4" r="3.1"/><circle cx="20.4" cy="20.4" r="3.1"/><circle cx="16" cy="16" r="1.9"/></g></svg>';
+const TMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><g fill="none" stroke="#90cea4" stroke-width="3.4" stroke-linejoin="round"><rect x="5" y="4.5" width="22" height="17.5" rx="4.5"/><path d="M8.6 22.5v6.2l6.2-6.2"/></g><text x="16" y="12.6" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.6" font-weight="800" fill="#ffffff">TM</text><text x="16" y="19.4" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.6" font-weight="800" fill="#ffffff">DB</text></svg>';
 const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="#f472b6"><path d="M9 11a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5zm8-2a3.5 3.5 0 10-2.4-6 5.5 5.5 0 010 8c.8.6 1.6 1 2.4 1zm0 2c-.6 0-1.3-.1-2-.3 1.2 1 2 2.3 2 3.8v1.5h6v-2c0-2.2-3.6-3-6-3z"/></svg>';
 
 // Пока оценка не выбрана — показываем «пустой» контур звезды вместо черты
@@ -93,6 +93,26 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       ? (allRatings.reduce((sum, r) => sum + Number(r.rating), 0) / allRatings.length).toFixed(1)
       : null;
 
+    // Бейдж друзей: оценка одна — пишем имя и оценку напрямую;
+    // иначе средняя, а при наведении/тапе — расклад по каждому.
+    let friendsBadge = '';
+    if (allRatings.length === 1) {
+      const r = allRatings[0];
+      friendsBadge = `<span class="flex items-center gap-1.5">${FRIENDS_ICON} ${escapeHtml(r.profiles.username)}: <b class="text-pink-300">${formatRating(r.rating)}</b></span>`;
+    } else if (averageRating) {
+      friendsBadge = `
+        <span id="friends-badge" class="relative group flex items-center gap-1.5 cursor-help">
+          ${FRIENDS_ICON} Средняя у друзей: <b class="text-pink-300">${averageRating}</b>
+          <span id="friends-tip" class="hidden group-hover:block absolute left-0 top-6 z-30 w-48 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-xl">
+            ${allRatings.map(r => `
+              <span class="flex items-center justify-between gap-3 py-0.5">
+                <span class="text-gray-300 truncate">${escapeHtml(r.profiles.username)}</span>
+                <b class="${valueColor(Number(r.rating))}">${formatRating(r.rating)}</b>
+              </span>`).join('')}
+          </span>
+        </span>`;
+    }
+
     modal.querySelector('h2').textContent = title.title || 'Фильм';
 
     document.getElementById('modal-content').innerHTML = `
@@ -109,7 +129,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${kpRating !== null ? `<span class="flex items-center gap-1.5">${KP_ICON} Кинопоиск: <b class="text-orange-300">${kpRating.toFixed(1)}</b></span>` : ''}
             ${title.tmdb_rating ? `<span class="flex items-center gap-1.5">${TMDB_ICON} TMDb: <b class="text-cyan-300">${Number(title.tmdb_rating).toFixed(1)}</b></span>` : ''}
-            ${averageRating ? `<span class="flex items-center gap-1.5">${FRIENDS_ICON} Средняя у друзей: <b class="text-pink-300">${averageRating}</b></span>` : ''}
+            ${friendsBadge}
           </div>
         </div>
       </div>
@@ -175,6 +195,17 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         </div>
       ` : ''}
     `;
+
+    // --- Тултип «у кого какая оценка» (тап по бейджу для телефонов) ---
+    const friendsBadgeEl = document.getElementById('friends-badge');
+    const friendsTip = document.getElementById('friends-tip');
+    if (friendsBadgeEl && friendsTip) {
+      friendsBadgeEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        friendsTip.classList.toggle('hidden');
+        friendsTip.classList.toggle('block');
+      });
+    }
 
     // --- Раскрывающееся описание ---
     const overviewText = document.getElementById('overview-text');
