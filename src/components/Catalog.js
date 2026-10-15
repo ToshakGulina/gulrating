@@ -62,6 +62,7 @@ export async function openCatalog(currentUser, onOpenTitle) {
         <div class="flex-1 min-w-0 flex flex-col min-h-0">
           <div class="p-3 border-b border-slate-700 flex items-center gap-2">
             <button id="filters-toggle" class="sm:hidden px-3 py-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-lg text-xs text-gray-300">Фильтры</button>
+            <button id="catalog-random" class="px-3 py-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-lg text-xs text-gray-300" title="Случайный тайтл по текущим фильтрам">🎲 Случайное</button>
             <span id="catalog-count" class="text-xs text-gray-500 ml-auto"></span>
           </div>
           <div class="flex-1 overflow-y-auto p-4">
@@ -95,15 +96,21 @@ export async function openCatalog(currentUser, onOpenTitle) {
     pages: { movie: 0, tv: 0 },
     hasMoreType: { movie: true, tv: true },
     totals: { movie: 0, tv: 0 },
+    totalPages: { movie: 0, tv: 0 },
     buffers: { movie: [], tv: [] },
     params: null,
     loading: false,
     shownCount: 0
   };
   const PAGE_SIZE = 20; // размер страницы TMDb
+  // Дальше 50 страниц (1000 позиций) на тип поисковый движок TMDb не
+  // гарантирует устойчивый порядок при сортировке с группами равных
+  // значений — честно останавливаем ленту там, а не показываем кашу
+  const MAX_PAGES = 50;
   const grid = overlay.querySelector('#catalog-grid');
   const genresBox = overlay.querySelector('#catalog-genres');
   const moreBtn = overlay.querySelector('#catalog-more');
+  const randomBtn = overlay.querySelector('#catalog-random');
   const dirBtn = overlay.querySelector('#catalog-dir');
   const countEl = overlay.querySelector('#catalog-count');
 
@@ -166,19 +173,27 @@ export async function openCatalog(currentUser, onOpenTitle) {
     };
   }
 
+  // Первичный ключ сортировки + вторичный: вторичный ломает гигантские
+  // группы равных значений, и пагинация TMDb становится воспроизводимой
+  function sortByFor(type, sortRaw, dir) {
+    const base = sortRaw === 'release'
+      ? (type === 'tv' ? 'first_air_date' : 'primary_release_date')
+      : sortRaw;
+    const tieBreak = sortRaw === 'vote' ? 'vote_count.desc' : 'popularity.desc';
+    return `${base}.${dir},${tieBreak}`;
+  }
+
   // Докачивает указанные страницы типа в буфер (дедуп по id)
   async function fetchTypePages(type, pagesArr) {
     if (!pagesArr.length) return;
     const { sortRaw, voteGte, yearGte, yearLte } = state.params;
     const genreMap = await getGenreMap(type);
     const genreIds = [...state.genres].map(n => genreMap[n]).filter(Boolean);
-    const sortByBase = sortRaw === 'release'
-      ? (type === 'tv' ? 'first_air_date' : 'primary_release_date')
-      : sortRaw;
+    const sortBy = sortByFor(type, sortRaw, state.dir);
     const rs = await Promise.all(pagesArr.map(page => discoverTitles({
       mediaType: type,
       genreIds,
-      sortBy: `${sortByBase}.${state.dir}`,
+      sortBy,
       voteGte,
       yearGte,
       yearLte,
@@ -195,6 +210,7 @@ export async function openCatalog(currentUser, onOpenTitle) {
     }
     state.pages[type] = Math.max(state.pages[type], ...pagesArr);
     state.totals[type] = rs[0].total || state.totals[type];
+    state.totalPages[type] = rs[0].totalPages || state.totalPages[type];
     const last = rs[rs.length - 1];
     state.hasMoreType[type] = last.hasMore && last.items.length > 0;
   }
@@ -214,11 +230,13 @@ export async function openCatalog(currentUser, onOpenTitle) {
     `).join('');
   }
 
-  // Отрисовка очередной порции глобально отсортированной ленты.
-  // cap — сколько позиций буфера уже образуют точный глобальный топ без
-  // «дыр»: тайтл, попавший в глобальный топ-K, внутри своего типа имеет ранг
-  // ≤ K, значит страниц каждого типа должно быть загружено ≥ K / PAGE_SIZE.
-  function renderDelta(replaceGrid) {
+  // Лента = строго отсортированный префикс буфера длиной cap.
+  // cap — глубина, до которой покрытие точно полное: тайтл из глобального
+  // топ-K внутри своего типа имеет ранг ≤ K, значит страниц типа должно быть
+  // загружено ≥ K / PAGE_SIZE. Перерисовываем префикс целиком (сохраняя
+  // скролл): если TMDb прислал низкую позицию с опозданием, она встанет на
+  // своё место, а не пойдёт вниз по ленте.
+  function renderShown(replaceGrid) {
     const { sortRaw } = state.params;
     const merged = [...state.types].flatMap(t => state.buffers[t]);
     merged.sort((a, b) => {
@@ -232,18 +250,19 @@ export async function openCatalog(currentUser, onOpenTitle) {
       cap = Math.min(cap, state.hasMoreType[t] ? state.pages[t] * PAGE_SIZE : state.buffers[t].length);
     }
     cap = Math.min(cap, merged.length);
-    const from = replaceGrid ? 0 : state.shownCount;
-    const delta = merged.slice(from, cap);
     state.shownCount = cap;
-    if (replaceGrid) {
-      grid.innerHTML = tilesHtml(delta) || '<p class="col-span-full text-sm text-gray-500 text-center py-8">Ничего не нашлось — попробуйте смягчить фильтры.</p>';
-    } else if (delta.length) {
-      grid.insertAdjacentHTML('beforeend', tilesHtml(delta));
-    }
+    const scroller = grid.parentElement;
+    const scrollTop = scroller ? scroller.scrollTop : 0;
+    grid.innerHTML = tilesHtml(merged.slice(0, cap)) || '<p class="col-span-full text-sm text-gray-500 text-center py-8">Ничего не нашлось — попробуйте смягчить фильтры.</p>';
+    if (!replaceGrid && scroller) scroller.scrollTop = scrollTop;
     const totalEst = [...state.types].reduce((sum, t) => sum + (state.totals[t] || 0), 0);
     countEl.textContent = `показано ${cap} из ~${totalEst.toLocaleString('ru-RU')}`;
-    const canMore = merged.length > cap || [...state.types].some(t => state.hasMoreType[t]);
+    const depthCapped = [...state.types].some(t => state.hasMoreType[t] && state.pages[t] >= MAX_PAGES);
+    const canMore = merged.length > cap || [...state.types].some(t => state.hasMoreType[t] && state.pages[t] < MAX_PAGES);
     moreBtn.classList.toggle('hidden', !canMore);
+    countEl.textContent = depthCapped && !canMore
+      ? `${countEl.textContent} · предел глубины: дальше TMDb не гарантирует порядок — сузьте фильтры или нажмите «Случайное»`
+      : countEl.textContent;
   }
 
   async function load(reset) {
@@ -264,9 +283,11 @@ export async function openCatalog(currentUser, onOpenTitle) {
     try {
       const pagesArrFor = (t) => reset
         ? [1, 2]
-        : (state.hasMoreType[t] ? [state.pages[t] + 1, state.pages[t] + 2] : []);
+        : (state.hasMoreType[t] && state.pages[t] < MAX_PAGES
+          ? [state.pages[t] + 1, state.pages[t] + 2].filter(pg => pg <= MAX_PAGES)
+          : []);
       await Promise.all([...state.types].map(t => fetchTypePages(t, pagesArrFor(t))));
-      renderDelta(reset);
+      renderShown(reset);
     } catch (e) {
       if (reset) {
         grid.innerHTML = `
@@ -327,6 +348,49 @@ export async function openCatalog(currentUser, onOpenTitle) {
   yearTo.addEventListener('input', onYears);
 
   moreBtn.addEventListener('click', () => load(false));
+
+  // Случайное произведение по тем же фильтрам: равномерный выбор страницы
+  // из окна TMDb (не глубже 500) и случайный тайтл со страницы
+  async function pickRandom() {
+    randomBtn.disabled = true;
+    const oldLabel = randomBtn.textContent;
+    randomBtn.textContent = 'Ищем…';
+    try {
+      state.params = readParams();
+      const { sortRaw } = state.params;
+      const pool = [];
+      await Promise.all([...state.types].map(async (type) => {
+        const maxPage = Math.min(state.totalPages[type] || 1, 500);
+        const page = 1 + Math.floor(Math.random() * maxPage);
+        const genreMap = await getGenreMap(type);
+        const genreIds = [...state.genres].map(n => genreMap[n]).filter(Boolean);
+        const r = await discoverTitles({
+          mediaType: type,
+          genreIds,
+          sortBy: sortByFor(type, sortRaw, state.dir),
+          voteGte: state.params.voteGte,
+          yearGte: state.params.yearGte,
+          yearLte: state.params.yearLte,
+          page,
+          limit: PAGE_SIZE
+        });
+        pool.push(...r.items);
+      }));
+      if (!pool.length) {
+        showToast('Под текущие фильтры ничего не нашлось', 'error');
+        return;
+      }
+      const item = pool[Math.floor(Math.random() * pool.length)];
+      close();
+      onOpenTitle(String(item.id), item.media_type);
+    } catch (e) {
+      showToast('Не удалось выбрать случайное — попробуйте ещё раз', 'error');
+    } finally {
+      randomBtn.disabled = false;
+      randomBtn.textContent = oldLabel;
+    }
+  }
+  randomBtn.addEventListener('click', pickRandom);
   grid.addEventListener('click', (e) => {
     const item = e.target.closest('.catalog-item');
     if (!item) return;
