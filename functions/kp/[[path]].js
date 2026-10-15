@@ -1,6 +1,6 @@
 // Прокси Кинопоиска для Cloudflare Pages (Pages Functions).
-// Работает автоматически после деплоя: запросы вида /kp/api/v2.2/films?...
-// уходят на kinopoiskapiunofficial.tech с ключом из секрета KINOPOISK_API_KEY
+// Работает автоматически после деплоя: запросы вида /kp/v1.5/movie/search?query=...
+// уходят на api.poiskkino.dev с ключом из секрета KINOPOISK_API_KEY
 // (или из FALLBACK_KEY, если секрет не задан в дашборде Pages).
 //
 // Зачем: браузерные запросы к сервису напрямую могут блокироваться CORS,
@@ -10,14 +10,14 @@
 // Секрет (по желанию): Pages → Settings → Functions → Environment variables
 // → добавить KINOPOISK_API_KEY. Без секрета используется FALLBACK_KEY.
 
-const UPSTREAM = 'https://kinopoiskapiunofficial.tech';
+const UPSTREAM = 'https://api.poiskkino.dev';
 const FALLBACK_KEY = '0MHQ7TX-71WMDSP-HVF6YHV-FMWFRDM';
 
 export async function onRequestGet(context) {
   const { request, env, params } = context;
 
   const path = Array.isArray(params.path) ? params.path.join('/') : '';
-  if (!/^api\//.test(path)) {
+  if (!/^(v1\.5|api)\//.test(path)) {
     return new Response('Not found', { status: 404 });
   }
 

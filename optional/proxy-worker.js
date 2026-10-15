@@ -69,7 +69,7 @@ export default {
       // Явный префикс Кинопоиска (неофициальный API kinopoiskapiunofficial.tech).
       // Кэшируем ответы на сутки: у токена бесплатный лимит ~200 запросов/день.
       if (!env.KINOPOISK_API_KEY) return respond('Прокси: добавьте секрет KINOPOISK_API_KEY', 500, 'text/plain');
-      upstreamUrl = new URL('https://kinopoiskapiunofficial.tech' + path.slice('/kp'.length));
+      upstreamUrl = new URL('https://api.poiskkino.dev' + path.slice('/kp'.length));
       for (const [k, v] of url.searchParams) upstreamUrl.searchParams.set(k, v);
       apiKeyHeader = env.KINOPOISK_API_KEY;
       cacheSeconds = 86400;

@@ -1,4 +1,5 @@
-// Рейтинг Кинопоиска через неофициальный API kinopoiskapiunofficial.tech.
+// Рейтинг Кинопоиска через API ПоискКино (poiskkino.dev, версия v1.5).
+// Токен выдаёт телеграм-бот @poiskkinodev_bot, документация: poiskkino.dev/documentation.
 //
 // Почему неофициальный: официальный API Кинопоиска закрыт для физлиц,
 // а прямые запросы из браузера к кинопoisk-сервисам часто упираются в CORS.
@@ -10,13 +11,14 @@
 //   3. прямой запрос к сервису с заголовком X-API-KEY — сработает, если
 //      сервис отдаёт CORS (например, в локальном предпросмотре).
 //
-// Токен лежит в src/config.js (KINOPOISK_API_KEY), лимит ~200 запросов/сутки.
+// Токен лежит в src/config.js (KINOPOISK_API_KEY); на бесплатном тарифе действуют
+// лимиты демо-доступа, поэтому ответы кэшируются и в браузере, и на прокси.
 // Дополнительно результаты кэшируются в браузере на сессию.
 // Любая ошибка КП не ломает карточку фильма: значок просто не показывается.
 
 import { CONFIG } from '../config.js';
 
-const DIRECT_BASE = 'https://kinopoiskapiunofficial.tech';
+const DIRECT_BASE = 'https://api.poiskkino.dev';
 
 // Кэш на сессию: повторное открытие карточки не тратит лимит запросов
 const cache = new Map();
@@ -50,7 +52,7 @@ function itemYear(item) {
 // Защитный разбор рейтинга: поля могут приходить строкой или числом
 function extractRating(item) {
   if (!item) return null;
-  const candidates = [item.ratingKinopoisk, item.rating, item.kinopoiskRating];
+  const candidates = [item.rating && item.rating.kp, item.ratingKinopoisk, item.kinopoiskRating];
   for (const value of candidates) {
     const n = Number(String(value).replace(',', '.'));
     if (Number.isFinite(n) && n > 0) return Math.round(n * 10) / 10;
@@ -62,14 +64,15 @@ async function fetchItems(base, sendKey, query) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch(`${base}/api/v2.2/films?searchQuery=${encodeURIComponent(query)}`, {
+    const res = await fetch(`${base}/v1.5/movie/search?query=${encodeURIComponent(query)}`, {
       headers: headersFor(sendKey),
       signal: controller.signal
     });
     if (res.status === 429) console.warn('Кинопоиск: исчерпан дневной лимит запросов токена');
     if (!res.ok) return { ok: false, items: [] };
     const data = await res.json();
-    const items = data.items || data.results || [];
+    // v1.5 отдаёт массив docs; старые схемы — items/results
+    const items = data.docs || data.items || data.results || [];
     return { ok: true, items: Array.isArray(items) ? items : [] };
   } finally {
     clearTimeout(timer);

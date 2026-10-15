@@ -50,7 +50,7 @@ export const CONFIG = {
   TMDB_PROXY_URL: "",
 
   // ОПЦИОНАЛЬНО: рейтинг Кинопоиска (неофициальный API kinopoiskapiunofficial.tech).
-  // KINOPOISK_API_KEY — ваш личный токен сервиса (лимит ~200 запросов в сутки).
+  // KINOPOISK_API_KEY — токен ПоискКино (poiskkino.dev), выдаётся ботом @poiskkinodev_bot.
   //   Токен лежит здесь для простоты; при желании его можно убрать в секреты
   //   Cloudflare Worker и использовать только прокси-режим.
   // KINOPOISK_PROXY_URL — адрес Cloudflare Worker с префиксом /kp
@@ -68,7 +68,7 @@ export const CONFIG = {
 // Метка сборки: видна в профиле внизу и в консоли браузера.
 // Помогает мгновенно понять, какая версия кода реально крутится в браузере
 // (предпросмотр / локальная копия / продакшен).
-export const APP_BUILD = "2026.10.15-4 (вход по паролю)";
+export const APP_BUILD = "2026.10.15-5 (ПоискКино, настройки профиля)";
 
 export function saveLocalAnonKey(key) {
   try {

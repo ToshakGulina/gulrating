@@ -63,6 +63,42 @@ export async function renderProfilePage(app, currentUser) {
           </div>
         </div>
 
+        <!-- Настройки: ник, аватар, поведение ленты -->
+        <div class="bg-card rounded-2xl p-5 mb-6">
+          <h3 class="font-semibold mb-4">Ник и аватар</h3>
+          <div class="flex items-center gap-4 mb-4">
+            <img id="avatar-preview" src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt="" class="w-16 h-16 rounded-full bg-slate-700">
+            <div class="flex flex-col items-start gap-2">
+              <label class="text-sm cursor-pointer px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg">
+                Загрузить фото
+                <input id="avatar-input" type="file" accept="image/*" class="hidden">
+              </label>
+              <button id="avatar-remove-btn" class="text-xs text-gray-400 hover:text-white">Убрать аватар</button>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <input id="nick-input" type="text" value="${escapeHtml(currentUser.profile.username)}" maxlength="40"
+              class="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white" placeholder="Ник">
+            <button id="nick-save-btn" class="px-4 py-2.5 bg-primary hover:bg-primary/90 rounded-xl text-sm font-medium">Сохранить</button>
+          </div>
+
+          <h3 class="font-semibold mt-6 mb-3">Лента</h3>
+          <div class="space-y-3 text-sm">
+            <label class="flex items-center justify-between gap-3">
+              <span class="text-gray-300">Сортировка по умолчанию</span>
+              <select id="sort-select" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white">
+                <option value="new">Сначала новые</option>
+                <option value="rating_desc">Сначала высокие оценки</option>
+                <option value="rating_asc">Сначала низкие оценки</option>
+              </select>
+            </label>
+            <label class="flex items-center justify-between gap-3">
+              <span class="text-gray-300">Блок «Сейчас в тренде», когда лента пустая</span>
+              <input id="trending-toggle" type="checkbox" class="w-4 h-4">
+            </label>
+          </div>
+        </div>
+
         <!-- Секция админа: управление пользователями -->
         ${currentUser.profile.is_admin ? `
           <div class="bg-card rounded-2xl p-4 mb-6">
@@ -135,6 +171,75 @@ export async function renderProfilePage(app, currentUser) {
   document.getElementById('logout-btn').addEventListener('click', async () => {
     await supabase.auth.signOut();
     location.reload();
+  });
+
+  // --- Настройки: аватар, ник, лента ---
+  const avatarPreview = document.getElementById('avatar-preview');
+  const avatarInput = document.getElementById('avatar-input');
+  const nickInput = document.getElementById('nick-input');
+  const sortSelect = document.getElementById('sort-select');
+  const trendingToggle = document.getElementById('trending-toggle');
+
+  async function saveProfileFields(fields) {
+    const { error } = await supabase.from('profiles').update(fields).eq('id', currentUser.id);
+    if (error) {
+      const msg = (error.message || '');
+      showToast(/duplicate|unique/i.test(msg) ? 'Такой ник уже занят' : 'Не удалось сохранить: ' + msg, 'error', 5000);
+      return false;
+    }
+    Object.assign(currentUser.profile, fields);
+    return true;
+  }
+
+  avatarInput.addEventListener('change', async () => {
+    const file = avatarInput.files && avatarInput.files[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      showToast('Файл больше 8 МБ — возьмите картинку поменьше', 'error', 5000);
+      avatarInput.value = '';
+      return;
+    }
+    try {
+      const dataUrl = await downscaleImage(file, 160);
+      if (await saveProfileFields({ avatar_url: dataUrl })) {
+        avatarPreview.src = dataUrl;
+        showToast('Аватар обновлён', 'success');
+      }
+    } catch (e) {
+      showToast('Не удалось прочитать картинку', 'error', 5000);
+    }
+    avatarInput.value = '';
+  });
+
+  document.getElementById('avatar-remove-btn').addEventListener('click', async () => {
+    if (await saveProfileFields({ avatar_url: null })) {
+      avatarPreview.src = safeAvatarUrl(null, currentUser.profile.username);
+      showToast('Аватар убран', 'success');
+    }
+  });
+
+  document.getElementById('nick-save-btn').addEventListener('click', async () => {
+    const value = nickInput.value.trim();
+    if (!value) {
+      showToast('Ник не может быть пустым', 'error');
+      return;
+    }
+    if (value === currentUser.profile.username) return;
+    if (await saveProfileFields({ username: value })) {
+      showToast('Ник сохранён', 'success');
+      renderProfilePage(app, currentUser);
+    }
+  });
+
+  sortSelect.value = localStorage.getItem('gulrating:feed_sort') || 'new';
+  sortSelect.addEventListener('change', () => {
+    localStorage.setItem('gulrating:feed_sort', sortSelect.value);
+    showToast('Порядок ленты обновлён', 'success');
+  });
+
+  trendingToggle.checked = localStorage.getItem('gulrating:show_trending') !== '0';
+  trendingToggle.addEventListener('change', () => {
+    localStorage.setItem('gulrating:show_trending', trendingToggle.checked ? '1' : '0');
   });
 
   // Обработчики табов
@@ -307,5 +412,30 @@ function initTitleCards(currentUser) {
         renderProfilePage(document.getElementById('app'), currentUser);
       });
     });
+  });
+}
+
+// Уменьшает картинку до квадрата не больше maxSide и отдаёт data-URL JPEG.
+// Храним аватар прямо в profiles.avatar_url — отдельное хранилище не нужно.
+function downscaleImage(file, maxSide) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
 }
