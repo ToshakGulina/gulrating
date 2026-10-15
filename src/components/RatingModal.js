@@ -1,5 +1,5 @@
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
-import { getTitleDetails } from '../lib/tmdb.js';
+import { getTitleDetails, getTitleVideos } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
@@ -206,6 +206,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             if (kpRatings && kpRatings.kpFeesWorld) parts.push(`в мире: ${formatMoney(kpRatings.kpFeesWorld)} (КП)`);
             return parts.length ? `<p class="text-xs text-gray-500 mb-2">💵 ${parts.join(' • ')}</p>` : '';
           })()}
+          <div id="trailer-box" class="w-full mb-1"></div>
+          <button id="trailer-btn" class="text-xs text-primary hover:underline mb-2 self-start">▶ Трейлер</button>
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
             ${friendsBadge}
@@ -385,6 +387,32 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       slider.value = String(selectedScore);
     }
     renderValue();
+
+    // Встроенный плеер трейлера (официальный YouTube-embed по данным TMDb)
+    const trailerBtn = modal.querySelector('#trailer-btn');
+    if (trailerBtn) {
+      trailerBtn.addEventListener('click', async () => {
+        trailerBtn.disabled = true;
+        trailerBtn.textContent = 'Загружаем трейлер…';
+        try {
+          const videos = await getTitleVideos(titleId, mediaType);
+          const rank = (v) => (v.type === 'Trailer' ? 0 : v.type === 'Teaser' ? 1 : 5)
+            + (v.iso_639_1 === 'ru' ? 0 : v.iso_639_1 === 'en' ? 1 : 2);
+          const yt = videos.filter(v => v.site === 'YouTube').sort((a, b) => rank(a) - rank(b))[0];
+          if (!yt || !yt.key) {
+            trailerBtn.textContent = 'Трейлера нет в базе TMDb';
+            return;
+          }
+          modal.querySelector('#trailer-box').innerHTML = `
+            <iframe class="w-full aspect-video rounded-lg" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(yt.key)}"
+              title="Трейлер: ${escapeHtml(title.title)}" frameborder="0" allow="fullscreen; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+          trailerBtn.remove();
+        } catch (e) {
+          trailerBtn.disabled = false;
+          trailerBtn.textContent = '▶ Трейлер (нужна сеть)';
+        }
+      });
+    }
 
     // Сохранение оценки
     document.getElementById('save-rating-btn').addEventListener('click', async () => {

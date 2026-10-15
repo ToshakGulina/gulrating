@@ -5,6 +5,7 @@ import { openRatingModal } from './RatingModal.js';
 import { cleanupFeed } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats } from '../lib/offlineCatalog.js';
+import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
 
 // Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
 const ACCENTS = [
@@ -137,6 +138,14 @@ export async function renderProfilePage(app, currentUser) {
               </div>
               <input type="range" id="cat-size-range" min="500" max="15000" step="500" class="rating-slider w-full" aria-label="Сколько популярных тайтлов держать на устройстве">
               <p id="cat-size-status" class="text-xs text-gray-600 mt-1"></p>
+            </div>
+            <div>
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <span class="text-gray-300">Полная база TMDb на устройстве</span>
+                <span id="full-db-status" class="text-xs text-gray-500"></span>
+              </div>
+              <p class="text-xs text-gray-600 mb-2">Весь каталог (~1 млн тайтлов, ≈100 МБ одним скачиванием) для полностью офлайн-поиска. Хранится чанками в IndexedDB, целиком в память не загружается.</p>
+              <button id="full-db-btn" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm">Скачать полную базу</button>
             </div>
             <label class="flex items-center justify-between gap-3">
               <span class="text-gray-300">Блок рекомендаций в ленте</span>
@@ -363,6 +372,48 @@ export async function renderProfilePage(app, currentUser) {
   catSizeRange.addEventListener('input', () => {
     catSizeVal.textContent = catSizeRange.value;
   });
+  // Полная база: статус, скачивание с прогрессом, удаление
+  const fullDbBtn = document.getElementById('full-db-btn');
+  const fullDbStatus = document.getElementById('full-db-status');
+  function paintFullDb() {
+    const meta = getFullCatalogMeta();
+    if (meta) {
+      const mb = meta.bytes ? (meta.bytes / 1048576).toFixed(0) : '?';
+      fullDbStatus.textContent = meta.partial
+        ? `скачано чанков: ${meta.partial}/${meta.chunks.length}`
+        : `✓ ${Number(meta.total).toLocaleString('ru-RU')} тайтлов, ${mb} МБ`;
+      fullDbBtn.textContent = meta.partial ? 'Докачать полную базу' : 'Удалить полную базу';
+    } else {
+      fullDbStatus.textContent = 'не скачана';
+      fullDbBtn.textContent = 'Скачать полную базу';
+    }
+  }
+  paintFullDb();
+  // Показываем реальный размер из манифеста, чтобы решение было осознанным
+  fetchFullManifest().then(got => {
+    if (got && !getFullCatalogMeta()) {
+      fullDbStatus.textContent = `доступно: ${Number(got.manifest.total).toLocaleString('ru-RU')} тайтлов, ${(got.manifest.bytes / 1048576).toFixed(0)} МБ`;
+    }
+  }).catch(() => {});
+  fullDbBtn.addEventListener('click', async () => {
+    const meta = getFullCatalogMeta();
+    if (meta && !meta.partial) {
+      await deleteFullCatalog();
+      paintFullDb();
+      return;
+    }
+    fullDbBtn.disabled = true;
+    fullDbBtn.textContent = 'Скачиваем… 0%';
+    const result = await downloadFullCatalog((done, total) => {
+      fullDbBtn.textContent = `Скачиваем… ${Math.round(done / total * 100)}%`;
+      fullDbStatus.textContent = `чанков: ${done}/${total}`;
+    }).catch(() => null);
+    fullDbBtn.disabled = false;
+    if (result) showToast(`Полная база скачана: ${Number(result.total).toLocaleString('ru-RU')} тайтлов`, 'success', 5000);
+    else showToast('Скачивание прервалось на сети — кнопка докачает с того же места', 'info', 5000);
+    paintFullDb();
+  });
+
   catSizeRange.addEventListener('change', async () => {
     setCatalogSizeSetting(Number(catSizeRange.value));
     paintCatStatus();

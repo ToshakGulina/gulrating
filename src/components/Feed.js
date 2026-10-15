@@ -7,6 +7,7 @@ import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, poster
 import { getSearchQueries, getRecentTitles, addSearchQuery, clearHistory } from '../lib/history.js';
 import { getPendingRatings, flushPendingRatings } from '../lib/offline.js';
 import { searchOfflineCatalog, getPopularOffline, getOfflineCatalogStats } from '../lib/offlineCatalog.js';
+import { isFullCatalogInstalled, searchFullCatalog } from '../lib/fullCatalog.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -917,10 +918,20 @@ function initSearch(currentUser) {
       } catch (err) {
         // Без сети (или TMDb недоступен) ищем в текстовой базе на устройстве
         const stats = getOfflineCatalogStats();
-        const local = searchOfflineCatalog(query);
+        let local = searchOfflineCatalog(query);
+        let fullUsed = false;
+        if (isFullCatalogInstalled()) {
+          resultsContainer.innerHTML = '<div class="p-4 text-gray-500 text-center text-sm">Ищем по полной базе на устройстве…</div>';
+          resultsContainer.classList.remove('hidden');
+          const full = await searchFullCatalog(query, 20, local);
+          if (full.length) {
+            local = [...local, ...full];
+            fullUsed = true;
+          }
+        }
         if (local.length) {
           results = local;
-          offlineNote = `Офлайн-поиск по базе на устройстве (${stats.count} тайтлов)`;
+          offlineNote = `Офлайн-поиск по базе на устройстве (${stats.count} тайтлов${fullUsed ? ' + полная база' : ''})`;
         } else if (stats.count) {
           errorText = `${err.message} В базе на устройстве (${stats.count} тайтлов) ничего не нашлось.`;
         } else {
