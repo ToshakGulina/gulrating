@@ -1,7 +1,7 @@
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
 import { getTitleDetails } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
-import { getKinopoiskRatings } from '../lib/kinopoisk.js';
+import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { CONFIG } from '../config.js';
@@ -159,6 +159,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
     const visibleRows = ratingRows.slice(0, 2);
     const extraRows = ratingRows.slice(2);
+    const kpPageUrl = kinopoiskPageUrl(kpRatings && kpRatings.kpId);
 
     modal.querySelector('h2').textContent = title.title || 'Фильм';
 
@@ -168,7 +169,9 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           ${posterImg(title.poster_path, title.title, 'w-24 aspect-[2/3] rounded-lg')}
         </div>
         <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-lg leading-tight">${escapeHtml(title.title)}</h3>
+          <h3 class="font-bold text-lg leading-tight">${kpPageUrl
+            ? `<a href="${kpPageUrl}" target="_blank" rel="noopener noreferrer" class="hover:text-orange-300 underline decoration-dotted underline-offset-4" title="Открыть страницу на Кинопоиске">${escapeHtml(title.title)} ↗</a>`
+            : escapeHtml(title.title)}</h3>
           <p class="text-sm text-gray-400 mb-1">${year ? escapeHtml(year) + ' • ' : ''}${mediaType === 'movie' ? 'фильм' : 'сериал'}</p>
           <div class="flex gap-2 flex-wrap mb-2">
             ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Открыть каталог с фильтром по жанру «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
