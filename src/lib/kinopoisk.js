@@ -1,41 +1,49 @@
 // Рейтинг Кинопоиска через неофициальный API kinopoiskapiunofficial.tech.
 //
 // Почему неофициальный: официальный API Кинопоиска закрыт для физлиц,
-// а прямой запрос из браузера к api.kinopoisk.ru блокируется отсутствием CORS.
-// Сервис kinopoiskapiunofficial.tech выдаёт бесплатный токен (лимит ~200 запросов/сутки)
-// и отвечает на запросы с заголовком X-API-KEY.
+// а прямые запросы из браузера к кинопoisk-сервисам часто упираются в CORS.
+// Поэтому клиент пробует несколько баз по порядку, пока не получит ответ:
+//   1. CONFIG.KINOPOISK_PROXY_URL — внешний Cloudflare Worker (optional/proxy-worker.js);
+//   2. '/kp' на собственном домене — Pages Functions (functions/kp/[[path]].js),
+//      работает автоматически после деплоя на Cloudflare Pages и кэширует
+//      ответы на сутки на стороне Cloudflare (экономит лимит токена);
+//   3. прямой запрос к сервису с заголовком X-API-KEY — сработает, если
+//      сервис отдаёт CORS (например, в локальном предпросмотре).
 //
-// Два режима работы:
-// 1. Прямой: в config.js заполнен KINOPOISK_API_KEY — запросы идут из браузера.
-// 2. Через прокси: заполнен KINOPOISK_PROXY_URL (Cloudflare Worker,
-//    см. optional/proxy-worker.js, префикс /kp) — ключ лежит секретом в воркере,
-//    а ответы дополнительно кэшируются на стороне Cloudflare (экономит лимит).
-//
-// Ошибки КП никогда не ломают карточку фильма: значок просто не показывается.
+// Токен лежит в src/config.js (KINOPOISK_API_KEY), лимит ~200 запросов/сутки.
+// Дополнительно результаты кэшируются в браузере на сессию.
+// Любая ошибка КП не ломает карточку фильма: значок просто не показывается.
 
 import { CONFIG } from '../config.js';
 
-const USE_PROXY = Boolean(CONFIG.KINOPOISK_PROXY_URL);
-const BASE = USE_PROXY
-  ? CONFIG.KINOPOISK_PROXY_URL.replace(/\/+$/, '')
-  : 'https://kinopoiskapiunofficial.tech';
+const DIRECT_BASE = 'https://kinopoiskapiunofficial.tech';
 
 // Кэш на сессию: повторное открытие карточки не тратит лимит запросов
 const cache = new Map();
 
 export function kinopoiskConfigured() {
-  return USE_PROXY || Boolean(CONFIG.KINOPOISK_API_KEY);
+  return Boolean(CONFIG.KINOPOISK_API_KEY) || Boolean(CONFIG.KINOPOISK_PROXY_URL);
 }
 
-function headers() {
-  // Через прокси ключ подставляет воркер из секретов
-  if (USE_PROXY) return {};
-  return CONFIG.KINOPOISK_API_KEY ? { 'X-API-KEY': CONFIG.KINOPOISK_API_KEY } : {};
+function baseList() {
+  const list = [];
+  if (CONFIG.KINOPOISK_PROXY_URL) {
+    list.push({ base: CONFIG.KINOPOISK_PROXY_URL.replace(/\/+$/, ''), sendKey: false });
+  }
+  list.push({ base: '/kp', sendKey: false });      // свой домен (Pages Functions)
+  list.push({ base: DIRECT_BASE, sendKey: true }); // напрямую, если есть CORS
+  return list;
+}
+
+function headersFor(sendKey) {
+  return sendKey && CONFIG.KINOPOISK_API_KEY
+    ? { 'X-API-KEY': CONFIG.KINOPOISK_API_KEY }
+    : {};
 }
 
 // Год из поля ответа (бывает строкой вида "1999" или "1999 - 2001")
 function itemYear(item) {
-  const parsed = parseInt(String(item && item.year || '').slice(0, 4), 10);
+  const parsed = parseInt(String((item && item.year) || '').slice(0, 4), 10);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -50,6 +58,24 @@ function extractRating(item) {
   return null;
 }
 
+async function fetchItems(base, sendKey, query) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`${base}/api/v2.2/films?searchQuery=${encodeURIComponent(query)}`, {
+      headers: headersFor(sendKey),
+      signal: controller.signal
+    });
+    if (res.status === 429) console.warn('Кинопоиск: исчерпан дневной лимит запросов токена');
+    if (!res.ok) return { ok: false, items: [] };
+    const data = await res.json();
+    const items = data.items || data.results || [];
+    return { ok: true, items: Array.isArray(items) ? items : [] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Ищем рейтинг Кинопоиска по названию и году. Возвращает число или null.
 export async function getKinopoiskRating(title, originalTitle, year) {
   if (!kinopoiskConfigured() || !title) return null;
@@ -59,43 +85,35 @@ export async function getKinopoiskRating(title, originalTitle, year) {
 
   const queries = [title];
   if (originalTitle && originalTitle !== title) queries.push(originalTitle);
+  const yearNum = Number(year);
 
   let result = null;
-  for (const query of queries) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(`${BASE}/api/v2.2/films?searchQuery=${encodeURIComponent(query)}`, {
-        headers: headers(),
-        signal: controller.signal
-      });
-      clearTimeout(timer);
 
-      if (!res.ok) {
-        // 401/403 — проблема с ключом, 429 — исчерпан дневной лимит
-        if (res.status === 429) console.warn('Кинопоиск: исчерпан дневной лимит запросов токена');
+  for (const { base, sendKey } of baseList()) {
+    let reachable = false;
+    for (const query of queries) {
+      let answer;
+      try {
+        answer = await fetchItems(base, sendKey, query);
+      } catch (e) {
+        // сеть/CORS/таймаут — пробуем следующую базу
         continue;
       }
+      if (!answer.ok) continue;
 
-      const data = await res.json();
-      const items = data.items || data.results || [];
-      if (!Array.isArray(items) || items.length === 0) continue;
-
-      const yearNum = Number(year);
+      reachable = true;
       const matched = (Number.isFinite(yearNum) && yearNum > 1000)
-        ? (items.find(i => {
+        ? (answer.items.find(i => {
             const iy = itemYear(i);
             return iy !== null && Math.abs(iy - yearNum) <= 1;
-          }) || items[0])
-        : items[0];
+          }) || answer.items[0])
+        : answer.items[0];
 
       result = extractRating(matched);
       if (result !== null) break;
-    } catch (e) {
-      // CORS/сеть/формат ответа — молча пропускаем, КП опционален
-      console.warn('Кинопоиск: запрос не удался', e && e.message);
-      continue;
     }
+    // Сервис ответил (даже без рейтинга) — дальше базы не пробуем, бережём лимит
+    if (reachable || result !== null) break;
   }
 
   cache.set(cacheKey, result);

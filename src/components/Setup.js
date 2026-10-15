@@ -8,7 +8,7 @@ function shell(inner) {
       <div class="w-full max-w-lg">
         <div class="text-center mb-6">
           <div class="text-5xl mb-4">🎬</div>
-          <h1 class="text-2xl font-bold mb-2 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Кино для друзей</h1>
+          <h1 class="text-2xl font-bold mb-2 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">ГульРейтинг</h1>
         </div>
         <div class="bg-card rounded-2xl p-6 shadow-xl text-sm leading-relaxed">
           ${inner}

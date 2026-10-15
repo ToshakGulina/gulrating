@@ -7,8 +7,8 @@ export function renderAuthPage(app) {
       <div class="w-full max-w-md">
         <div class="text-center mb-8">
           <div class="text-5xl mb-4">🎬</div>
-          <h1 class="text-3xl font-bold mb-2 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Кино для друзей</h1>
-          <p class="text-gray-400">Оценивайте фильмы и смотрите оценки друзей</p>
+          <h1 class="text-3xl font-bold mb-2 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">ГульРейтинг</h1>
+          <p class="text-gray-400">Оценки фильмов и сериалов вашей компании</p>
         </div>
         
         <div class="bg-card rounded-2xl p-6 shadow-xl">
