@@ -7,7 +7,32 @@ import { getSearchQueries, getRecentTitles, addSearchQuery, clearHistory } from 
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
+const SORT_KEY = 'gulrating:feed_sort';
+const SORT_OPTIONS = [
+  { id: 'new', label: 'Новые' },
+  { id: 'rating_desc', label: 'Высокие сначала' },
+  { id: 'rating_asc', label: 'Низкие сначала' },
+];
+
+function readSort() {
+  try {
+    const value = localStorage.getItem(SORT_KEY);
+    return SORT_OPTIONS.some(o => o.id === value) ? value : 'new';
+  } catch (e) {
+    return 'new';
+  }
+}
+
+function saveSort(value) {
+  try {
+    localStorage.setItem(SORT_KEY, value);
+  } catch (e) {
+    // игнорируем
+  }
+}
+
 let activeFilter = 'all';
+let activeSort = readSort();   // сортировка ленты: new | rating_desc | rating_asc
 let feedChannel = null;
 let realtimeTimer = null;
 let trendingCache = null;   // тренды на сессию, чтобы не дёргать TMDb при каждом рендере
@@ -55,6 +80,15 @@ export async function renderFeed(app, currentUser) {
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="watchlist">Хочу посмотреть</button>
         </div>
 
+        <div class="flex items-center gap-2 mb-4 text-xs text-gray-400">
+          <span class="flex-shrink-0">Сортировка:</span>
+          <div class="flex gap-1.5 overflow-x-auto scrollbar-hide">
+            ${SORT_OPTIONS.map(o => `
+              <button class="sort-btn px-3 py-1.5 rounded-full whitespace-nowrap transition-colors ${o.id === activeSort ? 'bg-secondary text-white' : 'bg-card hover:bg-slate-700'}" data-sort="${o.id}">${o.label}</button>
+            `).join('')}
+          </div>
+        </div>
+
         <div id="feed-note" class="hidden text-xs text-gray-500 mb-3">Показан список «хочу посмотреть» всей вашей компании</div>
 
         <div id="ratings-list" class="space-y-4">
@@ -84,6 +118,7 @@ export async function renderFeed(app, currentUser) {
   // Инициализируем поиск и навигацию
   initSearch(currentUser);
   initNav(currentUser);
+  initSort(currentUser);
 
   // Подписываемся на реалтайм обновления оценок и watchlist.
   // Чужие новые оценки дополнительно подсвечиваем тостом — реалтайм становится заметным.
@@ -160,7 +195,7 @@ async function loadRatings(currentUser, filter = 'all') {
       listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
       return;
     }
-    data = ratings;
+    data = applySort(ratings);
   }
 
   if (!data || data.length === 0) {
@@ -254,6 +289,34 @@ async function loadRatings(currentUser, filter = 'all') {
       openRatingModal(titleId, mediaType, currentUser, () => {
         loadRatings(currentUser, activeFilter);
       });
+    });
+  });
+}
+
+// Сортировка оценок ленты (выбор пользователя хранится локально)
+function applySort(list) {
+  const arr = [...(list || [])];
+  if (activeSort === 'rating_desc') {
+    arr.sort((a, b) => Number(b.rating) - Number(a.rating));
+  } else if (activeSort === 'rating_asc') {
+    arr.sort((a, b) => Number(a.rating) - Number(b.rating));
+  }
+  return arr;
+}
+
+function initSort(currentUser) {
+  document.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeSort = btn.dataset.sort;
+      saveSort(activeSort);
+      document.querySelectorAll('.sort-btn').forEach(b => {
+        const active = b.dataset.sort === activeSort;
+        b.classList.toggle('bg-secondary', active);
+        b.classList.toggle('text-white', active);
+        b.classList.toggle('bg-card', !active);
+        b.classList.toggle('hover:bg-slate-700', !active);
+      });
+      loadRatings(currentUser, activeFilter);
     });
   });
 }
