@@ -29,6 +29,7 @@ const SHELL_ASSETS = [
   '/src/lib/dom.js',
   '/src/lib/history.js',
   '/src/lib/offline.js',
+  '/src/lib/offlineCatalog.js',
   '/src/lib/kinopoisk.js',
   '/src/components/Auth.js',
   '/src/components/Setup.js',

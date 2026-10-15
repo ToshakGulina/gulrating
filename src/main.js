@@ -1,4 +1,5 @@
 import { supabase, getCurrentUser } from './lib/supabase.js';
+import { syncOfflineCatalog } from './lib/offlineCatalog.js';
 import { configIsComplete, APP_BUILD } from './config.js';
 
 // Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
@@ -36,6 +37,8 @@ window.addEventListener('offline', () => {
 });
 window.addEventListener('online', () => {
   showToast('Снова в сети', 'success', 2000);
+  // Дозакачиваем офлайн-базу фильмов
+  syncOfflineCatalog().catch(() => {});
 });
 
 function hideSplash() {
@@ -110,6 +113,9 @@ async function init() {
   });
 
   await renderApp();
+
+  // Фоновая закачка офлайн-базы фильмов (resume-able, не блокирует интерфейс)
+  syncOfflineCatalog().catch(() => {});
 
   // Интерфейс отдаётся из кэша мгновенно (sw.js), а здесь фоном проверяем,
   // не появился ли новый деплой: если сборка отличается — ненавязчивый тост

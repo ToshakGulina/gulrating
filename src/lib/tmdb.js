@@ -135,6 +135,18 @@ export function primeTitleCache(mediaType, id, partial) {
   writeTitleCache(cache, key, cache[key]);
 }
 
+// Страница популярных тайтлов (для фоновой закачки офлайн-базы)
+export async function getPopularPage(mediaType, page) {
+  const data = await tmdbFetch(`/discover/${mediaType}?sort_by=popularity.desc&page=${page}`);
+  return (data.results || []).map(item => ({
+    id: item.id,
+    title: (mediaType === 'movie' ? item.title : item.name) || '',
+    year: String(mediaType === 'movie' ? (item.release_date || '') : (item.first_air_date || '')).slice(0, 4),
+    poster_path: item.poster_path || null,
+    vote_average: item.vote_average != null ? item.vote_average : null
+  }));
+}
+
 export async function getTitleDetails(id, mediaType) {
   let data;
   try {

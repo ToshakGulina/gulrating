@@ -6,6 +6,7 @@ import { openCatalog } from './Catalog.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getSearchQueries, getRecentTitles, addSearchQuery, clearHistory } from '../lib/history.js';
 import { getPendingRatings, flushPendingRatings } from '../lib/offline.js';
+import { searchOfflineCatalog, getPopularOffline, getOfflineCatalogStats } from '../lib/offlineCatalog.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -532,7 +533,16 @@ async function loadRecs(currentUser) {
 function renderTrendsGrid(currentUser) {
   const grid = document.getElementById('trends-grid');
   if (!grid) return;
-  const items = recsCache.trends[trendsActive];
+  let items = recsCache.trends[trendsActive];
+  let offlineTrends = false;
+  if (!items) {
+    // Офлайн: вместо трендов — популярные тайтлы из базы на устройстве
+    const local = getPopularOffline(18);
+    if (local.length) {
+      items = local;
+      offlineTrends = true;
+    }
+  }
   document.querySelectorAll('.trend-tab').forEach(btn => {
     const active = btn.dataset.key === trendsActive;
     btn.classList.toggle('bg-primary', active);
@@ -549,7 +559,9 @@ function renderTrendsGrid(currentUser) {
     grid.innerHTML = '<p class="col-span-full text-sm text-gray-500 py-6">В этой выборке пусто.</p>';
     return;
   }
-  grid.innerHTML = items.map(item => {
+  grid.innerHTML = (offlineTrends
+    ? `<p class="col-span-full text-xs text-gray-500 pb-1">📴 Офлайн: популярные тайтлы из базы на устройстве (${getOfflineCatalogStats().count})</p>`
+    : '') + items.map(item => {
     const year = releaseYear(item.release_date);
     primeTitleCache(item.media_type, item.id, item);
     return `
@@ -824,10 +836,22 @@ function initSearch(currentUser) {
     searchTimeout = setTimeout(async () => {
       let results = [];
       let errorText = null;
+      let offlineNote = null;
       try {
+        if (navigator.onLine === false) throw new Error('Нет сети.');
         results = await searchTitles(query);
       } catch (err) {
-        errorText = err.message;
+        // Без сети (или TMDb недоступен) ищем в текстовой базе на устройстве
+        const stats = getOfflineCatalogStats();
+        const local = searchOfflineCatalog(query);
+        if (local.length) {
+          results = local;
+          offlineNote = `Офлайн-поиск по базе на устройстве (${stats.count} тайтлов)`;
+        } else if (stats.count) {
+          errorText = `${err.message} В базе на устройстве (${stats.count} тайтлов) ничего не нашлось.`;
+        } else {
+          errorText = `${err.message} База фильмов для офлайна ещё не скачана — она загружается автоматически, когда есть сеть.`;
+        }
       }
 
       if (errorText) {
@@ -835,7 +859,9 @@ function initSearch(currentUser) {
       } else if (results.length === 0) {
         resultsContainer.innerHTML = `<div class="p-4 text-gray-500 text-center">Ничего не найдено</div>`;
       } else {
-        resultsContainer.innerHTML = results.map(item => {
+        resultsContainer.innerHTML = (offlineNote
+          ? `<div class="px-3 pt-2 pb-1 text-xs text-gray-500">📴 ${escapeHtml(offlineNote)}</div>`
+          : '') + results.map(item => {
           const year = releaseYear(item.release_date);
           primeTitleCache(item.media_type, item.id, item);
           return `

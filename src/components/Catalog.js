@@ -1,4 +1,5 @@
 import { discoverTitles, getGenreMap, primeTitleCache } from '../lib/tmdb.js';
+import { getPopularOffline, randomOfflineTitle, getOfflineCatalogStats } from '../lib/offlineCatalog.js';
 import { escapeHtml, releaseYear, posterImg, showToast } from '../lib/dom.js';
 
 // Каталог TMDb. Фильтры — боковая панель на десктопе и складная шторка
@@ -465,6 +466,14 @@ overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex flex
       }
     } catch (e) {
       if (reset) {
+        // Без сети показываем базу на устройстве (жанры/рейтинг-фильтры офлайн недоступны)
+        const local = getPopularOffline(120, state.types);
+        if (local.length) {
+          grid.innerHTML = `
+            <p class="col-span-full text-xs text-gray-500 pb-1">📴 Офлайн: база на устройстве (${getOfflineCatalogStats().count} тайтлов), фильтры по жанрам и рейтингу без сети не работают</p>`
+            + tilesHtml(local);
+          return;
+        }
         grid.innerHTML = `
           <div class="col-span-full text-center py-8">
             <p class="text-sm text-red-400 mb-3">${escapeHtml(e && e.message ? e.message : 'Не удалось загрузить каталог.')}</p>
@@ -550,6 +559,13 @@ overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex flex
         pool.push(...r.items);
       }));
       if (!pool.length) {
+        const localPick = randomOfflineTitle(state.types);
+        if (localPick) {
+          showToast('Офлайн: выбрано из базы на устройстве (без учёта фильтров)', 'info', 4000);
+          close();
+          onOpenTitle(String(localPick.id), localPick.media_type);
+          return;
+        }
         showToast('Под текущие фильтры ничего не нашлось', 'error');
         return;
       }
@@ -557,6 +573,13 @@ overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex flex
       close();
       onOpenTitle(String(item.id), item.media_type);
     } catch (e) {
+      const localPick = randomOfflineTitle(state.types);
+      if (localPick) {
+        showToast('Офлайн: выбрано из базы на устройстве (без учёта фильтров)', 'info', 4000);
+        close();
+        onOpenTitle(String(localPick.id), localPick.media_type);
+        return;
+      }
       showToast('Не удалось выбрать случайное — попробуйте ещё раз', 'error');
     } finally {
       randomBtn.disabled = false;

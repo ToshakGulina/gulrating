@@ -4,6 +4,7 @@ import { formatDistanceToNow } from '../lib/date.js';
 import { openRatingModal } from './RatingModal.js';
 import { cleanupFeed } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
+import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats } from '../lib/offlineCatalog.js';
 
 // Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
 const ACCENTS = [
@@ -128,6 +129,14 @@ export async function renderProfilePage(app, currentUser) {
                 <span id="mymin-val" class="text-sm font-bold text-primary">8.0</span>
               </div>
               <input type="range" id="mymin-range" min="0" max="10" step="0.1" class="rating-slider w-full" aria-label="Минимальная ваша оценка для подбора похожего">
+            </div>
+            <div>
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <span class="text-gray-300">Офлайн-база фильмов (тайтлов)</span>
+                <span id="cat-size-val" class="text-sm font-bold text-cyan-300">3000</span>
+              </div>
+              <input type="range" id="cat-size-range" min="500" max="10000" step="500" class="rating-slider w-full" aria-label="Сколько популярных тайтлов держать на устройстве">
+              <p id="cat-size-status" class="text-xs text-gray-600 mt-1"></p>
             </div>
             <label class="flex items-center justify-between gap-3">
               <span class="text-gray-300">Блок рекомендаций в ленте</span>
@@ -328,6 +337,39 @@ export async function renderProfilePage(app, currentUser) {
   myminRange.addEventListener('input', () => {
     myminVal.textContent = Number(myminRange.value).toFixed(1);
     localStorage.setItem('gulrating:my_min', myminRange.value);
+  });
+
+  // Офлайн-база фильмов: размер (полная шкала) и статус закачки
+  const catSizeRange = document.getElementById('cat-size-range');
+  const catSizeVal = document.getElementById('cat-size-val');
+  const catSizeStatus = document.getElementById('cat-size-status');
+  function paintCatStatus() {
+    if (!catSizeStatus) return;
+    const stats = getOfflineCatalogStats();
+    if (stats.syncing) {
+      catSizeStatus.textContent = `Скачивание: ${stats.count} из ${stats.target}…`;
+    } else if (!stats.count) {
+      catSizeStatus.textContent = 'База ещё не скачана — загрузка идёт автоматически, когда есть сеть.';
+    } else if (stats.complete) {
+      const date = stats.updatedAt ? new Date(stats.updatedAt).toLocaleDateString('ru-RU') : '';
+      catSizeStatus.textContent = `Скачано ${stats.count} тайтлов${date ? ', обновлено ' + date : ''}. Поиск и оценка работают без сети.`;
+    } else {
+      catSizeStatus.textContent = `Скачано ${stats.count} из ${stats.target} — продолжится автоматически при сети.`;
+    }
+  }
+  catSizeRange.value = String(getCatalogSizeSetting());
+  catSizeVal.textContent = catSizeRange.value;
+  paintCatStatus();
+  catSizeRange.addEventListener('input', () => {
+    catSizeVal.textContent = catSizeRange.value;
+  });
+  catSizeRange.addEventListener('change', async () => {
+    setCatalogSizeSetting(Number(catSizeRange.value));
+    paintCatStatus();
+    const tick = setInterval(paintCatStatus, 2000);
+    await syncOfflineCatalog().catch(() => null);
+    clearInterval(tick);
+    paintCatStatus();
   });
 
   // Установка на телефон: кнопка системного install-промта либо подсказка
