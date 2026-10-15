@@ -1,10 +1,9 @@
-import { CONFIG } from '../config.js';
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
 import { getTitleDetails } from '../lib/tmdb.js';
 import { getKinopoiskRating } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
-import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating } from '../lib/dom.js';
+import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
 export async function openRatingModal(titleId, mediaType, currentUser, onSaveCallback) {
   // Создаем оверлей модалки
@@ -88,10 +87,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     document.getElementById('modal-content').innerHTML = `
       <div class="flex gap-4 mb-4">
         <div class="flex-shrink-0 w-24">
-          ${title.poster_path
-            ? `<img src="${CONFIG.TMDB_IMG_BASE}${escapeHtml(title.poster_path)}" alt="${escapeHtml(title.title)}" class="w-full aspect-[2/3] rounded-lg object-cover">`
-            : `<div class="w-full aspect-[2/3] rounded-lg bg-slate-700 flex items-center justify-center text-gray-500">🎬</div>`
-          }
+          ${posterImg(title.poster_path, title.title, 'w-24 aspect-[2/3] rounded-lg')}
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-bold text-lg leading-tight">${escapeHtml(title.title)}</h3>

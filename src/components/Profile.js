@@ -1,9 +1,8 @@
 import { supabase } from '../lib/supabase.js';
-import { CONFIG } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { openRatingModal } from './RatingModal.js';
 import { cleanupFeed } from './Feed.js';
-import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating } from '../lib/dom.js';
+import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
 export async function renderProfilePage(app, currentUser) {
   cleanupFeed();
@@ -247,10 +246,7 @@ function renderMyRatings(ratings) {
     return `
       <div class="title-card bg-card rounded-2xl p-4 flex gap-4 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="flex-shrink-0 w-16">
-          ${title.poster_path
-            ? `<img src="${CONFIG.TMDB_IMG_BASE}${escapeHtml(title.poster_path)}" alt="${escapeHtml(title.title)}" loading="lazy" class="w-full aspect-[2/3] rounded-lg object-cover">`
-            : `<div class="w-full aspect-[2/3] rounded-lg bg-slate-700 flex items-center justify-center text-gray-500">🎬</div>`
-          }
+          ${posterImg(title.poster_path, title.title, 'w-16 aspect-[2/3] rounded-lg')}
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-start justify-between gap-2">
@@ -286,10 +282,7 @@ function renderWatchlist(items) {
     return `
       <div class="title-card bg-card rounded-2xl p-4 flex gap-4 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="flex-shrink-0 w-16">
-          ${title.poster_path
-            ? `<img src="${CONFIG.TMDB_IMG_BASE}${escapeHtml(title.poster_path)}" alt="${escapeHtml(title.title)}" loading="lazy" class="w-full aspect-[2/3] rounded-lg object-cover">`
-            : `<div class="w-full aspect-[2/3] rounded-lg bg-slate-700 flex items-center justify-center text-gray-500">🎬</div>`
-          }
+          ${posterImg(title.poster_path, title.title, 'w-16 aspect-[2/3] rounded-lg')}
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-semibold leading-tight">${escapeHtml(title.title)}</h3>

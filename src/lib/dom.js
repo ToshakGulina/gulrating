@@ -1,4 +1,5 @@
 // Вспомогательные функции для безопасного рендеринга HTML
+import { CONFIG } from '../config.js';
 
 // Экранирование пользовательских и внешних данных перед вставкой в innerHTML.
 // Названия фильмов, комментарии и имена приходят извне — без экранирования
@@ -33,6 +34,16 @@ export function releaseYear(releaseDate) {
   if (!releaseDate) return '';
   const year = new Date(releaseDate).getFullYear();
   return Number.isFinite(year) && year > 1000 ? String(year) : '';
+}
+
+// Постер с фолбэком: если картинка не загрузилась (TMDb недоступен, постер
+// удалён), img убирает себя и остаётся emoji-заглушка под ним.
+export function posterImg(posterPath, title, boxClass = 'w-full aspect-[2/3] rounded-lg', imgClass = 'absolute inset-0 w-full h-full object-cover rounded-lg') {
+  const alt = escapeHtml(title || '');
+  if (!posterPath) {
+    return `<div class="relative ${boxClass} bg-slate-700 flex items-center justify-center text-gray-500 overflow-hidden">🎬</div>`;
+  }
+  return `<div class="relative ${boxClass} bg-slate-700 flex items-center justify-center text-gray-500 overflow-hidden">🎬<img src="${CONFIG.TMDB_IMG_BASE}${escapeHtml(posterPath)}" alt="${alt}" loading="lazy" class="${imgClass}" onerror="this.remove()"></div>`;
 }
 
 // Красивый показ оценки: 8 -> "8", 7.5 -> "7.5" (оценки теперь с десятыми)
