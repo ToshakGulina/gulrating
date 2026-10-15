@@ -19,6 +19,12 @@ const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" ari
 const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
 
 // «105 936 голосов» с правильным склонением
+function criticsLabel(value) {
+  return value <= 10
+    ? `${value.toFixed(1)} <span class="text-xs text-gray-500">/ 10</span>`
+    : `${Math.round(value)}%`;
+}
+
 function formatVotes(n) {
   const mod10 = n % 10;
   const mod100 = n % 100;
@@ -146,10 +152,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         ratingRows.push(`${TMDB_ICON} TMDb: <b class="text-cyan-300">${tmdbValue.toFixed(1)}</b>`);
       }
       if (kpRatings && kpRatings.russianFilmCritics !== null) {
-        ratingRows.push(`${RU_CRITICS_ICON} Российские критики: <b class="text-gray-200">${Math.round(kpRatings.russianFilmCritics)}%</b>`);
+        ratingRows.push(`${RU_CRITICS_ICON} Российские критики: <b class="text-gray-200">${criticsLabel(kpRatings.russianFilmCritics)}</b>`);
       }
       if (kpRatings && kpRatings.filmCritics !== null) {
-        ratingRows.push(`${CRITICS_ICON} Критики в мире: <b class="text-gray-200">${Math.round(kpRatings.filmCritics)}%</b>`);
+        ratingRows.push(`${CRITICS_ICON} Критики в мире: <b class="text-gray-200">${criticsLabel(kpRatings.filmCritics)}</b>`);
       }
       const releaseDate = title.release_date ? new Date(title.release_date) : null;
       const isUnreleased = releaseDate && Number.isFinite(releaseDate.getTime()) && releaseDate.getTime() > Date.now();
