@@ -112,6 +112,7 @@ function mapResults(results, limit) {
       release_date: item.release_date || item.first_air_date,
       poster_path: item.poster_path,
       vote_average: item.vote_average,
+      vote_count: item.vote_count || 0,
       popularity: item.popularity || 0
     }));
 }
@@ -169,7 +170,8 @@ export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortB
   }
   return {
     items: mapResults(data.results, limit),
-    hasMore: (data.page || 1) < (data.total_pages || 1)
+    hasMore: (data.page || 1) < (data.total_pages || 1),
+    total: data.total_results || 0
   };
 }
 

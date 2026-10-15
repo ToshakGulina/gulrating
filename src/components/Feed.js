@@ -46,7 +46,12 @@ const TREND_TABS = [
 let trendsActive = 'week';
 
 // Кэши рекомендаций на сессию: TMDb-запросы дорогие, повторный рендер ленты их не повторяет
-const recsCache = { trends: {}, personal: null, personalKey: '' };
+const recsCache = { trends: {}, personal: null, personalKey: '', personalSub: '', db: null, dbAt: 0 };
+
+// Подписи пустых рядов рекомендаций — объясняют, при каком условии ряд наполнится
+const FRIENDS_EMPTY_HINT = 'Появится, когда кто-то из компании поставит оценки.';
+const WANT_EMPTY_HINT = 'Появится, когда друзья добавят тайтлы в списки «хочу посмотреть».';
+const PERSONAL_EMPTY_HINT = 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших оценок.';
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
 
 export function cleanupFeed() {
@@ -170,6 +175,8 @@ function scheduleReload(currentUser) {
   realtimeTimer = setTimeout(() => {
     if (document.getElementById('ratings-list')) {
       loadRatings(currentUser, activeFilter);
+      recsCache.dbAt = 0; // событие из базы — обновляем ряды без троттла
+      loadRecs(currentUser);
     }
   }, 400);
 }
@@ -375,32 +382,23 @@ async function loadRecs(currentUser) {
         <h3 class="font-semibold mr-1">Тренды</h3>
         ${TREND_TABS.map(t => `<button class="trend-tab px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap ${t.key === trendsActive ? 'bg-primary text-white' : 'bg-card hover:bg-slate-700 text-gray-300'}" data-key="${t.key}">${t.label}</button>`).join('')}
       </div>
-      <div id="trends-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
-        ${Array.from({ length: 12 }).map(() => `<div class="animate-pulse"><div class="w-full aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-1.5"></div></div>`).join('')}
-      </div>
+      <div id="trends-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3"></div>
     </div>
     ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
     ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
     ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
   `;
 
-  // Тренды: четыре выборки грузятся параллельно, активная вкладка — сеткой
-  await Promise.all(TREND_TABS.map(async (t) => {
-    if (recsCache.trends[t.key]) return;
-    try {
-      recsCache.trends[t.key] = await getTrending({ mediaType: t.mediaType, window: t.window, limit: 18 });
-    } catch (e) {
-      recsCache.trends[t.key] = null;
-    }
-  }));
-  renderTrendsGrid(currentUser);
-
-  // Вкладки трендов + делегированный клик по карточкам рекомендаций
   section.querySelectorAll('.trend-tab').forEach(btn => {
     btn.addEventListener('click', () => {
       if (trendsActive === btn.dataset.key) return;
       trendsActive = btn.dataset.key;
-      renderTrendsGrid(currentUser);
+      if (recsCache.trends[trendsActive]) {
+        renderTrendsGrid(currentUser);
+      } else {
+        paintTrendsSkeleton();
+        refreshTrends(currentUser);
+      }
     });
   });
   if (!section.dataset.bound) {
@@ -410,96 +408,29 @@ async function loadRecs(currentUser) {
       if (!card) return;
       openRatingModal(card.dataset.id, card.dataset.type, currentUser, () => {
         loadRatings(currentUser, activeFilter);
+        recsCache.dbAt = 0;
         loadRecs(currentUser);
       });
     });
   }
 
-  // Ряд 2 и 3: одним запросом по всем оценкам компании
-  try {
-    const { data, error } = await supabase
-      .from('ratings')
-      .select('user_id, rating, titles(*)');
-    if (error) throw error;
-
-    const mine = new Set();
-    let myTop = null;
-    const agg = new Map();
-    for (const r of data || []) {
-      const t = r.titles;
-      if (!t) continue;
-      if (r.user_id === currentUser.id) {
-        mine.add(String(t.id));
-        const score = Number(r.rating);
-        if (score >= myMin && (!myTop || score > myTop.score)) myTop = { id: t.id, media_type: t.media_type, score };
-        continue;
-      }
-      const cur = agg.get(String(t.id)) || { title: t, sum: 0, count: 0 };
-      cur.sum += Number(r.rating);
-      cur.count += 1;
-      agg.set(String(t.id), cur);
-    }
-
-    // Все пороги настраиваются в профиле, шкалы полные (0–10 / 1–6)
-    const friendsThreshold = parseFloat(localStorage.getItem('gulrating:friends_threshold') ?? '7.5');
-    const wantMin = parseInt(localStorage.getItem('gulrating:want_min') || '1', 10) || 1;
-    const myMin = parseFloat(localStorage.getItem('gulrating:my_min') ?? '8');
-    const friendsHigh = [...agg.values()]
-      .map(cur => ({ ...cur.title, friends_avg: cur.sum / cur.count, friends_count: cur.count }))
-      .filter(t => t.friends_avg >= friendsThreshold && !mine.has(String(t.id)))
-      .sort((a, b) => b.friends_avg - a.friends_avg || b.friends_count - a.friends_count)
-      .slice(0, 12)
-      .map(t => ({ id: t.id, media_type: t.media_type, title: t.title, release_date: t.release_date, poster_path: t.poster_path, badge: t.friends_avg.toFixed(1) }));
-    fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', `средняя ≥ ${friendsThreshold.toFixed(1)} · вы ещё не оценили`, friendsHigh, 'bg-pink-600', 'Появится, когда кто-то из компании поставит оценки.');
-
-    // Ряд без оценок: агрегат списков «хочу посмотреть» всей компании
-    const { data: wl } = await supabase
-      .from('watchlist')
-      .select('user_id, titles(*)');
-    const wantAgg = new Map();
-    for (const w of wl || []) {
-      const t = w.titles;
-      if (!t || w.user_id === currentUser.id) continue;
-      const cur = wantAgg.get(String(t.id)) || { title: t, users: new Set() };
-      cur.users.add(w.user_id);
-      wantAgg.set(String(t.id), cur);
-    }
-    const wantItems = [...wantAgg.values()]
-      .filter(cur => cur.users.size >= wantMin && !mine.has(String(cur.title.id)))
-      .sort((a, b) => b.users.size - a.users.size)
-      .slice(0, 12)
-      .map(cur => ({
-        id: cur.title.id,
-        media_type: cur.title.media_type,
-        title: cur.title.title,
-        release_date: cur.title.release_date,
-        poster_path: cur.title.poster_path,
-        badge: String(cur.users.size)
-      }));
-    fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', `в списках у ${wantMin}+ друзей · на постере число друзей`, wantItems, 'bg-secondary', 'Появится, когда друзья добавят тайтлы в списки «хочу посмотреть».');
-
-    // Ряд 3: персональный подбор от вашей лучшей оценки
-    if (myTop) {
-      const key = `${myTop.media_type}:${myTop.id}`;
-      if (recsCache.personalKey !== key || !recsCache.personal) {
-        const recs = await getRecommendations(myTop.id, myTop.media_type, 14);
-        recsCache.personal = recs
-          .filter(t => !mine.has(String(t.id)))
-          .slice(0, 12);
-        recsCache.personalKey = key;
-      }
-      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', `потому что вы оценили «${escapeHtml(myTopTitle(data, currentUser, myTop) || '')}» на ${myMin.toFixed(1)}+`, recsCache.personal, 'bg-primary', 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших высоких оценок.');
-    } else {
-      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', '', [], 'bg-primary', 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших высоких оценок.');
-    }
-  } catch (e) {
-    dropRecRow(section, 'recs-friends');
-    dropRecRow(section, 'recs-personal');
+  // 1) Мгновенная отрисовка из кэша: повторный заход не показывает скелетоны
+  if (recsCache.trends[trendsActive]) {
+    renderTrendsGrid(currentUser);
+  } else {
+    paintTrendsSkeleton();
+  }
+  if (recsCache.db) {
+    fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', recsCache.db.friendsSub, recsCache.db.friendsHigh, 'bg-pink-600', FRIENDS_EMPTY_HINT);
+    fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', recsCache.db.wantSub, recsCache.db.wantItems, 'bg-secondary', WANT_EMPTY_HINT);
+    fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', recsCache.personalSub || '', recsCache.personal || [], 'bg-primary', PERSONAL_EMPTY_HINT);
   }
 
+  // 2) Фоновое тихое обновление: кэш освежается, интерфейс не мигает
+  refreshTrends(currentUser);
+  refreshDbRecs(currentUser, section);
 }
 
-// Сетка активной вкладки трендов + подсветка активной кнопки
 function renderTrendsGrid(currentUser) {
   const grid = document.getElementById('trends-grid');
   if (!grid) return;
@@ -526,13 +457,131 @@ function renderTrendsGrid(currentUser) {
       <div class="rec-card cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
         <div class="relative group-hover:opacity-80 transition-opacity">
           ${posterImg(item.poster_path, item.title, 'w-full aspect-[2/3] rounded-lg shadow-lg')}
-          ${item.vote_average ? `<span class="absolute top-1 right-1 bg-black/700 text-cyan-300 text-[11px] font-bold px-1.5 py-0.5 rounded-md">${Number(item.vote_average).toFixed(1)}</span>` : ''}
+          ${item.vote_average
+            ? `<span class="absolute top-1 right-1 bg-black/700 text-cyan-300 text-[11px] font-bold px-1.5 py-0.5 rounded-md" title="Оценок на TMDb: ${item.vote_count || 0}">${Number(item.vote_average).toFixed(1)}</span>`
+            : '<span class="absolute top-1 right-1 bg-black/700 text-gray-400 text-[11px] font-medium px-1.5 py-0.5 rounded-md">нет оценок</span>'}
         </div>
         <div class="mt-1.5 text-xs font-medium truncate">${escapeHtml(item.title)}</div>
         <div class="text-[11px] text-gray-500">${year ? escapeHtml(year) + ' • ' : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
       </div>
     `;
   }).join('');
+}
+
+function paintTrendsSkeleton() {
+  const grid = document.getElementById('trends-grid');
+  if (!grid) return;
+  grid.innerHTML = Array.from({ length: 12 }).map(() => `
+    <div class="animate-pulse"><div class="w-full aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-1.5"></div></div>
+  `).join('');
+}
+
+async function refreshTrends(currentUser) {
+  await Promise.all(TREND_TABS.map(async (t) => {
+    if (recsCache.trends[t.key]) return;
+    try {
+      recsCache.trends[t.key] = await getTrending({ mediaType: t.mediaType, window: t.window, limit: 18 });
+    } catch (e) {
+      recsCache.trends[t.key] = null;
+    }
+  }));
+  renderTrendsGrid(currentUser);
+}
+
+// Пересчёт рядов по базе компании: не чаще раза в минуту, результат — в кэш
+async function refreshDbRecs(currentUser, section) {
+  const now = Date.now();
+  if (recsCache.dbAt && now - recsCache.dbAt < 60000) return;
+  recsCache.dbAt = now;
+  try {
+    const [{ data, error }, { data: wl }] = await Promise.all([
+      supabase.from('ratings').select('user_id, rating, titles(*)'),
+      supabase.from('watchlist').select('user_id, titles(*)')
+    ]);
+    if (error) throw error;
+
+    const friendsThreshold = parseFloat(localStorage.getItem('gulrating:friends_threshold') ?? '7.5');
+    const wantMin = parseInt(localStorage.getItem('gulrating:want_min') || '1', 10) || 1;
+    const myMin = parseFloat(localStorage.getItem('gulrating:my_min') ?? '8');
+
+    const mine = new Set();
+    let myTop = null;
+    const agg = new Map();
+    for (const r of data || []) {
+      const t = r.titles;
+      if (!t) continue;
+      if (r.user_id === currentUser.id) {
+        mine.add(String(t.id));
+        const score = Number(r.rating);
+        if (score >= myMin && (!myTop || score > myTop.score)) myTop = { id: t.id, media_type: t.media_type, score };
+        continue;
+      }
+      const cur = agg.get(String(t.id)) || { title: t, sum: 0, count: 0 };
+      cur.sum += Number(r.rating);
+      cur.count += 1;
+      agg.set(String(t.id), cur);
+    }
+
+    const friendsHigh = [...agg.values()]
+      .map(cur => ({ ...cur.title, friends_avg: cur.sum / cur.count, friends_count: cur.count }))
+      .filter(t => t.friends_avg >= friendsThreshold && !mine.has(String(t.id)))
+      .sort((a, b) => b.friends_avg - a.friends_avg || b.friends_count - a.friends_count)
+      .slice(0, 12)
+      .map(t => ({ id: t.id, media_type: t.media_type, title: t.title, release_date: t.release_date, poster_path: t.poster_path, badge: t.friends_avg.toFixed(1) }));
+
+    const wantAgg = new Map();
+    for (const w of wl || []) {
+      const t = w.titles;
+      if (!t || w.user_id === currentUser.id) continue;
+      const cur = wantAgg.get(String(t.id)) || { title: t, users: new Set() };
+      cur.users.add(w.user_id);
+      wantAgg.set(String(t.id), cur);
+    }
+    const wantItems = [...wantAgg.values()]
+      .filter(cur => cur.users.size >= wantMin && !mine.has(String(cur.title.id)))
+      .sort((a, b) => b.users.size - a.users.size)
+      .slice(0, 12)
+      .map(cur => ({
+        id: cur.title.id,
+        media_type: cur.title.media_type,
+        title: cur.title.title,
+        release_date: cur.title.release_date,
+        poster_path: cur.title.poster_path,
+        badge: String(cur.users.size)
+      }));
+
+    recsCache.db = {
+      friendsHigh,
+      wantItems,
+      friendsSub: `средняя ≥ ${friendsThreshold.toFixed(1)} · вы ещё не оценили`,
+      wantSub: `в списках у ${wantMin}+ друзей · на постере число друзей`
+    };
+    fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', recsCache.db.friendsSub, friendsHigh, 'bg-pink-600', FRIENDS_EMPTY_HINT);
+    fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', recsCache.db.wantSub, wantItems, 'bg-secondary', WANT_EMPTY_HINT);
+
+    if (myTop) {
+      const key = `${myTop.media_type}:${myTop.id}`;
+      if (recsCache.personalKey !== key || !recsCache.personal) {
+        const recs = await getRecommendations(myTop.id, myTop.media_type, 14);
+        recsCache.personal = recs.filter(t => !mine.has(String(t.id))).slice(0, 12);
+        recsCache.personalKey = key;
+      }
+      recsCache.personalSub = `потому что вы оценили «${myTopTitle(data, currentUser, myTop) || ''}» на ${myMin.toFixed(1)}+`;
+      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', recsCache.personalSub, recsCache.personal, 'bg-primary', PERSONAL_EMPTY_HINT);
+    } else {
+      recsCache.personal = null;
+      recsCache.personalKey = '';
+      recsCache.personalSub = '';
+      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', '', [], 'bg-primary', PERSONAL_EMPTY_HINT);
+    }
+  } catch (e) {
+    // сеть моргнула: кэшированные ряды не трогаем
+    if (!recsCache.db) {
+      dropRecRow(section, 'recs-friends');
+      dropRecRow(section, 'recs-want');
+      dropRecRow(section, 'recs-personal');
+    }
+  }
 }
 
 // Название тайтла пользователя для подписи третьего ряда
