@@ -7,8 +7,8 @@ const cfg = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
 const KEY = (cfg.match(/TMDB_API_KEY:\s*['"]([^'"]+)['"]/) || [])[1];
 if (!KEY) throw new Error('TMDB_API_KEY не найден в src/config.js');
 
-const MOVIE_PAGES = 250; // 5000 фильмов
-const TV_PAGES = 125;    // 2500 сериалов
+const MOVIE_PAGES = 500; // 10000 фильмов — предел пагинации discover TMDb
+const TV_PAGES = 250;    // 5000 сериалов
 const BASE = 'https://api.themoviedb.org/3';
 
 async function page(mediaType, n) {

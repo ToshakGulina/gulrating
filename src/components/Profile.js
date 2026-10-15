@@ -135,7 +135,7 @@ export async function renderProfilePage(app, currentUser) {
                 <span class="text-gray-300">Офлайн-база фильмов (тайтлов)</span>
                 <span id="cat-size-val" class="text-sm font-bold text-cyan-300">3000</span>
               </div>
-              <input type="range" id="cat-size-range" min="500" max="10000" step="500" class="rating-slider w-full" aria-label="Сколько популярных тайтлов держать на устройстве">
+              <input type="range" id="cat-size-range" min="500" max="15000" step="500" class="rating-slider w-full" aria-label="Сколько популярных тайтлов держать на устройстве">
               <p id="cat-size-status" class="text-xs text-gray-600 mt-1"></p>
             </div>
             <label class="flex items-center justify-between gap-3">

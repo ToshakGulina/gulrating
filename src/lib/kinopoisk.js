@@ -87,6 +87,41 @@ function extractRatings(item) {
   };
 }
 
+// Карточка тайтла на ПоискКино: бюджет и сборы (v1.5/movie/{id})
+async function fetchMovieDetails(base, sendKey, kpId) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`${base}/v1.5/movie/${kpId}`, {
+      headers: headersFor(sendKey),
+      signal: controller.signal
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// budget/fees приходят объектами { value, currency } — вытаскиваем числа
+function extractMoney(details) {
+  if (!details) return null;
+  const num = (x) => {
+    const v = Number(x && typeof x === 'object' ? x.value : x);
+    return Number.isFinite(v) && v > 0 ? Math.round(v) : null;
+  };
+  const fees = details.fees || {};
+  const money = {
+    kpBudget: num(details.budget),
+    kpFeesWorld: num(fees.world),
+    kpFeesRussia: num(fees.russia),
+    kpFeesUsa: num(fees.usa)
+  };
+  return Object.values(money).some(v => v !== null) ? money : null;
+}
+
 async function fetchItems(base, sendKey, query) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -144,6 +179,17 @@ export async function getKinopoiskRatings(title, originalTitle, year) {
       if (ratings && Object.values(ratings).some((x) => x !== null)) {
         const rawId = matched && (matched.id !== undefined ? matched.id : matched.kinopoiskId);
         result = { ...ratings, kpId: rawId !== undefined && rawId !== null ? Number(rawId) : null };
+        // Добираем бюджет и сборы из карточки тайтла (кэш сессии + кэш прокси)
+        if (result.kpId) {
+          const tries = [{ base, sendKey }, ...baseList().filter(b => b.base !== base)];
+          for (const t of tries) {
+            const money = extractMoney(await fetchMovieDetails(t.base, t.sendKey, result.kpId));
+            if (money) {
+              Object.assign(result, money);
+              break;
+            }
+          }
+        }
         break;
       }
     }

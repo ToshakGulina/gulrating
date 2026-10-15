@@ -197,8 +197,15 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           <div class="flex gap-2 flex-wrap mb-2">
             ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Открыть каталог с фильтром по жанру «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
           </div>
-          ${(title.budget || title.revenue) ? `
-          <p class="text-xs text-gray-500 mb-2">💵 ${title.budget ? `Бюджет: ${formatMoney(title.budget)}` : ''}${title.budget && title.revenue ? ' • ' : ''}${title.revenue ? `Сборы: ${formatMoney(title.revenue)}` : ''}</p>` : ''}
+          ${(() => {
+            const parts = [];
+            const budget = title.budget || (kpRatings && kpRatings.kpBudget) || null;
+            if (budget) parts.push(`Бюджет: ${formatMoney(budget)}`);
+            if (title.revenue) parts.push(`Сборы: ${formatMoney(title.revenue)}`);
+            if (kpRatings && kpRatings.kpFeesRussia) parts.push(`сборы в РФ: ${formatMoney(kpRatings.kpFeesRussia)} (КП)`);
+            if (kpRatings && kpRatings.kpFeesWorld) parts.push(`в мире: ${formatMoney(kpRatings.kpFeesWorld)} (КП)`);
+            return parts.length ? `<p class="text-xs text-gray-500 mb-2">💵 ${parts.join(' • ')}</p>` : '';
+          })()}
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
             ${friendsBadge}
@@ -365,11 +372,13 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
 
     slider.addEventListener('input', () => setScore(parseFloat(slider.value), true));
+    // Кнопки ± step'ают от ТОГО значения, что показывает пузырёк
+    // (до первого касания это позиция бегунка), иначе был скачок 5.5 → 5
     document.getElementById('rating-minus').addEventListener('click', () => {
-      setScore((selectedScore === null ? 5.1 : selectedScore) - 0.1, false);
+      setScore((selectedScore === null ? Number(slider.value) : selectedScore) - 0.1, false);
     });
     document.getElementById('rating-plus').addEventListener('click', () => {
-      setScore((selectedScore === null ? 4.9 : selectedScore) + 0.1, false);
+      setScore((selectedScore === null ? Number(slider.value) : selectedScore) + 0.1, false);
     });
 
     if (selectedScore !== null) {

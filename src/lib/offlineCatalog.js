@@ -11,7 +11,7 @@ const CATALOG_KEY = 'gulrating:offline_catalog';
 const SIZE_KEY = 'gulrating:offline_catalog_size';
 const SIZE_DEFAULT = 3000;
 const SIZE_MIN = 500;
-const SIZE_MAX = 10000;
+const SIZE_MAX = 15000;
 const PER_PAGE = 20;
 const FRESH_MS = 7 * 24 * 60 * 60 * 1000; // полная база обновляется раз в неделю
 
