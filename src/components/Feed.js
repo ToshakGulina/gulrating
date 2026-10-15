@@ -57,13 +57,14 @@ const PERSONAL_EMPTY_HINT = 'Появится, когда вы оцените ф
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
 let searchDocClickHandler = null; // document-обработчик клика из поиска
 let onlineFlushHandler = null;    // автосинк отложенных оценок при появлении сети
+let filtersResizeHandler = null;  // пересчёт отступа липких фильтров
 
 // Офлайн-копия ленты: последний успешный срез по каждому фильтру
 const FEED_CACHE_KEY = 'gulrating:feed_cache';
 function writeFeedCache(filter, items) {
   try {
     const all = JSON.parse(localStorage.getItem(FEED_CACHE_KEY) || '{}');
-    all[filter] = (items || []).slice(0, 40);
+    all[filter] = (items || []).slice(0, 20);
     localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(all));
   } catch (e) { /* приватный режим */ }
 }
@@ -91,6 +92,10 @@ export function cleanupFeed() {
     window.removeEventListener('online', onlineFlushHandler);
     onlineFlushHandler = null;
   }
+  if (filtersResizeHandler) {
+    window.removeEventListener('resize', filtersResizeHandler);
+    filtersResizeHandler = null;
+  }
 }
 
 export async function renderFeed(app, currentUser) {
@@ -99,7 +104,7 @@ export async function renderFeed(app, currentUser) {
   activeSort = readSort(); // сортировку могли поменять из профиля
 
   app.innerHTML = `
-    <div class="max-w-4xl mx-auto pb-20">
+    <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
       <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800 safe-top">
         <div class="flex items-center gap-3 mb-3">
           <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
@@ -121,7 +126,9 @@ export async function renderFeed(app, currentUser) {
       </div>
 
       <div class="p-4">
-        <div class="flex gap-2 mb-4 overflow-x-auto scrollbar-hide">
+        <!-- Фильтры и сортировка: прилипают под шапкой и не исчезают при прокрутке -->
+        <div id="feed-filters" class="sticky z-10 -mx-4 px-4 pt-2 pb-3 bg-dark/95 backdrop-blur-card">
+        <div class="flex gap-2 mb-2 overflow-x-auto scrollbar-hide">
           <button class="filter-btn px-4 py-2 bg-primary text-white rounded-full text-sm font-medium whitespace-nowrap" data-filter="all">Все оценки</button>
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="movies">Фильмы</button>
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="tv">Сериалы</button>
@@ -129,7 +136,7 @@ export async function renderFeed(app, currentUser) {
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="watchlist">Хочу посмотреть</button>
         </div>
 
-        <div class="flex items-center gap-2 mb-4 text-xs text-gray-400">
+        <div class="flex items-center gap-2 text-xs text-gray-400">
           <span class="flex-shrink-0">Сортировка:</span>
           <div class="flex gap-1.5 overflow-x-auto scrollbar-hide">
             ${SORT_OPTIONS.map(o => `
@@ -137,26 +144,34 @@ export async function renderFeed(app, currentUser) {
             `).join('')}
           </div>
         </div>
-
-        <div id="feed-note" class="hidden text-xs text-gray-500 mb-3">Показан список «хочу посмотреть» всей вашей компании</div>
-
-        <!-- Рекомендации: популярность, вкусы друзей, персональный подбор -->
-        <div id="recs-section" class="space-y-6 mb-6"></div>
-
-        <!-- Отложенные (офлайн) оценки: видно очередь и можно отправить вручную -->
-        <div id="pending-banner" class="hidden mb-3 text-xs bg-slate-800/70 border border-slate-700 rounded-xl px-3 py-2 text-gray-300 flex items-center gap-2">
-          <span id="pending-text"></span>
-          <button id="pending-flush" class="ml-auto px-2 py-1 bg-primary hover:bg-primary/90 text-white rounded-lg flex-shrink-0">Отправить сейчас</button>
         </div>
 
-        <div id="ratings-list" class="space-y-4">
-          ${skeletonCards(3)}
+        <div id="feed-note" class="hidden text-xs text-gray-500 mt-3 mb-3">Показан список «хочу посмотреть» всей вашей компании</div>
+
+        <div id="blocks-wrap" class="mt-4 space-y-6">
+
+          <div id="blk-feed" class="space-y-3">
+            <div class="flex items-center gap-2">
+              <h3 class="font-semibold">Оценки</h3>
+              ${moveControls('feed')}
+            </div>
+
+            <!-- Отложенные (офлайн) оценки: видно очередь и можно отправить вручную -->
+            <div id="pending-banner" class="hidden mb-3 text-xs bg-slate-800/70 border border-slate-700 rounded-xl px-3 py-2 text-gray-300 flex items-center gap-2">
+              <span id="pending-text"></span>
+              <button id="pending-flush" class="ml-auto px-2 py-1 bg-primary hover:bg-primary/90 text-white rounded-lg flex-shrink-0">Отправить сейчас</button>
+            </div>
+
+            <div id="ratings-list" class="space-y-4">
+              ${skeletonCards(3)}
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- Нижняя навигация -->
       <nav class="fixed bottom-0 left-0 right-0 bg-dark/90 backdrop-blur-card border-t border-slate-800 z-10">
-        <div class="max-w-4xl mx-auto flex">
+        <div class="max-w-4xl xl:max-w-6xl mx-auto flex">
           <button class="nav-btn flex-1 py-3 flex flex-col items-center text-primary" data-page="feed">
             <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4m8 4V10a1 1 0 00-1-1h-2a1 1 0 00-1 1v4m3 1h3a1 1 0 001-1V10m-4 0l2-2m0 0l2 2"></path></svg>
             <span class="text-xs">Лента</span>
@@ -178,6 +193,31 @@ export async function renderFeed(app, currentUser) {
   initSearch(currentUser);
   initNav(currentUser);
   initSort(currentUser);
+
+  // Кнопки ↑↓ переставляют секции ленты (порядок запоминается)
+  const blocksWrap = document.getElementById('blocks-wrap');
+  blocksWrap.addEventListener('click', (e) => {
+    const btn = e.target.closest('.blk-move');
+    if (!btn) return;
+    const order = readFeedOrder();
+    const idx = order.indexOf(btn.dataset.blk);
+    const to = idx + (btn.dataset.dir === 'up' ? -1 : 1);
+    if (idx < 0 || to < 0 || to >= order.length) return;
+    [order[idx], order[to]] = [order[to], order[idx]];
+    localStorage.setItem(FEED_ORDER_KEY, JSON.stringify(order));
+    applyFeedOrder();
+  });
+  applyFeedOrder();
+
+  // Липкие фильтры: отступ сверху = высота шапки (меняется с размером окна)
+  const filtersBar = document.getElementById('feed-filters');
+  const feedHeader = app.querySelector('.sticky.top-0');
+  const setFiltersTop = () => {
+    if (filtersBar && feedHeader) filtersBar.style.top = `${feedHeader.offsetHeight}px`;
+  };
+  setFiltersTop();
+  filtersResizeHandler = () => setFiltersTop();
+  window.addEventListener('resize', filtersResizeHandler);
 
   // Очередь офлайн-оценок: баннер, ручная отправка
   paintPending();
@@ -404,6 +444,31 @@ async function loadRatings(currentUser, filter = 'all') {
   });
 }
 
+// Порядок секций ленты: пользователь двигает блоки кнопками ↑ ↓
+const FEED_ORDER_KEY = 'gulrating:feed_order';
+const FEED_ORDER_DEFAULT = ['trends', 'recs', 'feed'];
+function readFeedOrder() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FEED_ORDER_KEY) || 'null');
+    if (Array.isArray(parsed) && parsed.length === 3 && FEED_ORDER_DEFAULT.every(id => parsed.includes(id))) return parsed;
+  } catch (e) { /* повреждено */ }
+  return [...FEED_ORDER_DEFAULT];
+}
+function moveControls(id) {
+  return `<span class="ml-auto flex gap-1 flex-shrink-0">
+      <button class="blk-move w-7 h-7 rounded-lg bg-card hover:bg-slate-700 text-gray-400 text-sm" data-blk="${id}" data-dir="up" title="Секцию выше" aria-label="Секцию выше">↑</button>
+      <button class="blk-move w-7 h-7 rounded-lg bg-card hover:bg-slate-700 text-gray-400 text-sm" data-blk="${id}" data-dir="down" title="Секцию ниже" aria-label="Секцию ниже">↓</button>
+    </span>`;
+}
+function applyFeedOrder() {
+  const wrap = document.getElementById('blocks-wrap');
+  if (!wrap) return;
+  for (const id of readFeedOrder()) {
+    const el = document.getElementById('blk-' + id);
+    if (el) wrap.appendChild(el);
+  }
+}
+
 // Баннер очереди отложенных оценок
 function paintPending() {
   const banner = document.getElementById('pending-banner');
@@ -468,25 +533,34 @@ function skeletonCards(count = 3) {
 // среднее >= 7.5 и вы ещё не оценили); 3) Похоже на то, что вам понравилось
 // (TMDb recommendations от вашего топ-тайтла). Ряды кликабельны целиком.
 async function loadRecs(currentUser) {
-  const section = document.getElementById('recs-section');
+  // Блоки трендов и подборок живут в общем контейнере порядка секций
+  const section = document.getElementById('blocks-wrap');
   if (!section) return;
-  if (localStorage.getItem('gulrating:show_recs') === '0') {
-    section.innerHTML = '';
-    return;
-  }
+  section.querySelectorAll('#blk-trends, #blk-recs').forEach(n => n.remove());
+  if (localStorage.getItem('gulrating:show_recs') === '0') return;
 
-  section.innerHTML = `
+  section.insertAdjacentHTML('afterbegin', `
+    <div id="blk-trends" class="space-y-3">
     <div id="recs-trends">
       <div class="flex items-center gap-2 mb-3 overflow-x-auto scrollbar-hide">
         <h3 class="font-semibold mr-1">Тренды</h3>
         ${TREND_TABS.map(t => `<button class="trend-tab px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap ${t.key === trendsActive ? 'bg-primary text-white' : 'bg-card hover:bg-slate-700 text-gray-300'}" data-key="${t.key}">${t.label}</button>`).join('')}
+        ${moveControls('trends')}
       </div>
-      <div id="trends-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3"></div>
+      <div id="trends-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3"></div>
     </div>
-    ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
-    ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
-    ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
-  `;
+    </div>
+    <div id="blk-recs" class="space-y-4">
+      <div class="flex items-center gap-2">
+        <h3 class="font-semibold">Подборки по вкусам компании</h3>
+        ${moveControls('recs')}
+      </div>
+      ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
+      ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
+      ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
+    </div>
+  `);
+  applyFeedOrder();
 
   section.querySelectorAll('.trend-tab').forEach(btn => {
     btn.addEventListener('click', () => {

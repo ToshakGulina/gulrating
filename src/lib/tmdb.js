@@ -88,7 +88,7 @@ export async function getTrending({ mediaType = 'all', window = 'week', limit = 
 // открытии модалки, но и при показе любой карточки (лента, каталог,
 // рекомендации, поиск, история) — см. primeTitleCache.
 const TITLE_CACHE_KEY = 'gulrating:title_cache';
-const TITLE_CACHE_MAX = 300;
+const TITLE_CACHE_MAX = 100;
 
 function readTitleCache() {
   try {
@@ -167,7 +167,9 @@ export async function getTitleDetails(id, mediaType) {
     poster_path: data.poster_path,
     backdrop_path: data.backdrop_path,
     tmdb_rating: data.vote_average,
-    genres: (data.genres || []).map(g => g.name)
+    genres: (data.genres || []).map(g => g.name),
+    budget: data.budget || null,
+    revenue: data.revenue || null
   };
   writeTitleCache(readTitleCache(), `${mediaType}:${id}`, details);
   return details;

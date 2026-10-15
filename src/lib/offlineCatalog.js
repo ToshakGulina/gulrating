@@ -17,6 +17,32 @@ const FRESH_MS = 7 * 24 * 60 * 60 * 1000; // полная база обновл�
 
 let syncing = false;
 
+// Готовый файл базы лежит в репозитории (GitHub) и обновляется воркфлоу
+// offline-catalog.yml раз в месяц. Источники по приоритету: свой домен
+// (Pages отдаёт файл из репозитория), затем CDN/RAW GitHub.
+const CATALOG_FILE_SOURCES = [
+  '/data/offline-catalog.json',
+  'https://cdn.jsdelivr.net/gh/ToshakGulina/gulrating@main/data/offline-catalog.json',
+  'https://raw.githubusercontent.com/ToshakGulina/gulrating/main/data/offline-catalog.json'
+];
+
+async function loadCatalogFile() {
+  for (const url of CATALOG_FILE_SOURCES) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) continue;
+      const json = await res.json();
+      if (json && json.v === 1 && Array.isArray(json.movies) && Array.isArray(json.tv) && json.movies.length) {
+        return json;
+      }
+    } catch (e) { /* источник недоступен — пробуем следующий */ }
+  }
+  return null;
+}
+
 export function getCatalogSizeSetting() {
   const n = Number(localStorage.getItem(SIZE_KEY));
   if (!Number.isFinite(n) || n < SIZE_MIN) return SIZE_DEFAULT;
@@ -91,12 +117,23 @@ export async function syncOfflineCatalog() {
     const { moviePages, tvPages } = targets(size);
     let state = readState();
 
-    // Неделя прошла и база полная — скачиваем заново (популярность меняется)
-    if (state.moviePage >= moviePages && state.tvPage >= tvPages
+    // База полная, нужного размера и свежая — ничего не делаем
+    if (state.moviePage >= moviePages && state.tvPage >= tvPages && state.size === size
       && state.updatedAt && Date.now() - state.updatedAt < FRESH_MS) {
       return getOfflineCatalogStats();
     }
-    if (state.moviePage >= moviePages && state.tvPage >= tvPages) {
+
+    // Приоритетный путь: готовый файл из репозитория (одна загрузка вместо сотен запросов)
+    const file = await loadCatalogFile();
+    if (file) {
+      state.m = file.movies;
+      state.t = file.tv;
+      state.moviePage = Math.ceil(file.movies.length / PER_PAGE);
+      state.tvPage = Math.ceil(file.tv.length / PER_PAGE);
+      state.updatedAt = Date.parse(file.updated) || Date.now();
+      state.source = 'file';
+    } else if (state.moviePage >= moviePages && state.tvPage >= tvPages) {
+      // Файла нет, а страницами база уже полная — освежим страницами
       state = { m: [], t: [], moviePage: 0, tvPage: 0, updatedAt: 0 };
     }
     // Целевой размер уменьшили — обрезаем лишнее
@@ -127,7 +164,8 @@ export async function syncOfflineCatalog() {
     }
 
     const complete = state.moviePage >= moviePages && state.tvPage >= tvPages;
-    if (complete) state.updatedAt = Date.now();
+    if (complete && state.source !== 'file') state.updatedAt = Date.now();
+    state.size = size;
     writeState(state);
     return getOfflineCatalogStats();
   } finally {

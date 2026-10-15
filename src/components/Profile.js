@@ -37,7 +37,7 @@ export async function renderProfilePage(app, currentUser) {
   const approvedUsers = profileList.filter(p => p.is_approved);
 
   app.innerHTML = `
-    <div class="max-w-4xl mx-auto pb-20">
+    <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
       <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
         <div class="flex items-center justify-between">
           <h1 class="text-2xl font-bold">Профиль</h1>
@@ -205,7 +205,7 @@ export async function renderProfilePage(app, currentUser) {
 
       <!-- Нижняя навигация -->
       <nav class="fixed bottom-0 left-0 right-0 bg-dark/90 backdrop-blur-card border-t border-slate-800 z-10">
-        <div class="max-w-4xl mx-auto flex">
+        <div class="max-w-4xl xl:max-w-6xl mx-auto flex">
           <button class="nav-btn flex-1 py-3 flex flex-col items-center text-gray-400 hover:text-white" data-page="feed">
             <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4m8 4V10a1 1 0 00-1-1h-2a1 1 0 00-1 1v4m3 1h3a1 1 0 001-1V10m-4 0l2-2m0 0l2 2"></path></svg>
             <span class="text-xs">Лента</span>

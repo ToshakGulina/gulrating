@@ -26,6 +26,16 @@ function criticsLabel(value) {
     : `${Math.round(value)}%`;
 }
 
+// «150 млн $» / «1.2 млрд $» для бюджета и сборов
+function formatMoney(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return '';
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1).replace('.', ',')} млрд $`;
+  if (v >= 1e6) return `${Math.round(v / 1e6)} млн $`;
+  if (v >= 1e3) return `${Math.round(v / 1e3)} тыс $`;
+  return `${v} $`;
+}
+
 function formatVotes(n) {
   const mod10 = n % 10;
   const mod100 = n % 100;
@@ -187,6 +197,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           <div class="flex gap-2 flex-wrap mb-2">
             ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Открыть каталог с фильтром по жанру «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
           </div>
+          ${(title.budget || title.revenue) ? `
+          <p class="text-xs text-gray-500 mb-2">💵 ${title.budget ? `Бюджет: ${formatMoney(title.budget)}` : ''}${title.budget && title.revenue ? ' • ' : ''}${title.revenue ? `Сборы: ${formatMoney(title.revenue)}` : ''}</p>` : ''}
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
             ${friendsBadge}
