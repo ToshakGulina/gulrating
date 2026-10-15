@@ -1,6 +1,6 @@
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
 import { getTitleDetails } from '../lib/tmdb.js';
-import { getKinopoiskRating } from '../lib/kinopoisk.js';
+import { getKinopoiskRatings } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
@@ -11,6 +11,7 @@ import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, poster
 // TM/DB; друзья — розовый силуэт компании.
 const KP_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0 rounded" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#ff5c00"/><circle cx="16" cy="16" r="10.5" fill="#fdfbf7"/><g fill="#ff5c00"><circle cx="11.6" cy="11.6" r="3.1"/><circle cx="20.4" cy="11.6" r="3.1"/><circle cx="11.6" cy="20.4" r="3.1"/><circle cx="20.4" cy="20.4" r="3.1"/><circle cx="16" cy="16" r="1.9"/></g></svg>';
 const TMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><g fill="none" stroke="#90cea4" stroke-width="3.4" stroke-linejoin="round"><rect x="5" y="4.5" width="22" height="17.5" rx="4.5"/><path d="M8.6 22.5v6.2l6.2-6.2"/></g><text x="16" y="12.6" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.6" font-weight="800" fill="#ffffff">TM</text><text x="16" y="19.4" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.6" font-weight="800" fill="#ffffff">DB</text></svg>';
+const IMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><rect x="2" y="8" width="28" height="16" rx="4" fill="#f5c518"/><text x="16" y="20" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="800" fill="#000000">IMDb</text></svg>';
 const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="#f472b6"><path d="M9 11a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5zm8-2a3.5 3.5 0 10-2.4-6 5.5 5.5 0 010 8c.8.6 1.6 1 2.4 1zm0 2c-.6 0-1.3-.1-2-.3 1.2 1 2 2.3 2 3.8v1.5h6v-2c0-2.2-3.6-3-6-3z"/></svg>';
 
 // Пока оценка не выбрана — показываем «пустой» контур звезды вместо черты
@@ -69,7 +70,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const title = await getTitleDetails(titleId, mediaType);
     const year = releaseYear(title.release_date);
 
-    const [status, allRatings, kpRating] = await Promise.all([
+    const [status, allRatings, kpRatings] = await Promise.all([
       getUserTitleStatus(currentUser.id, titleId),
       supabase
         .from('ratings')
@@ -77,7 +78,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         .eq('title_id', titleId)
         .order('rating', { ascending: false })
         .then(({ data }) => data || []),
-      getKinopoiskRating(title.title, title.original_title, year)
+      getKinopoiskRatings(title.title, title.original_title, year)
     ]);
 
     // Запоминаем тайтл в «недавно открытых» для истории поиска
@@ -127,7 +128,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             ${(title.genres || []).slice(0, 3).map(g => `<span class="text-xs px-2 py-0.5 bg-slate-700 rounded-full">${escapeHtml(g)}</span>`).join('')}
           </div>
           <div class="flex flex-col items-start gap-1.5 text-sm">
-            ${kpRating !== null ? `<span class="flex items-center gap-1.5">${KP_ICON} Кинопоиск: <b class="text-orange-300">${kpRating.toFixed(1)}</b></span>` : ''}
+            ${kpRatings && kpRatings.kp !== null ? `<span class="flex items-center gap-1.5">${KP_ICON} Кинопоиск: <b class="text-orange-300">${kpRatings.kp.toFixed(1)}</b></span>` : ''}
+            ${kpRatings && kpRatings.imdb !== null ? `<span class="flex items-center gap-1.5">${IMDB_ICON} IMDb: <b class="text-yellow-300">${kpRatings.imdb.toFixed(1)}</b></span>` : ''}
             ${title.tmdb_rating ? `<span class="flex items-center gap-1.5">${TMDB_ICON} TMDb: <b class="text-cyan-300">${Number(title.tmdb_rating).toFixed(1)}</b></span>` : ''}
             ${friendsBadge}
           </div>

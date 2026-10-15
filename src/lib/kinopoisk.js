@@ -49,15 +49,24 @@ function itemYear(item) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-// Защитный разбор рейтинга: поля могут приходить строкой или числом
-function extractRating(item) {
-  if (!item) return null;
-  const candidates = [item.rating && item.rating.kp, item.ratingKinopoisk, item.kinopoiskRating];
+// Защитный разбор числа: поля могут приходить строкой или числом
+function pickNumber(...candidates) {
   for (const value of candidates) {
     const n = Number(String(value).replace(',', '.'));
     if (Number.isFinite(n) && n > 0) return Math.round(n * 10) / 10;
   }
   return null;
+}
+
+// Кинопоиск и IMDb одним объектом: ПоискКино присылает оба рейтинга
+// в поле rating (v1.5), старые схемы — плоскими полями
+function extractRatings(item) {
+  if (!item) return null;
+  const r = item.rating || {};
+  return {
+    kp: pickNumber(r.kp, item.ratingKinopoisk, item.kinopoiskRating),
+    imdb: pickNumber(r.imdb, item.ratingImdb, item.imdbRating),
+  };
 }
 
 async function fetchItems(base, sendKey, query) {
@@ -79,8 +88,9 @@ async function fetchItems(base, sendKey, query) {
   }
 }
 
-// Ищем рейтинг Кинопоиска по названию и году. Возвращает число или null.
-export async function getKinopoiskRating(title, originalTitle, year) {
+// Ищем рейтинги Кинопоиска и IMDb по названию и году.
+// Возвращает { kp, imdb } (любое из полей может быть null) или null.
+export async function getKinopoiskRatings(title, originalTitle, year) {
   if (!kinopoiskConfigured() || !title) return null;
 
   const cacheKey = `${title}|${year || ''}`;
@@ -112,8 +122,11 @@ export async function getKinopoiskRating(title, originalTitle, year) {
           }) || answer.items[0])
         : answer.items[0];
 
-      result = extractRating(matched);
-      if (result !== null) break;
+      const ratings = extractRatings(matched);
+      if (ratings && (ratings.kp !== null || ratings.imdb !== null)) {
+        result = ratings;
+        break;
+      }
     }
     // Сервис ответил (даже без рейтинга) — дальше базы не пробуем, бережём лимит
     if (reachable || result !== null) break;
