@@ -35,12 +35,10 @@ export async function openCatalog(currentUser, onOpenTitle) {
           <select id="catalog-sort" class="ml-auto bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white">
             ${SORTS.map(s => `<option value="${s.id}">${s.label}</option>`).join('')}
           </select>
-          <select id="catalog-vote" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white">
-            <option value="0">Рейтинг: любой</option>
-            <option value="6">TMDb ≥ 6</option>
-            <option value="7">TMDb ≥ 7</option>
-            <option value="8">TMDb ≥ 8</option>
-          </select>
+          <label class="flex items-center gap-2 text-xs text-gray-400 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5">
+            <span class="whitespace-nowrap">TMDb ≥ <b id="catalog-vote-val" class="text-cyan-300">0.0</b></span>
+            <input type="range" id="catalog-vote" min="0" max="10" step="0.1" value="0" class="rating-slider w-24" aria-label="Минимальный рейтинг TMDb">
+          </label>
           <select id="catalog-decade" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white">
             ${DECADES.map(d => `<option value="${d.id}">${d.label}</option>`).join('')}
           </select>
@@ -120,7 +118,7 @@ export async function openCatalog(currentUser, onOpenTitle) {
         mediaType: state.mediaType,
         genreIds,
         sortBy,
-        voteGte: Number(overlay.querySelector('#catalog-vote').value) || 0,
+        voteGte: Math.round((Number(overlay.querySelector('#catalog-vote').value) || 0) * 10) / 10,
         yearGte: decade.gte,
         yearLte: decade.lte,
         page: state.page
@@ -159,8 +157,17 @@ export async function openCatalog(currentUser, onOpenTitle) {
       load(true);
     });
   });
-  ['#catalog-sort', '#catalog-vote', '#catalog-decade'].forEach(sel => {
+  ['#catalog-sort', '#catalog-decade'].forEach(sel => {
     overlay.querySelector(sel).addEventListener('change', () => load(true));
+  });
+  // Слайдер рейтинга: подпись обновляем сразу, запрос — с дебаунсом
+  const voteSlider = overlay.querySelector('#catalog-vote');
+  const voteVal = overlay.querySelector('#catalog-vote-val');
+  let voteTimer = null;
+  voteSlider.addEventListener('input', () => {
+    voteVal.textContent = Number(voteSlider.value).toFixed(1);
+    clearTimeout(voteTimer);
+    voteTimer = setTimeout(() => load(true), 400);
   });
   moreBtn.addEventListener('click', () => {
     state.page += 1;

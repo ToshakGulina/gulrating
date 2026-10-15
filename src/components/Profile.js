@@ -101,12 +101,27 @@ export async function renderProfilePage(app, currentUser) {
                 <option value="rating_asc">Сначала низкие оценки</option>
               </select>
             </label>
-            <label class="flex items-center justify-between gap-3">
-              <span class="text-gray-300">Порог ряда «Друзья оценили высоко»</span>
-              <select id="threshold-select" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white">
-                ${[6, 6.5, 7, 7.5, 8, 8.5, 9].map(v => `<option value="${v}">${v.toFixed(1)}</option>`).join('')}
-              </select>
-            </label>
+            <div>
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <span class="text-gray-300">Порог ряда «Друзья оценили высоко»</span>
+                <span id="threshold-val" class="text-sm font-bold text-pink-300">7.5</span>
+              </div>
+              <input type="range" id="threshold-range" min="0" max="10" step="0.1" class="rating-slider w-full" aria-label="Порог средней оценки друзей">
+            </div>
+            <div>
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <span class="text-gray-300">Минимум друзей для ряда «Хотят посмотреть»</span>
+                <span id="wantmin-val" class="text-sm font-bold text-secondary">1</span>
+              </div>
+              <input type="range" id="wantmin-range" min="1" max="6" step="1" class="rating-slider w-full" aria-label="Минимальное число друзей в списках">
+            </div>
+            <div>
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <span class="text-gray-300">Ваша оценка для персонального подбора</span>
+                <span id="mymin-val" class="text-sm font-bold text-primary">8.0</span>
+              </div>
+              <input type="range" id="mymin-range" min="0" max="10" step="0.1" class="rating-slider w-full" aria-label="Минимальная ваша оценка для подбора похожего">
+            </div>
             <label class="flex items-center justify-between gap-3">
               <span class="text-gray-300">Блок рекомендаций в ленте</span>
               <input id="recs-toggle" type="checkbox" class="w-4 h-4">
@@ -258,11 +273,32 @@ export async function renderProfilePage(app, currentUser) {
     showToast('Порядок ленты обновлён', 'success');
   });
 
-  const thresholdSelect = document.getElementById('threshold-select');
-  thresholdSelect.value = localStorage.getItem('gulrating:friends_threshold') || '7.5';
-  thresholdSelect.addEventListener('change', () => {
-    localStorage.setItem('gulrating:friends_threshold', thresholdSelect.value);
-    showToast('Порог применится к рекомендациям в ленте', 'success');
+  // Слайдеры порогов рекомендаций: полная шкала, значение видно сразу
+  const thresholdRange = document.getElementById('threshold-range');
+  const thresholdVal = document.getElementById('threshold-val');
+  thresholdRange.value = localStorage.getItem('gulrating:friends_threshold') ?? '7.5';
+  thresholdVal.textContent = Number(thresholdRange.value).toFixed(1);
+  thresholdRange.addEventListener('input', () => {
+    thresholdVal.textContent = Number(thresholdRange.value).toFixed(1);
+    localStorage.setItem('gulrating:friends_threshold', thresholdRange.value);
+  });
+
+  const wantminRange = document.getElementById('wantmin-range');
+  const wantminVal = document.getElementById('wantmin-val');
+  wantminRange.value = localStorage.getItem('gulrating:want_min') || '1';
+  wantminVal.textContent = wantminRange.value;
+  wantminRange.addEventListener('input', () => {
+    wantminVal.textContent = wantminRange.value;
+    localStorage.setItem('gulrating:want_min', wantminRange.value);
+  });
+
+  const myminRange = document.getElementById('mymin-range');
+  const myminVal = document.getElementById('mymin-val');
+  myminRange.value = localStorage.getItem('gulrating:my_min') ?? '8';
+  myminVal.textContent = Number(myminRange.value).toFixed(1);
+  myminRange.addEventListener('input', () => {
+    myminVal.textContent = Number(myminRange.value).toFixed(1);
+    localStorage.setItem('gulrating:my_min', myminRange.value);
   });
 
   recsToggle.checked = localStorage.getItem('gulrating:show_recs') !== '0';

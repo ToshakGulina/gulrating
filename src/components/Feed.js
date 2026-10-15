@@ -391,7 +391,7 @@ async function loadRecs(currentUser) {
       if (r.user_id === currentUser.id) {
         mine.add(String(t.id));
         const score = Number(r.rating);
-        if (score >= 8 && (!myTop || score > myTop.score)) myTop = { id: t.id, media_type: t.media_type, score };
+        if (score >= myMin && (!myTop || score > myTop.score)) myTop = { id: t.id, media_type: t.media_type, score };
         continue;
       }
       const cur = agg.get(String(t.id)) || { title: t, sum: 0, count: 0 };
@@ -400,7 +400,10 @@ async function loadRecs(currentUser) {
       agg.set(String(t.id), cur);
     }
 
-    const friendsThreshold = parseFloat(localStorage.getItem('gulrating:friends_threshold') || '7.5') || 7.5;
+    // Все пороги настраиваются в профиле, шкалы полные (0–10 / 1–6)
+    const friendsThreshold = parseFloat(localStorage.getItem('gulrating:friends_threshold') ?? '7.5');
+    const wantMin = parseInt(localStorage.getItem('gulrating:want_min') || '1', 10) || 1;
+    const myMin = parseFloat(localStorage.getItem('gulrating:my_min') ?? '8');
     const friendsHigh = [...agg.values()]
       .map(cur => ({ ...cur.title, friends_avg: cur.sum / cur.count, friends_count: cur.count }))
       .filter(t => t.friends_avg >= friendsThreshold && !mine.has(String(t.id)))
@@ -422,7 +425,7 @@ async function loadRecs(currentUser) {
       wantAgg.set(String(t.id), cur);
     }
     const wantItems = [...wantAgg.values()]
-      .filter(cur => cur.users.size >= 2 && !mine.has(String(cur.title.id)))
+      .filter(cur => cur.users.size >= wantMin && !mine.has(String(cur.title.id)))
       .sort((a, b) => b.users.size - a.users.size)
       .slice(0, 12)
       .map(cur => ({
@@ -433,7 +436,7 @@ async function loadRecs(currentUser) {
         poster_path: cur.title.poster_path,
         badge: String(cur.users.size)
       }));
-    fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', 'в списках у двух и более друзей · на постере число друзей', wantItems, 'bg-secondary');
+    fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', `в списках у ${wantMin}+ друзей · на постере число друзей`, wantItems, 'bg-secondary');
 
     // Ряд 3: персональный подбор от вашей лучшей оценки
     if (myTop) {
@@ -445,7 +448,7 @@ async function loadRecs(currentUser) {
           .slice(0, 12);
         recsCache.personalKey = key;
       }
-      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', `потому что вы высоко оценили «${escapeHtml(myTopTitle(data, currentUser, myTop) || '')}»`, recsCache.personal, 'bg-primary');
+      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', `потому что вы оценили «${escapeHtml(myTopTitle(data, currentUser, myTop) || '')}» на ${myMin.toFixed(1)}+`, recsCache.personal, 'bg-primary');
     } else {
       dropRecRow(section, 'recs-personal');
     }
