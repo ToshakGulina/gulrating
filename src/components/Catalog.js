@@ -1,9 +1,9 @@
 import { discoverTitles, getGenreMap } from '../lib/tmdb.js';
 import { escapeHtml, releaseYear, posterImg } from '../lib/dom.js';
 
-// Каталог TMDb: фильмы и сериалы (можно оба типа сразу), жанры мультивыбором,
-// сортировка с направлением, порог рейтинга и диапазон годов — всё слайдерами
-// и переключателями на полную шкалу. Результаты плиткой, клик открывает тайтл.
+// Каталог TMDb. Фильтры — боковая панель на десктопе и складная шторка
+// на телефоне: результаты видны сразу, крутить колесо к фильтрам не нужно.
+// Типы — мультивыбор, сортировка с направлением, рейтинг и годы — слайдеры.
 const SORTS = [
   { id: 'popularity', label: 'Популярность' },
   { id: 'vote', label: 'Рейтинг' },
@@ -16,39 +16,60 @@ export async function openCatalog(currentUser, onOpenTitle) {
   const overlay = document.createElement('div');
   overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4';
   overlay.innerHTML = `
-    <div class="bg-card w-full max-w-3xl rounded-t-2xl sm:rounded-2xl max-h-[92vh] flex flex-col overflow-hidden">
+    <div class="bg-card w-full max-w-5xl rounded-t-2xl sm:rounded-2xl max-h-[94vh] sm:max-h-[90vh] flex flex-col overflow-hidden">
       <div class="flex justify-between items-center p-4 border-b border-slate-700">
         <h3 class="font-bold text-lg">Каталог фильмов и сериалов</h3>
         <button id="catalog-close" class="text-gray-400 hover:text-white px-2 text-xl leading-none" aria-label="Закрыть">×</button>
       </div>
 
-      <div class="p-4 border-b border-slate-700 space-y-3 overflow-y-auto max-h-64">
-        <div class="flex flex-wrap items-center gap-2">
-          <button class="catalog-type px-3 py-1.5 rounded-full text-sm font-medium" data-type="movie">Фильмы</button>
-          <button class="catalog-type px-3 py-1.5 rounded-full text-sm font-medium" data-type="tv">Сериалы</button>
-          <select id="catalog-sort" class="ml-auto bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white">
-            ${SORTS.map(s => `<option value="${s.id}">${s.label}</option>`).join('')}
-          </select>
-          <button id="catalog-dir" class="px-3 py-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-lg text-sm" title="Направление сортировки">↓</button>
-          <label class="flex items-center gap-2 text-xs text-gray-400 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5">
-            <span class="whitespace-nowrap">TMDb ≥ <b id="catalog-vote-val" class="text-cyan-300">0.0</b></span>
-            <input type="range" id="catalog-vote" min="0" max="10" step="0.1" value="0" class="rating-slider w-24" aria-label="Минимальный рейтинг TMDb">
-          </label>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <label class="flex items-center gap-2 text-xs text-gray-400 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5">
-            <span class="whitespace-nowrap">Годы: <b id="catalog-year-from-val" class="text-white">1900</b>–<b id="catalog-year-to-val" class="text-white">2030</b></span>
-            <input type="range" id="catalog-year-from" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="${YEAR_MIN}" class="rating-slider w-24" aria-label="Годы с">
-            <input type="range" id="catalog-year-to" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="${YEAR_MAX}" class="rating-slider w-24" aria-label="Годы по">
-          </label>
-        </div>
-        <div id="catalog-genres" class="flex flex-wrap gap-1.5 text-xs text-gray-500">Загружаем жанры…</div>
-      </div>
+      <div class="flex flex-col sm:flex-row flex-1 min-h-0">
+        <!-- Фильтры: сайдбар на десктопе, шторка на мобильном -->
+        <aside id="catalog-filters" class="hidden sm:block w-full sm:w-60 flex-shrink-0 border-b sm:border-b-0 sm:border-r border-slate-700 p-4 space-y-4 overflow-y-auto sm:max-h-none max-h-72">
+          <div>
+            <p class="text-xs text-gray-500 mb-2">Тип</p>
+            <div class="flex gap-2">
+              <button class="catalog-type px-3 py-1.5 rounded-full text-sm font-medium" data-type="movie">Фильмы</button>
+              <button class="catalog-type px-3 py-1.5 rounded-full text-sm font-medium" data-type="tv">Сериалы</button>
+            </div>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-2">Сортировка</p>
+            <div class="flex gap-2">
+              <select id="catalog-sort" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white">
+                ${SORTS.map(s => `<option value="${s.id}">${s.label}</option>`).join('')}
+              </select>
+              <button id="catalog-dir" class="px-3 py-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-lg text-sm" title="Направление сортировки">↓</button>
+            </div>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-2">Рейтинг TMDb: ≥ <b id="catalog-vote-val" class="text-cyan-300">0.0</b></p>
+            <input type="range" id="catalog-vote" min="0" max="10" step="0.1" value="0" class="rating-slider w-full" aria-label="Минимальный рейтинг TMDb">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-2">Годы: <b id="catalog-year-from-val" class="text-white">1900</b>–<b id="catalog-year-to-val" class="text-white">2030</b></p>
+            <div class="space-y-2">
+              <input type="range" id="catalog-year-from" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="${YEAR_MIN}" class="rating-slider w-full" aria-label="Годы с">
+              <input type="range" id="catalog-year-to" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="${YEAR_MAX}" class="rating-slider w-full" aria-label="Годы по">
+            </div>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-2">Жанры (можно несколько)</p>
+            <div id="catalog-genres" class="flex flex-wrap gap-1.5 text-xs text-gray-500">Загружаем…</div>
+          </div>
+        </aside>
 
-      <div class="flex-1 overflow-y-auto p-4">
-        <div id="catalog-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3"></div>
-        <div class="text-center mt-4">
-          <button id="catalog-more" class="hidden px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm">Показать ещё</button>
+        <!-- Результаты -->
+        <div class="flex-1 min-w-0 flex flex-col min-h-0">
+          <div class="p-3 border-b border-slate-700 flex items-center gap-2">
+            <button id="filters-toggle" class="sm:hidden px-3 py-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-lg text-xs text-gray-300">Фильтры</button>
+            <span id="catalog-count" class="text-xs text-gray-500 ml-auto"></span>
+          </div>
+          <div class="flex-1 overflow-y-auto p-4">
+            <div id="catalog-grid" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-3"></div>
+            <div class="text-center mt-4 pb-2">
+              <button id="catalog-more" class="hidden px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm">Показать ещё</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -59,7 +80,13 @@ export async function openCatalog(currentUser, onOpenTitle) {
   overlay.querySelector('#catalog-close').addEventListener('click', close);
   document.body.appendChild(overlay);
 
-  // Типы — мультивыбор: по умолчанию включены оба, мультфильмы входят
+  // Мобильная шторка фильтров
+  const filtersBox = overlay.querySelector('#catalog-filters');
+  overlay.querySelector('#filters-toggle').addEventListener('click', () => {
+    filtersBox.classList.toggle('hidden');
+  });
+
+  // Типы — мультивыбор: по умолчанию включены оба; мультфильмы входят
   // и в фильмы, и в сериалы (жанр «мультфильм» / «анимация»)
   const state = {
     types: new Set(['movie', 'tv']),
@@ -67,12 +94,14 @@ export async function openCatalog(currentUser, onOpenTitle) {
     dir: 'desc',
     pages: { movie: 1, tv: 1 },
     hasMore: false,
-    loading: false
+    loading: false,
+    shown: 0
   };
   const grid = overlay.querySelector('#catalog-grid');
   const genresBox = overlay.querySelector('#catalog-genres');
   const moreBtn = overlay.querySelector('#catalog-more');
   const dirBtn = overlay.querySelector('#catalog-dir');
+  const countEl = overlay.querySelector('#catalog-count');
 
   function paintTypeButtons() {
     overlay.querySelectorAll('.catalog-type').forEach(b => {
@@ -91,16 +120,14 @@ export async function openCatalog(currentUser, onOpenTitle) {
   }
 
   async function paintGenres() {
-    genresBox.innerHTML = 'Загружаем жанры…';
+    genresBox.innerHTML = 'Загружаем…';
     try {
       const names = await mergedGenreNames();
       genresBox.innerHTML = names.map(n => `
         <button class="catalog-genre px-2.5 py-1 rounded-full border border-slate-700 bg-slate-800 hover:bg-slate-700 cursor-pointer" data-name="${escapeHtml(n)}">${escapeHtml(n)}</button>
       `).join('');
       genresBox.querySelectorAll('.catalog-genre').forEach(chip => {
-        if (state.genres.has(chip.dataset.name)) {
-          chip.classList.add('bg-primary', 'text-white');
-        }
+        if (state.genres.has(chip.dataset.name)) chip.classList.add('bg-primary', 'text-white');
         chip.addEventListener('click', () => {
           const name = chip.dataset.name;
           if (state.genres.has(name)) state.genres.delete(name);
@@ -126,9 +153,11 @@ export async function openCatalog(currentUser, onOpenTitle) {
     state.loading = true;
     if (reset) {
       state.pages = { movie: 1, tv: 1 };
+      state.shown = 0;
       grid.innerHTML = Array.from({ length: 10 }).map(() => `
         <div class="animate-pulse"><div class="w-full aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-1.5"></div></div>
       `).join('');
+      countEl.textContent = '';
     }
 
     try {
@@ -180,6 +209,8 @@ export async function openCatalog(currentUser, onOpenTitle) {
 
       state.hasMore = hasMore;
       moreBtn.classList.toggle('hidden', !hasMore);
+      state.shown += merged.length;
+      countEl.textContent = `показано ${state.shown}`;
 
       const html = merged.map(item => `
         <div class="catalog-item cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
@@ -213,8 +244,7 @@ export async function openCatalog(currentUser, onOpenTitle) {
     b.addEventListener('click', () => {
       const type = b.dataset.type;
       if (state.types.has(type)) {
-        // последний включённый тип не выключаем — каталог не бывает пустым
-        if (state.types.size === 1) return;
+        if (state.types.size === 1) return; // каталог не бывает без типа
         state.types.delete(type);
       } else {
         state.types.add(type);
