@@ -216,7 +216,9 @@ export async function openCatalog(currentUser, onOpenTitle) {
         <div class="catalog-item cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
           <div class="relative group-hover:opacity-80 transition-opacity">
             ${posterImg(item.poster_path, item.title, 'w-full aspect-[2/3] rounded-lg')}
-            ${item.vote_average ? `<span class="absolute top-1 right-1 bg-black/70 text-cyan-300 text-[11px] font-bold px-1.5 py-0.5 rounded-md">${Number(item.vote_average).toFixed(1)}</span>` : ''}
+            ${item.vote_average
+              ? `<span class="absolute top-1 right-1 bg-black/70 text-cyan-300 text-[11px] font-bold px-1.5 py-0.5 rounded-md" title="Оценок на TMDb: ${item.vote_count || 0}">${Number(item.vote_average).toFixed(1)}</span>`
+              : '<span class="absolute top-1 right-1 bg-black/70 text-gray-400 text-[11px] font-medium px-1.5 py-0.5 rounded-md">нет оценок</span>'}
           </div>
           <div class="mt-1.5 text-xs font-medium line-clamp-2 leading-tight">${escapeHtml(item.title)}</div>
           <div class="text-[11px] text-gray-500">${escapeHtml(releaseYear(item.release_date) || '—')} • ${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
