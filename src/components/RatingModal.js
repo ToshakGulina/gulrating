@@ -12,6 +12,19 @@ import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, poster
 const KP_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0 rounded" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#ff5c00"/><circle cx="16" cy="16" r="10.5" fill="#fdfbf7"/><g fill="#ff5c00"><circle cx="11.6" cy="11.6" r="3.1"/><circle cx="20.4" cy="11.6" r="3.1"/><circle cx="11.6" cy="20.4" r="3.1"/><circle cx="20.4" cy="20.4" r="3.1"/><circle cx="16" cy="16" r="1.9"/></g></svg>';
 const TMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><g fill="none" stroke="#90cea4" stroke-width="3.4" stroke-linejoin="round"><rect x="5" y="4.5" width="22" height="17.5" rx="4.5"/><path d="M8.6 22.5v6.2l6.2-6.2"/></g><text x="16" y="12.6" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.6" font-weight="800" fill="#ffffff">TM</text><text x="16" y="19.4" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.6" font-weight="800" fill="#ffffff">DB</text></svg>';
 const IMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><rect x="2" y="8" width="28" height="16" rx="4" fill="#f5c518"/><text x="16" y="20" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="800" fill="#000000">IMDb</text></svg>';
+const RU_CRITICS_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><clipPath id="ru-flag-clip"><rect x="3" y="8" width="26" height="16" rx="3"/></clipPath><g clip-path="url(#ru-flag-clip)"><rect x="3" y="8" width="26" height="16" fill="#ffffff"/><rect x="3" y="13.3" width="26" height="5.4" fill="#0039a6"/><rect x="3" y="18.7" width="26" height="5.3" fill="#d52b1e"/></g></svg>';
+const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18-3-3.6-3-14.4 0-18z"/></svg>';
+const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
+
+// «105 936 голосов» с правильным склонением
+function formatVotes(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  const word = mod10 === 1 && mod100 !== 11 ? 'голос'
+    : (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) ? 'голоса'
+    : 'голосов';
+  return new Intl.NumberFormat('ru-RU').format(n) + ' ' + word;
+}
 const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="#f472b6"><path d="M9 11a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5zm8-2a3.5 3.5 0 10-2.4-6 5.5 5.5 0 010 8c.8.6 1.6 1 2.4 1zm0 2c-.6 0-1.3-.1-2-.3 1.2 1 2 2.3 2 3.8v1.5h6v-2c0-2.2-3.6-3-6-3z"/></svg>';
 
 // Пока оценка не выбрана — показываем «пустой» контур звезды вместо черты
@@ -114,6 +127,30 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         </span>`;
     }
 
+    // Дополнительные рейтинги из того же ответа ПоискКино: TMDb, критики
+    // (мир и РФ) и рейтинг ожидания (только для невышедших фильмов).
+    // Показываются свернутыми, под кнопкой «Все рейтинги».
+    const extraRows = [];
+    {
+      const tmdbValue = (kpRatings && kpRatings.tmdb !== null)
+        ? kpRatings.tmdb
+        : (title.tmdb_rating ? Number(title.tmdb_rating) : null);
+      if (tmdbValue !== null && Number.isFinite(tmdbValue)) {
+        extraRows.push(`${TMDB_ICON} TMDb: <b class="text-cyan-300">${tmdbValue.toFixed(1)}</b>`);
+      }
+      if (kpRatings && kpRatings.russianFilmCritics !== null) {
+        extraRows.push(`${RU_CRITICS_ICON} Российские критики: <b class="text-gray-200">${Math.round(kpRatings.russianFilmCritics)}%</b>`);
+      }
+      if (kpRatings && kpRatings.filmCritics !== null) {
+        extraRows.push(`${CRITICS_ICON} Критики в мире: <b class="text-gray-200">${Math.round(kpRatings.filmCritics)}%</b>`);
+      }
+      const releaseDate = title.release_date ? new Date(title.release_date) : null;
+      const isUnreleased = releaseDate && Number.isFinite(releaseDate.getTime()) && releaseDate.getTime() > Date.now();
+      if (isUnreleased && kpRatings && kpRatings.await !== null) {
+        extraRows.push(`${AWAIT_ICON} Рейтинг ожидания: <b class="text-gray-200">${Math.round(kpRatings.await)}%</b>`);
+      }
+    }
+
     modal.querySelector('h2').textContent = title.title || 'Фильм';
 
     document.getElementById('modal-content').innerHTML = `
@@ -128,10 +165,15 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             ${(title.genres || []).slice(0, 3).map(g => `<span class="text-xs px-2 py-0.5 bg-slate-700 rounded-full">${escapeHtml(g)}</span>`).join('')}
           </div>
           <div class="flex flex-col items-start gap-1.5 text-sm">
-            ${kpRatings && kpRatings.kp !== null ? `<span class="flex items-center gap-1.5">${KP_ICON} Кинопоиск: <b class="text-orange-300">${kpRatings.kp.toFixed(1)}</b></span>` : ''}
-            ${kpRatings && kpRatings.imdb !== null ? `<span class="flex items-center gap-1.5">${IMDB_ICON} IMDb: <b class="text-yellow-300">${kpRatings.imdb.toFixed(1)}</b></span>` : ''}
-            ${title.tmdb_rating ? `<span class="flex items-center gap-1.5">${TMDB_ICON} TMDb: <b class="text-cyan-300">${Number(title.tmdb_rating).toFixed(1)}</b></span>` : ''}
+            ${kpRatings && kpRatings.kp !== null ? `<span class="flex items-center gap-1.5">${KP_ICON} Кинопоиск: <b class="text-orange-300">${kpRatings.kp.toFixed(1)}</b>${kpRatings.votesKp ? `<span class="text-xs text-gray-500">· ${formatVotes(kpRatings.votesKp)}</span>` : ''}</span>` : ''}
+            ${kpRatings && kpRatings.imdb !== null ? `<span class="flex items-center gap-1.5">${IMDB_ICON} IMDb: <b class="text-yellow-300">${kpRatings.imdb.toFixed(1)}</b>${kpRatings.votesImdb ? `<span class="text-xs text-gray-500">· ${formatVotes(kpRatings.votesImdb)}</span>` : ''}</span>` : ''}
             ${friendsBadge}
+            ${extraRows.length ? `
+              <button id="more-ratings-btn" class="text-xs text-gray-400 hover:text-white underline decoration-dotted underline-offset-4 text-left">Все рейтинги (${extraRows.length})</button>
+              <span id="more-ratings" class="hidden flex-col items-start gap-1.5">
+                ${extraRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
+              </span>
+            ` : ''}
           </div>
         </div>
       </div>
@@ -206,6 +248,17 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         e.stopPropagation();
         friendsTip.classList.toggle('hidden');
         friendsTip.classList.toggle('block');
+      });
+    }
+
+    // --- Кнопка «Все рейтинги»: раскрывает скрытые строки ---
+    const moreBtn = document.getElementById('more-ratings-btn');
+    const moreBox = document.getElementById('more-ratings');
+    if (moreBtn && moreBox) {
+      moreBtn.addEventListener('click', () => {
+        const opened = !moreBox.classList.toggle('hidden');
+        moreBox.classList.toggle('flex', opened);
+        moreBtn.textContent = opened ? 'Свернуть рейтинги' : `Все рейтинги (${moreBox.children.length})`;
       });
     }
 

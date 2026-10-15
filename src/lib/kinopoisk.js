@@ -58,14 +58,25 @@ function pickNumber(...candidates) {
   return null;
 }
 
-// Кинопоиск и IMDb одним объектом: ПоискКино присылает оба рейтинга
-// в поле rating (v1.5), старые схемы — плоскими полями
+// Кинопоиск, IMDb и остальные рейтинги одним объектом: ПоискКино присылает
+// их в поле rating (v1.5), числа голосов — в votes; старые схемы — плоскими полями
 function extractRatings(item) {
   if (!item) return null;
   const r = item.rating || {};
+  const v = item.votes || {};
+  const int = (x) => {
+    const n = Number(String(x).replace(/\s/g, ''));
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  };
   return {
     kp: pickNumber(r.kp, item.ratingKinopoisk, item.kinopoiskRating),
     imdb: pickNumber(r.imdb, item.ratingImdb, item.imdbRating),
+    tmdb: pickNumber(r.tmdb, item.ratingTmdb),
+    filmCritics: pickNumber(r.filmCritics, item.ratingFilmCritics),          // критики мира, %
+    russianFilmCritics: pickNumber(r.russianFilmCritics, item.ratingRussianFilmCritics), // критики РФ, %
+    await: pickNumber(r.await, item.ratingAwait),                            // рейтинг ожидания, %
+    votesKp: int(v.kp !== undefined ? v.kp : item.votesKinopoisk),
+    votesImdb: int(v.imdb !== undefined ? v.imdb : item.votesImdb),
   };
 }
 
@@ -123,7 +134,7 @@ export async function getKinopoiskRatings(title, originalTitle, year) {
         : answer.items[0];
 
       const ratings = extractRatings(matched);
-      if (ratings && (ratings.kp !== null || ratings.imdb !== null)) {
+      if (ratings && Object.values(ratings).some((x) => x !== null)) {
         result = ratings;
         break;
       }
