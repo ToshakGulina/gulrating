@@ -83,10 +83,12 @@ export async function getTrending({ mediaType = 'all', window = 'week', limit = 
 }
 
 // Получаем полную информацию о тайтле по ID
-// Кэш деталей тайтлов: без сети карточки ранее открытых фильмов
-// открываются из него, и оценку можно поставить в очередь
+// Кэш деталей тайтлов: без сети карточки открываются из него,
+// и оценку можно поставить в очередь. Заполняется не только при
+// открытии модалки, но и при показе любой карточки (лента, каталог,
+// рекомендации, поиск, история) — см. primeTitleCache.
 const TITLE_CACHE_KEY = 'gulrating:title_cache';
-const TITLE_CACHE_MAX = 80;
+const TITLE_CACHE_MAX = 300;
 
 function readTitleCache() {
   try {
@@ -104,6 +106,33 @@ function writeTitleCache(cache, key, details) {
     while (keys.length > TITLE_CACHE_MAX) delete cache[keys.shift()];
     localStorage.setItem(TITLE_CACHE_KEY, JSON.stringify(cache));
   } catch (e) { /* приватный режим */ }
+}
+
+// Записывает в кэш данные карточки, которая просто показалась на экране
+// (строка ленты из Supabase или результат TMDb). Уже существующую полную
+// запись не затирает.
+export function primeTitleCache(mediaType, id, partial) {
+  if (!mediaType || !id || !partial) return;
+  const cache = readTitleCache();
+  const key = `${mediaType}:${id}`;
+  if (cache[key]) return;
+  cache[key] = {
+    id,
+    media_type: mediaType,
+    title: partial.title || partial.name || '',
+    original_title: partial.original_title || partial.original_name || null,
+    release_date: partial.release_date || partial.first_air_date || null,
+    overview: partial.overview || null,
+    poster_path: partial.poster_path || null,
+    backdrop_path: partial.backdrop_path || null,
+    tmdb_rating: partial.tmdb_rating != null
+      ? partial.tmdb_rating
+      : (partial.vote_average != null ? partial.vote_average : null),
+    genres: Array.isArray(partial.genres)
+      ? partial.genres.map(g => (typeof g === 'string' ? g : g && g.name)).filter(Boolean)
+      : []
+  };
+  writeTitleCache(cache, key, cache[key]);
 }
 
 export async function getTitleDetails(id, mediaType) {

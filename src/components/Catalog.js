@@ -1,4 +1,4 @@
-import { discoverTitles, getGenreMap } from '../lib/tmdb.js';
+import { discoverTitles, getGenreMap, primeTitleCache } from '../lib/tmdb.js';
 import { escapeHtml, releaseYear, posterImg, showToast } from '../lib/dom.js';
 
 // Каталог TMDb. Фильтры — боковая панель на десктопе и складная шторка
@@ -218,6 +218,8 @@ overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex flex
   }
 
   function tilesHtml(items) {
+    // Показанные в каталоге карточки кэшируются: их можно оценить офлайн
+    items.forEach(item => primeTitleCache(item.media_type, item.id, item));
     return items.map(item => `
       <div class="catalog-item cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
         <div class="relative group-hover:opacity-80 transition-opacity">

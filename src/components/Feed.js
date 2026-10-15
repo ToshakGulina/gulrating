@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase.js';
 import { formatDistanceToNow } from '../lib/date.js';
-import { searchTitles, getTrending, getRecommendations } from '../lib/tmdb.js';
+import { searchTitles, getTrending, getRecommendations, primeTitleCache } from '../lib/tmdb.js';
 import { openRatingModal } from './RatingModal.js';
 import { openCatalog } from './Catalog.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
@@ -341,6 +341,8 @@ async function loadRatings(currentUser, filter = 'all') {
     const title = item.titles;
     const user = item.profiles;
     if (!title || !user) return '';
+    // Офлайн-кэш: показанную карточку можно будет открыть и оценить без сети
+    primeTitleCache(title.media_type, title.id, title);
 
     const year = releaseYear(title.release_date);
     const ratingColor = item.rating >= 8 ? 'bg-green-600' : item.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
@@ -549,6 +551,7 @@ function renderTrendsGrid(currentUser) {
   }
   grid.innerHTML = items.map(item => {
     const year = releaseYear(item.release_date);
+    primeTitleCache(item.media_type, item.id, item);
     return `
       <div class="rec-card cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
         <div class="relative group-hover:opacity-80 transition-opacity">
@@ -719,6 +722,7 @@ function fillRecRow(section, id, titleText, subtitle, items, badgeClass, emptyHi
     <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
       ${items.map(item => {
         const year = releaseYear(item.release_date);
+        primeTitleCache(item.media_type, item.id, item);
         return `
           <div class="rec-card flex-shrink-0 w-28 cursor-pointer group relative" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
             <div class="group-hover:opacity-80 transition-opacity">
@@ -748,6 +752,8 @@ function initSearch(currentUser) {
   function showHistoryDropdown() {
     const queries = getSearchQueries();
     const titles = getRecentTitles();
+    // История тоже кэшируется: недавние тайтлы можно открыть и оценить офлайн
+    titles.forEach(t => primeTitleCache(t.media_type, t.id, { ...t, release_date: t.year ? `${t.year}-01-01` : null }));
     if (queries.length === 0 && titles.length === 0) {
       resultsContainer.classList.add('hidden');
       return;
@@ -831,6 +837,7 @@ function initSearch(currentUser) {
       } else {
         resultsContainer.innerHTML = results.map(item => {
           const year = releaseYear(item.release_date);
+          primeTitleCache(item.media_type, item.id, item);
           return `
             <div class="search-result-item p-3 hover:bg-slate-700 cursor-pointer flex gap-3 transition-colors" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
               <div class="flex-shrink-0 w-10">
