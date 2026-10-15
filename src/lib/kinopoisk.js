@@ -49,15 +49,35 @@ function itemYear(item) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-// Защитный разбор рейтинга: поля могут приходить строкой или числом
-function extractRating(item) {
-  if (!item) return null;
-  const candidates = [item.rating && item.rating.kp, item.ratingKinopoisk, item.kinopoiskRating];
+// Защитный разбор числа: поля могут приходить строкой или числом
+function pickNumber(...candidates) {
   for (const value of candidates) {
     const n = Number(String(value).replace(',', '.'));
     if (Number.isFinite(n) && n > 0) return Math.round(n * 10) / 10;
   }
   return null;
+}
+
+// Кинопоиск, IMDb и остальные рейтинги одним объектом: ПоискКино присылает
+// их в поле rating (v1.5), числа голосов — в votes; старые схемы — плоскими полями
+function extractRatings(item) {
+  if (!item) return null;
+  const r = item.rating || {};
+  const v = item.votes || {};
+  const int = (x) => {
+    const n = Number(String(x).replace(/\s/g, ''));
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  };
+  return {
+    kp: pickNumber(r.kp, item.ratingKinopoisk, item.kinopoiskRating),
+    imdb: pickNumber(r.imdb, item.ratingImdb, item.imdbRating),
+    tmdb: pickNumber(r.tmdb, item.ratingTmdb),
+    filmCritics: pickNumber(r.filmCritics, item.ratingFilmCritics),          // критики мира, %
+    russianFilmCritics: pickNumber(r.russianFilmCritics, item.ratingRussianFilmCritics), // критики РФ, %
+    await: pickNumber(r.await, item.ratingAwait),                            // рейтинг ожидания, %
+    votesKp: int(v.kp !== undefined ? v.kp : item.votesKinopoisk),
+    votesImdb: int(v.imdb !== undefined ? v.imdb : item.votesImdb),
+  };
 }
 
 async function fetchItems(base, sendKey, query) {
@@ -79,8 +99,9 @@ async function fetchItems(base, sendKey, query) {
   }
 }
 
-// Ищем рейтинг Кинопоиска по названию и году. Возвращает число или null.
-export async function getKinopoiskRating(title, originalTitle, year) {
+// Ищем рейтинги Кинопоиска и IMDb по названию и году.
+// Возвращает { kp, imdb } (любое из полей может быть null) или null.
+export async function getKinopoiskRatings(title, originalTitle, year) {
   if (!kinopoiskConfigured() || !title) return null;
 
   const cacheKey = `${title}|${year || ''}`;
@@ -112,8 +133,11 @@ export async function getKinopoiskRating(title, originalTitle, year) {
           }) || answer.items[0])
         : answer.items[0];
 
-      result = extractRating(matched);
-      if (result !== null) break;
+      const ratings = extractRatings(matched);
+      if (ratings && Object.values(ratings).some((x) => x !== null)) {
+        result = ratings;
+        break;
+      }
     }
     // Сервис ответил (даже без рейтинга) — дальше базы не пробуем, бережём лимит
     if (reachable || result !== null) break;

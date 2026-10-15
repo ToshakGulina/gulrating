@@ -1,9 +1,34 @@
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
 import { getTitleDetails } from '../lib/tmdb.js';
-import { getKinopoiskRating } from '../lib/kinopoisk.js';
+import { getKinopoiskRatings } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
+
+// Фирменные иконки источников оценок (inline SVG по оригинальным логотипам):
+// Кинопоиск — квадратная иконка сервиса: оранжевый фон и белая киноплёнка
+// с четырьмя отверстиями; TMDb — зелёный (#90cea4) контур-«пузырь» с буквами
+// TM/DB; друзья — розовый силуэт компании.
+const KP_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0 rounded" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#ff5c00"/><circle cx="16" cy="16" r="10.5" fill="#fdfbf7"/><g fill="#ff5c00"><circle cx="11.6" cy="11.6" r="3.1"/><circle cx="20.4" cy="11.6" r="3.1"/><circle cx="11.6" cy="20.4" r="3.1"/><circle cx="20.4" cy="20.4" r="3.1"/><circle cx="16" cy="16" r="1.9"/></g></svg>';
+const TMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><g fill="none" stroke="#90cea4" stroke-width="3.4" stroke-linejoin="round"><rect x="5" y="4.5" width="22" height="17.5" rx="4.5"/><path d="M8.6 22.5v6.2l6.2-6.2"/></g><text x="16" y="12.6" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.6" font-weight="800" fill="#ffffff">TM</text><text x="16" y="19.4" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.6" font-weight="800" fill="#ffffff">DB</text></svg>';
+const IMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><rect x="2" y="8" width="28" height="16" rx="4" fill="#f5c518"/><text x="16" y="20" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="800" fill="#000000">IMDb</text></svg>';
+const RU_CRITICS_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><clipPath id="ru-flag-clip"><rect x="3" y="8" width="26" height="16" rx="3"/></clipPath><g clip-path="url(#ru-flag-clip)"><rect x="3" y="8" width="26" height="16" fill="#ffffff"/><rect x="3" y="13.3" width="26" height="5.4" fill="#0039a6"/><rect x="3" y="18.7" width="26" height="5.3" fill="#d52b1e"/></g></svg>';
+const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18-3-3.6-3-14.4 0-18z"/></svg>';
+const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
+
+// «105 936 голосов» с правильным склонением
+function formatVotes(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  const word = mod10 === 1 && mod100 !== 11 ? 'голос'
+    : (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) ? 'голоса'
+    : 'голосов';
+  return new Intl.NumberFormat('ru-RU').format(n) + ' ' + word;
+}
+const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="#f472b6"><path d="M9 11a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5zm8-2a3.5 3.5 0 10-2.4-6 5.5 5.5 0 010 8c.8.6 1.6 1 2.4 1zm0 2c-.6 0-1.3-.1-2-.3 1.2 1 2 2.3 2 3.8v1.5h6v-2c0-2.2-3.6-3-6-3z"/></svg>';
+
+// Пока оценка не выбрана — показываем «пустой» контур звезды вместо черты
+const EMPTY_STAR = '<svg viewBox="0 0 24 24" class="w-11 h-11" aria-hidden="true"><path fill="none" stroke="#64748b" stroke-width="1.5" stroke-linejoin="round" d="M12 2.6l2.9 6.2 6.8.8-5 4.7 1.3 6.7-6-3.4-6 3.4 1.3-6.7-5-4.7 6.8-.8z"/></svg>';
 
 export async function openRatingModal(titleId, mediaType, currentUser, onSaveCallback) {
   // Создаем оверлей модалки
@@ -58,7 +83,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const title = await getTitleDetails(titleId, mediaType);
     const year = releaseYear(title.release_date);
 
-    const [status, allRatings, kpRating] = await Promise.all([
+    const [status, allRatings, kpRatings] = await Promise.all([
       getUserTitleStatus(currentUser.id, titleId),
       supabase
         .from('ratings')
@@ -66,7 +91,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         .eq('title_id', titleId)
         .order('rating', { ascending: false })
         .then(({ data }) => data || []),
-      getKinopoiskRating(title.title, title.original_title, year)
+      getKinopoiskRatings(title.title, title.original_title, year)
     ]);
 
     // Запоминаем тайтл в «недавно открытых» для истории поиска
@@ -82,6 +107,50 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       ? (allRatings.reduce((sum, r) => sum + Number(r.rating), 0) / allRatings.length).toFixed(1)
       : null;
 
+    // Бейдж друзей: оценка одна — пишем имя и оценку напрямую;
+    // иначе средняя, а при наведении/тапе — расклад по каждому.
+    let friendsBadge = '';
+    if (allRatings.length === 1) {
+      const r = allRatings[0];
+      friendsBadge = `<span class="flex items-center gap-1.5">${FRIENDS_ICON} ${escapeHtml(r.profiles.username)}: <b class="text-pink-300">${formatRating(r.rating)}</b></span>`;
+    } else if (averageRating) {
+      friendsBadge = `
+        <span id="friends-badge" class="relative group flex items-center gap-1.5 cursor-help">
+          ${FRIENDS_ICON} Средняя у друзей: <b class="text-pink-300">${averageRating}</b>
+          <span id="friends-tip" class="hidden group-hover:block absolute left-0 top-6 z-30 w-48 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-xl">
+            ${allRatings.map(r => `
+              <span class="flex items-center justify-between gap-3 py-0.5">
+                <span class="text-gray-300 truncate">${escapeHtml(r.profiles.username)}</span>
+                <b class="${valueColor(Number(r.rating))}">${formatRating(r.rating)}</b>
+              </span>`).join('')}
+          </span>
+        </span>`;
+    }
+
+    // Дополнительные рейтинги из того же ответа ПоискКино: TMDb, критики
+    // (мир и РФ) и рейтинг ожидания (только для невышедших фильмов).
+    // Показываются свернутыми, под кнопкой «Все рейтинги».
+    const extraRows = [];
+    {
+      const tmdbValue = (kpRatings && kpRatings.tmdb !== null)
+        ? kpRatings.tmdb
+        : (title.tmdb_rating ? Number(title.tmdb_rating) : null);
+      if (tmdbValue !== null && Number.isFinite(tmdbValue)) {
+        extraRows.push(`${TMDB_ICON} TMDb: <b class="text-cyan-300">${tmdbValue.toFixed(1)}</b>`);
+      }
+      if (kpRatings && kpRatings.russianFilmCritics !== null) {
+        extraRows.push(`${RU_CRITICS_ICON} Российские критики: <b class="text-gray-200">${Math.round(kpRatings.russianFilmCritics)}%</b>`);
+      }
+      if (kpRatings && kpRatings.filmCritics !== null) {
+        extraRows.push(`${CRITICS_ICON} Критики в мире: <b class="text-gray-200">${Math.round(kpRatings.filmCritics)}%</b>`);
+      }
+      const releaseDate = title.release_date ? new Date(title.release_date) : null;
+      const isUnreleased = releaseDate && Number.isFinite(releaseDate.getTime()) && releaseDate.getTime() > Date.now();
+      if (isUnreleased && kpRatings && kpRatings.await !== null) {
+        extraRows.push(`${AWAIT_ICON} Рейтинг ожидания: <b class="text-gray-200">${Math.round(kpRatings.await)}%</b>`);
+      }
+    }
+
     modal.querySelector('h2').textContent = title.title || 'Фильм';
 
     document.getElementById('modal-content').innerHTML = `
@@ -95,23 +164,32 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           <div class="flex gap-2 flex-wrap mb-2">
             ${(title.genres || []).slice(0, 3).map(g => `<span class="text-xs px-2 py-0.5 bg-slate-700 rounded-full">${escapeHtml(g)}</span>`).join('')}
           </div>
-          <div class="flex gap-3 text-sm flex-wrap">
-            ${kpRating !== null ? `<span class="flex items-center gap-1"><span class="text-orange-400">★</span> Кинопоиск: ${kpRating.toFixed(1)}</span>` : ''}
-            ${title.tmdb_rating ? `<span class="flex items-center gap-1"><span class="text-cyan-400">★</span> TMDb: ${Number(title.tmdb_rating).toFixed(1)}</span>` : ''}
-            ${averageRating ? `<span class="flex items-center gap-1"><span class="text-pink-400">★</span> Средняя у друзей: ${averageRating}</span>` : ''}
+          <div class="flex flex-col items-start gap-1.5 text-sm">
+            ${kpRatings && kpRatings.kp !== null ? `<span class="flex items-center gap-1.5">${KP_ICON} Кинопоиск: <b class="text-orange-300">${kpRatings.kp.toFixed(1)}</b>${kpRatings.votesKp ? `<span class="text-xs text-gray-500">· ${formatVotes(kpRatings.votesKp)}</span>` : ''}</span>` : ''}
+            ${kpRatings && kpRatings.imdb !== null ? `<span class="flex items-center gap-1.5">${IMDB_ICON} IMDb: <b class="text-yellow-300">${kpRatings.imdb.toFixed(1)}</b>${kpRatings.votesImdb ? `<span class="text-xs text-gray-500">· ${formatVotes(kpRatings.votesImdb)}</span>` : ''}</span>` : ''}
+            ${friendsBadge}
+            ${extraRows.length ? `
+              <button id="more-ratings-btn" class="text-xs text-gray-400 hover:text-white underline decoration-dotted underline-offset-4 text-left">Все рейтинги (${extraRows.length})</button>
+              <span id="more-ratings" class="hidden flex-col items-start gap-1.5">
+                ${extraRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
+              </span>
+            ` : ''}
           </div>
         </div>
       </div>
 
-      ${title.overview ? `<p class="text-sm text-gray-300 mb-4 line-clamp-3">${escapeHtml(title.overview)}</p>` : ''}
+      ${title.overview ? `
+        <p id="overview-text" class="text-sm text-gray-300 mb-1 line-clamp-3">${escapeHtml(title.overview)}</p>
+        <button id="overview-toggle" class="text-xs text-primary hover:underline mb-4 hidden">Читать дальше</button>
+      ` : ''}
 
       <div class="border-t border-slate-700 pt-4 mb-4">
         <h4 class="font-semibold mb-3">Ваша оценка</h4>
 
         <!-- Слайдер оценки: как яркость на телефоне, с шагом 0.1 -->
         <div class="text-center mb-2">
-          <span id="rating-value" class="text-5xl font-bold">—</span>
-          <span class="text-gray-500 text-lg ml-1">/10</span>
+          <span id="rating-value" class="text-5xl font-bold align-middle"></span>
+          <span id="rating-scale" class="text-gray-500 text-lg ml-1 hidden">/10</span>
         </div>
         <div class="flex items-center gap-3 mb-3">
           <button id="rating-minus" class="w-10 h-10 flex-shrink-0 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold" aria-label="Минус 0.1">−</button>
@@ -162,6 +240,42 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       ` : ''}
     `;
 
+    // --- Тултип «у кого какая оценка» (тап по бейджу для телефонов) ---
+    const friendsBadgeEl = document.getElementById('friends-badge');
+    const friendsTip = document.getElementById('friends-tip');
+    if (friendsBadgeEl && friendsTip) {
+      friendsBadgeEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        friendsTip.classList.toggle('hidden');
+        friendsTip.classList.toggle('block');
+      });
+    }
+
+    // --- Кнопка «Все рейтинги»: раскрывает скрытые строки ---
+    const moreBtn = document.getElementById('more-ratings-btn');
+    const moreBox = document.getElementById('more-ratings');
+    if (moreBtn && moreBox) {
+      moreBtn.addEventListener('click', () => {
+        const opened = !moreBox.classList.toggle('hidden');
+        moreBox.classList.toggle('flex', opened);
+        moreBtn.textContent = opened ? 'Свернуть рейтинги' : `Все рейтинги (${moreBox.children.length})`;
+      });
+    }
+
+    // --- Раскрывающееся описание ---
+    const overviewText = document.getElementById('overview-text');
+    const overviewToggle = document.getElementById('overview-toggle');
+    if (overviewText && overviewToggle) {
+      // Кнопка нужна только если текст реально обрезан
+      if (overviewText.scrollHeight > overviewText.clientHeight + 4) {
+        overviewToggle.classList.remove('hidden');
+      }
+      overviewToggle.addEventListener('click', () => {
+        const collapsed = overviewText.classList.toggle('line-clamp-3');
+        overviewToggle.textContent = collapsed ? 'Читать дальше' : 'Свернуть';
+      });
+    }
+
     // --- Логика слайдера оценки ---
     const slider = document.getElementById('rating-slider');
     const valueEl = document.getElementById('rating-value');
@@ -174,13 +288,17 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
 
     function renderValue() {
+      const scaleEl = document.getElementById('rating-scale');
       if (selectedScore === null) {
-        valueEl.textContent = '—';
-        valueEl.className = 'text-5xl font-bold text-gray-500';
+        valueEl.innerHTML = EMPTY_STAR;
+        valueEl.className = 'font-bold text-gray-500 align-middle';
+        valueEl.title = 'Оценка ещё не выбрана';
+        scaleEl.classList.add('hidden');
         return;
       }
       valueEl.textContent = formatRating(selectedScore);
       valueEl.className = `text-5xl font-bold ${valueColor(selectedScore)}`;
+      scaleEl.classList.remove('hidden');
     }
 
     function setScore(n, fromSlider) {
