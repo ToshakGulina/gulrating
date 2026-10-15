@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase.js';
+import { APP_BUILD } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { openRatingModal } from './RatingModal.js';
 import { cleanupFeed } from './Feed.js';
@@ -110,6 +111,8 @@ export async function renderProfilePage(app, currentUser) {
         <div id="profile-content" class="space-y-3">
           ${renderMyRatings(myRatingsList)}
         </div>
+
+        <p class="text-[10px] text-gray-600 text-center mt-8">Кино для друзей · сборка ${escapeHtml(APP_BUILD)}</p>
       </div>
 
       <!-- Нижняя навигация -->

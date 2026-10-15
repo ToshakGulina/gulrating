@@ -1,5 +1,8 @@
 import { supabase, getCurrentUser } from './lib/supabase.js';
-import { configIsComplete } from './config.js';
+import { configIsComplete, APP_BUILD } from './config.js';
+
+// Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
+console.info(`🎬 Кино для друзей — сборка ${APP_BUILD}`);
 import { renderAuthPage } from './components/Auth.js';
 import { renderFeed, cleanupFeed } from './components/Feed.js';
 import { renderAccessDenied } from './components/AccessDenied.js';

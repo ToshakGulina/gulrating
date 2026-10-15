@@ -63,6 +63,11 @@ export const CONFIG = {
   RATING_SCALE_MAX: 10,
 };
 
+// Метка сборки: видна в профиле внизу и в консоли браузера.
+// Помогает мгновенно понять, какая версия кода реально крутится в браузере
+// (предпросмотр / локальная копия / продакшен).
+export const APP_BUILD = "2026.10.15-2 (слайдер, тренды, история)";
+
 export function saveLocalAnonKey(key) {
   try {
     localStorage.setItem(LS_ANON_KEY, key.trim());
