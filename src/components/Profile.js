@@ -112,7 +112,7 @@ export async function renderProfilePage(app, currentUser) {
           ${renderMyRatings(myRatingsList)}
         </div>
 
-        <p class="text-[10px] text-gray-600 text-center mt-8">Кино для друзей · сборка ${escapeHtml(APP_BUILD)}</p>
+        <p class="text-[10px] text-gray-600 text-center mt-8">ГульРейтинг · сборка ${escapeHtml(APP_BUILD)}</p>
       </div>
 
       <!-- Нижняя навигация -->
@@ -219,7 +219,7 @@ export async function renderProfilePage(app, currentUser) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `kino-druzey-backup-${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `gulrating-backup-${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         URL.revokeObjectURL(url);
         showToast('Бэкап сохранён в файл', 'success');

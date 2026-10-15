@@ -203,15 +203,15 @@ async function loadRatings(currentUser, filter = 'all') {
       // Первое впечатление: не пустое полотно, а онбординг + живые постеры трендов
       listEl.innerHTML = `
         <div class="bg-gradient-to-br from-primary/25 via-card to-secondary/15 border border-slate-700/70 rounded-2xl p-5 mb-6">
-          <h2 class="text-xl font-bold mb-1">Добро пожаловать в «Кино для друзей»! </h2>
-          <p class="text-sm text-gray-300 mb-4">Здесь появится лента оценок вашей компании. Начать очень просто:</p>
-          <ol class="space-y-2 text-sm text-gray-200 mb-4">
-            <li class="flex gap-2"><span>🔍</span><span>Найдите фильм или сериал через поиск сверху — с постерами, чтобы не перепутать одноимённые.</span></li>
-            <li class="flex gap-2"><span>⭐</span><span>Поставьте оценку слайдером (можно 7.5!) и добавьте комментарий.</span></li>
-            <li class="flex gap-2"><span>👥</span><span>Друзья увидят оценку мгновенно и поставят свои — средняя по компании посчитается сама.</span></li>
+          <h2 class="text-xl font-bold mb-1">В ГульРейтинге пока нет оценок</h2>
+          <p class="text-sm text-gray-300 mb-4">Первая появится здесь сразу, как вы оцените любой фильм:</p>
+          <ol class="space-y-2 text-sm text-gray-200 mb-4 list-decimal pl-5">
+            <li>Найдите фильм или сериал в поиске сверху.</li>
+            <li>Поставьте оценку слайдером (можно с десятыми, например 7.5).</li>
+            <li>Оценка сразу попадёт в ленту — друзья увидят её без перезагрузки.</li>
           </ol>
           <button id="focus-search-btn" class="bg-primary hover:bg-primary/90 text-white font-semibold py-2.5 px-5 rounded-xl">
-            Выбрать фильм прямо сейчас
+            Найти фильм
           </button>
         </div>
         <div id="trending-section"></div>
@@ -324,7 +324,7 @@ function initSort(currentUser) {
 // Подпись под приветствием: сегодняшняя дата по-русски
 function todayCaption() {
   const s = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
-  return s.charAt(0).toUpperCase() + s.slice(1) + ' — самое время оценить что-то новое';
+  return 'Сегодня ' + s;
 }
 
 // Скелетоны карточек на время загрузки вместо текста «Загружаем...»
