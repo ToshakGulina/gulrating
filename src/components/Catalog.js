@@ -175,10 +175,13 @@ export async function openCatalog(currentUser, onOpenTitle) {
     const sortByBase = sortRaw === 'release'
       ? (type === 'tv' ? 'first_air_date' : 'primary_release_date')
       : sortRaw;
+    // Вторичный ключ ломает гигантские группы равных значений: пагинация
+    // становится воспроизводимой, диапазоны не пропускаются
+    const tieBreak = sortRaw === 'vote' ? 'vote_count.desc' : 'popularity.desc';
     const rs = await Promise.all(pagesArr.map(page => discoverTitles({
       mediaType: type,
       genreIds,
-      sortBy: `${sortByBase}.${state.dir}`,
+      sortBy: `${sortByBase}.${state.dir},${tieBreak}`,
       voteGte,
       yearGte,
       yearLte,
@@ -214,11 +217,13 @@ export async function openCatalog(currentUser, onOpenTitle) {
     `).join('');
   }
 
-  // Отрисовка очередной порции глобально отсортированной ленты.
-  // cap — сколько позиций буфера уже образуют точный глобальный топ без
-  // «дыр»: тайтл, попавший в глобальный топ-K, внутри своего типа имеет ранг
-  // ≤ K, значит страниц каждого типа должно быть загружено ≥ K / PAGE_SIZE.
-  function renderDelta(replaceGrid) {
+  // Лента = строго отсортированный префикс буфера длиной cap.
+  // cap — глубина, до которой покрытие точно полное: тайтл из глобального
+  // топ-K внутри своего типа имеет ранг ≤ K, значит страниц типа должно быть
+  // загружено ≥ K / PAGE_SIZE. Перерисовываем префикс целиком (сохраняя
+  // скролл): если TMDb прислал низкую позицию с опозданием, она встанет на
+  // своё место, а не пойдёт вниз по ленте.
+  function renderShown(replaceGrid) {
     const { sortRaw } = state.params;
     const merged = [...state.types].flatMap(t => state.buffers[t]);
     merged.sort((a, b) => {
@@ -232,14 +237,11 @@ export async function openCatalog(currentUser, onOpenTitle) {
       cap = Math.min(cap, state.hasMoreType[t] ? state.pages[t] * PAGE_SIZE : state.buffers[t].length);
     }
     cap = Math.min(cap, merged.length);
-    const from = replaceGrid ? 0 : state.shownCount;
-    const delta = merged.slice(from, cap);
     state.shownCount = cap;
-    if (replaceGrid) {
-      grid.innerHTML = tilesHtml(delta) || '<p class="col-span-full text-sm text-gray-500 text-center py-8">Ничего не нашлось — попробуйте смягчить фильтры.</p>';
-    } else if (delta.length) {
-      grid.insertAdjacentHTML('beforeend', tilesHtml(delta));
-    }
+    const scroller = grid.parentElement;
+    const scrollTop = scroller ? scroller.scrollTop : 0;
+    grid.innerHTML = tilesHtml(merged.slice(0, cap)) || '<p class="col-span-full text-sm text-gray-500 text-center py-8">Ничего не нашлось — попробуйте смягчить фильтры.</p>';
+    if (!replaceGrid && scroller) scroller.scrollTop = scrollTop;
     const totalEst = [...state.types].reduce((sum, t) => sum + (state.totals[t] || 0), 0);
     countEl.textContent = `показано ${cap} из ~${totalEst.toLocaleString('ru-RU')}`;
     const canMore = merged.length > cap || [...state.types].some(t => state.hasMoreType[t]);
@@ -266,7 +268,7 @@ export async function openCatalog(currentUser, onOpenTitle) {
         ? [1, 2]
         : (state.hasMoreType[t] ? [state.pages[t] + 1, state.pages[t] + 2] : []);
       await Promise.all([...state.types].map(t => fetchTypePages(t, pagesArrFor(t))));
-      renderDelta(reset);
+      renderShown(reset);
     } catch (e) {
       if (reset) {
         grid.innerHTML = `

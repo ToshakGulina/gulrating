@@ -164,7 +164,8 @@ export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortB
     // Фолбэк: если TMDb отверг комбинацию фильтров (400), пробуем только
     // сортировку и страницу — каталог обязан открыться
     if (!/400/.test(e.message || '')) throw e;
-    const fallback = new URLSearchParams({ sort_by: sortBy, page: String(page) });
+    // Мультисорт (через запятую) TMDb может отвергнуть — оставляем первичный ключ
+    const fallback = new URLSearchParams({ sort_by: sortBy.split(',')[0], page: String(page) });
     if (genreIds.length) fallback.set('with_genres', genreIds.join(','));
     data = await tmdbFetch(`${path}?${fallback.toString()}`);
   }
