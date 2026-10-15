@@ -202,14 +202,9 @@ async function loadRatings(currentUser, filter = 'all') {
     if (filter === 'all') {
       // Первое впечатление: не пустое полотно, а онбординг + живые постеры трендов
       listEl.innerHTML = `
-        <div class="bg-gradient-to-br from-primary/25 via-card to-secondary/15 border border-slate-700/70 rounded-2xl p-5 mb-6">
-          <h2 class="text-xl font-bold mb-1">В ГульРейтинге пока нет оценок</h2>
-          <p class="text-sm text-gray-300 mb-4">Первая появится здесь сразу, как вы оцените любой фильм:</p>
-          <ol class="space-y-2 text-sm text-gray-200 mb-4 list-decimal pl-5">
-            <li>Найдите фильм или сериал в поиске сверху.</li>
-            <li>Поставьте оценку слайдером (можно с десятыми, например 7.5).</li>
-            <li>Оценка сразу попадёт в ленту — друзья увидят её без перезагрузки.</li>
-          </ol>
+        <div class="bg-card border border-slate-700/70 rounded-2xl p-5 mb-6">
+          <h2 class="text-lg font-semibold mb-1">Оценок пока нет</h2>
+          <p class="text-sm text-gray-400 mb-4">Лента пустая. Оцените любой фильм через поиск сверху — оценка появится здесь.</p>
           <button id="focus-search-btn" class="bg-primary hover:bg-primary/90 text-white font-semibold py-2.5 px-5 rounded-xl">
             Найти фильм
           </button>
@@ -222,7 +217,7 @@ async function loadRatings(currentUser, filter = 'all') {
       return;
     }
 
-    let emptyText = 'Пока нет оценок. Найдите фильм через поиск и поставьте первую оценку!';
+    let emptyText = 'Пока нет оценок. Найдите фильм через поиск и поставьте первую оценку.';
     if (filter === 'watchlist') emptyText = 'В списке «Хочу посмотреть» пока ничего нет. Найдите фильм и добавьте его.';
     if (filter === 'mine') emptyText = 'Вы еще не поставили ни одной оценки.';
 
@@ -345,6 +340,10 @@ function skeletonCards(count = 3) {
 async function renderTrendingSection(currentUser) {
   const section = document.getElementById('trending-section');
   if (!section) return;
+  if (localStorage.getItem('gulrating:show_trending') === '0') {
+    section.innerHTML = '';
+    return;
+  }
 
   section.innerHTML = `
     <h3 class="font-semibold mb-3 flex items-center gap-2">🔥 Сейчас в тренде <span class="text-xs text-gray-500 font-normal">неделя · TMDb</span></h3>
