@@ -1,5 +1,5 @@
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
-import { getTitleDetails, getTitleVideos } from '../lib/tmdb.js';
+import { getTitleDetails } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
@@ -18,6 +18,23 @@ const IMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-h
 const RU_CRITICS_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><clipPath id="ru-flag-clip"><rect x="3" y="8" width="26" height="16" rx="3"/></clipPath><g clip-path="url(#ru-flag-clip)"><rect x="3" y="8" width="26" height="16" fill="#ffffff"/><rect x="3" y="13.3" width="26" height="5.4" fill="#0039a6"/><rect x="3" y="18.7" width="26" height="5.3" fill="#d52b1e"/></g></svg>';
 const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18-3-3.6-3-14.4 0-18z"/></svg>';
 const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
+
+// Оверлей с плеером: если сторонний сайт запрещает встраивание во фрейм,
+// браузер сам покажет пусто — тогда рядом ссылка «открыть в новой вкладке»
+function openWatchOverlay(url, titleText) {
+  const ov = document.createElement('div');
+  ov.className = 'fixed inset-0 z-50 bg-black/90 flex flex-col p-3 gap-2';
+  ov.innerHTML = `
+    <div class="flex items-center gap-2">
+      <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
+      <button class="text-gray-300 hover:text-white text-2xl leading-none px-2" aria-label="Закрыть плеер">&times;</button>
+    </div>
+    <iframe class="flex-1 w-full rounded-xl bg-black" src="${escapeHtml(url)}" allow="fullscreen; encrypted-media; autoplay" allowfullscreen></iframe>
+    <p class="text-xs text-gray-500">Если плеер не показался — сайт запрещает встраивание:
+      <a class="text-primary underline" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">открыть в новой вкладке</a></p>`;
+  ov.querySelector('button').addEventListener('click', () => ov.remove());
+  document.body.appendChild(ov);
+}
 
 // «105 936 голосов» с правильным склонением
 function criticsLabel(value) {
@@ -206,8 +223,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             if (kpRatings && kpRatings.kpFeesWorld) parts.push(`в мире: ${formatMoney(kpRatings.kpFeesWorld)} (КП)`);
             return parts.length ? `<p class="text-xs text-gray-500 mb-2">💵 ${parts.join(' • ')}</p>` : '';
           })()}
-          <div id="trailer-box" class="w-full mb-1"></div>
-          <button id="trailer-btn" class="text-xs text-primary hover:underline mb-2 self-start">▶ Трейлер</button>
+          ${kpPageUrl ? '<button id="watch-btn" class="text-xs text-primary hover:underline mb-2 self-start">▶ Смотреть</button>' : ''}
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
             ${friendsBadge}
@@ -388,29 +404,16 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
     renderValue();
 
-    // Встроенный плеер трейлера (официальный YouTube-embed по данным TMDb)
-    const trailerBtn = modal.querySelector('#trailer-btn');
-    if (trailerBtn) {
-      trailerBtn.addEventListener('click', async () => {
-        trailerBtn.disabled = true;
-        trailerBtn.textContent = 'Загружаем трейлер…';
-        try {
-          const videos = await getTitleVideos(titleId, mediaType);
-          const rank = (v) => (v.type === 'Trailer' ? 0 : v.type === 'Teaser' ? 1 : 5)
-            + (v.iso_639_1 === 'ru' ? 0 : v.iso_639_1 === 'en' ? 1 : 2);
-          const yt = videos.filter(v => v.site === 'YouTube').sort((a, b) => rank(a) - rank(b))[0];
-          if (!yt || !yt.key) {
-            trailerBtn.textContent = 'Трейлера нет в базе TMDb';
-            return;
-          }
-          modal.querySelector('#trailer-box').innerHTML = `
-            <iframe class="w-full aspect-video rounded-lg" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(yt.key)}"
-              title="Трейлер: ${escapeHtml(title.title)}" frameborder="0" allow="fullscreen; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
-          trailerBtn.remove();
-        } catch (e) {
-          trailerBtn.disabled = false;
-          trailerBtn.textContent = '▶ Трейлер (нужна сеть)';
+    // «Смотреть»: в нашем APK открываем плеер прямо в WebView приложения,
+    // в браузере — пробуем встроить фреймом поверх карточки
+    const watchBtn = modal.querySelector('#watch-btn');
+    if (watchBtn) {
+      watchBtn.addEventListener('click', () => {
+        if (/GulRatingApp/.test(navigator.userAgent)) {
+          window.location.href = kpPageUrl;
+          return;
         }
+        openWatchOverlay(kpPageUrl, title.title);
       });
     }
 

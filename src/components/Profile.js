@@ -4,7 +4,7 @@ import { formatDistanceToNow } from '../lib/date.js';
 import { openRatingModal } from './RatingModal.js';
 import { cleanupFeed } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
-import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats } from '../lib/offlineCatalog.js';
+import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
 
 // Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
@@ -131,7 +131,7 @@ export async function renderProfilePage(app, currentUser) {
               </div>
               <input type="range" id="mymin-range" min="0" max="10" step="0.1" class="rating-slider w-full" aria-label="Минимальная ваша оценка для подбора похожего">
             </div>
-            <div>
+            <div id="cat-size-box">
               <div class="flex items-center justify-between gap-3 mb-1">
                 <span class="text-gray-300">Офлайн-база фильмов (тайтлов)</span>
                 <span id="cat-size-val" class="text-sm font-bold text-cyan-300">3000</span>
@@ -139,7 +139,7 @@ export async function renderProfilePage(app, currentUser) {
               <input type="range" id="cat-size-range" min="500" max="15000" step="500" class="rating-slider w-full" aria-label="Сколько популярных тайтлов держать на устройстве">
               <p id="cat-size-status" class="text-xs text-gray-600 mt-1"></p>
             </div>
-            <div>
+            <div id="full-db-box">
               <div class="flex items-center justify-between gap-3 mb-1">
                 <span class="text-gray-300">Полная база TMDb на устройстве</span>
                 <span id="full-db-status" class="text-xs text-gray-500"></span>
@@ -389,6 +389,12 @@ export async function renderProfilePage(app, currentUser) {
     }
   }
   paintFullDb();
+  // Офлайн-база — только для приложения (APK / установленное PWA):
+  // десктоп-сайту она не нужна, ничего не скачиваем и не показываем
+  if (!isAppContext()) {
+    document.getElementById('cat-size-box').style.display = 'none';
+    document.getElementById('full-db-box').style.display = 'none';
+  }
   // Показываем реальный размер из манифеста, чтобы решение было осознанным
   fetchFullManifest().then(got => {
     if (got && !getFullCatalogMeta()) {

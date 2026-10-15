@@ -147,12 +147,6 @@ export async function getPopularPage(mediaType, page) {
   }));
 }
 
-// Трейлеры тайтла (YouTube) для встроенного плеера в карточке
-export async function getTitleVideos(id, mediaType) {
-  const data = await tmdbFetch(`/${mediaType}/${id}/videos`);
-  return data.results || [];
-}
-
 export async function getTitleDetails(id, mediaType) {
   let data;
   try {

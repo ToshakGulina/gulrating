@@ -15,6 +15,20 @@ const SIZE_MAX = 15000;
 const PER_PAGE = 20;
 const FRESH_MS = 7 * 24 * 60 * 60 * 1000; // полная база обновляется раз в неделю
 
+// «Контекст приложения»: наш APK (WebView с маркером в UA) или установленное
+// PWA (standalone). Офлайн-база нужна только там — десктоп-сайт не качает ничего.
+export function isAppContext() {
+  if (typeof navigator === 'undefined') return false;
+  if (/GulRatingApp/.test(navigator.userAgent)) return true;
+  try {
+    return window.matchMedia('(display-mode: standalone)').matches
+      || window.matchMedia('(display-mode: fullscreen)').matches
+      || Boolean(navigator.standalone);
+  } catch (e) {
+    return false;
+  }
+}
+
 let syncing = false;
 
 // Готовый файл базы лежит в репозитории (GitHub) и обновляется воркфлоу

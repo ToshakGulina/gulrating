@@ -23,6 +23,9 @@ public class MainActivity extends Activity {
 
     private static final String HOME = "https://gulrating.pages.dev/";
     private static final String HOME_HOST = "gulrating.pages.dev";
+    // Хосты плеера: открываются внутри WebView приложения (кнопка «Смотреть»),
+    // кнопка «назад» телефона возвращает к сайту через историю WebView
+    private static final String[] PLAYER_HOSTS = { "kinokino.vip", "www.kinokino.vip" };
 
     private WebView web;
 
@@ -42,6 +45,9 @@ public class MainActivity extends Activity {
         web.getSettings().setAllowContentAccess(false);
         // Кэш и cookie WebView: service worker сайта живёт на них же
         web.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
+        // Маркер для сайта: включает поведение «приложение» (офлайн-база,
+        // открытие плеера внутри WebView)
+        web.getSettings().setUserAgentString(web.getSettings().getUserAgentString() + " GulRatingApp/1");
 
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient() {
@@ -52,6 +58,11 @@ public class MainActivity extends Activity {
                 // Всё своё открываем внутри приложения, внешние ссылки
                 // (Кинопоиск, Телеграм) — в браузере телефона
                 if (host != null && host.equals(HOME_HOST)) return false;
+                if (host != null) {
+                    for (String playerHost : PLAYER_HOSTS) {
+                        if (host.equals(playerHost)) return false;
+                    }
+                }
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 } catch (Exception e) {
