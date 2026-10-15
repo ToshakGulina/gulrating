@@ -1,24 +1,26 @@
-// Опциональная интеграция с рейтингом Кинопоиска.
+// Рейтинг Кинопоиска через неофициальный API kinopoiskapiunofficial.tech.
 //
-// Нюансы, почему это опция, а не «из коробки»:
-// 1. У Кинопоиска нет открытого бесплатного API без ключа: нужен ключ
-//    «API Кинопоиска» (api.kinopoisk.ru, выдаётся через Яндекс Cloud,
-//    для некоммерческого использования бесплатный).
-// 2. api.kinopoisk.ru не отдаёт CORS-заголовки для браузера, поэтому прямой
-//    запрос из страницы обычно блокируется. Рабочий способ — проксировать
-//    через Cloudflare Worker (см. optional/proxy-worker.js): ключ лежит
-//    секретом в воркере, браузер ходит в свой воркер.
+// Почему неофициальный: официальный API Кинопоиска закрыт для физлиц,
+// а прямой запрос из браузера к api.kinopoisk.ru блокируется отсутствием CORS.
+// Сервис kinopoiskapiunofficial.tech выдаёт бесплатный токен (лимит ~200 запросов/сутки)
+// и отвечает на запросы с заголовком X-API-KEY.
 //
-// Если ничего не настроено — приложение просто не показывает значок КП,
-// всё остальное работает как раньше. Ошибки КП никогда не ломают карточку.
+// Два режима работы:
+// 1. Прямой: в config.js заполнен KINOPOISK_API_KEY — запросы идут из браузера.
+// 2. Через прокси: заполнен KINOPOISK_PROXY_URL (Cloudflare Worker,
+//    см. optional/proxy-worker.js, префикс /kp) — ключ лежит секретом в воркере,
+//    а ответы дополнительно кэшируются на стороне Cloudflare (экономит лимит).
+//
+// Ошибки КП никогда не ломают карточку фильма: значок просто не показывается.
 
 import { CONFIG } from '../config.js';
 
 const USE_PROXY = Boolean(CONFIG.KINOPOISK_PROXY_URL);
 const BASE = USE_PROXY
   ? CONFIG.KINOPOISK_PROXY_URL.replace(/\/+$/, '')
-  : 'https://api.kinopoisk.ru';
+  : 'https://kinopoiskapiunofficial.tech';
 
+// Кэш на сессию: повторное открытие карточки не тратит лимит запросов
 const cache = new Map();
 
 export function kinopoiskConfigured() {
@@ -31,17 +33,18 @@ function headers() {
   return CONFIG.KINOPOISK_API_KEY ? { 'X-API-KEY': CONFIG.KINOPOISK_API_KEY } : {};
 }
 
-// Защитный разбор ответа: у разных версий API поле рейтинга лежит по-разному
-function extractRating(movie) {
-  if (!movie) return null;
-  const candidates = [
-    movie.ratingKinopoisk,
-    movie.rating && movie.rating.kp,
-    movie.rating && movie.rating.kinopoisk,
-    movie.kinopoiskRating,
-  ];
+// Год из поля ответа (бывает строкой вида "1999" или "1999 - 2001")
+function itemYear(item) {
+  const parsed = parseInt(String(item && item.year || '').slice(0, 4), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+// Защитный разбор рейтинга: поля могут приходить строкой или числом
+function extractRating(item) {
+  if (!item) return null;
+  const candidates = [item.ratingKinopoisk, item.rating, item.kinopoiskRating];
   for (const value of candidates) {
-    const n = Number(value);
+    const n = Number(String(value).replace(',', '.'));
     if (Number.isFinite(n) && n > 0) return Math.round(n * 10) / 10;
   }
   return null;
@@ -62,26 +65,35 @@ export async function getKinopoiskRating(title, originalTitle, year) {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(`${BASE}/v1/search?query=${encodeURIComponent(query)}&page=1`, {
+      const res = await fetch(`${BASE}/api/v2.2/films?searchQuery=${encodeURIComponent(query)}`, {
         headers: headers(),
         signal: controller.signal
       });
       clearTimeout(timer);
-      if (!res.ok) continue;
+
+      if (!res.ok) {
+        // 401/403 — проблема с ключом, 429 — исчерпан дневной лимит
+        if (res.status === 429) console.warn('Кинопоиск: исчерпан дневной лимит запросов токена');
+        continue;
+      }
 
       const data = await res.json();
-      const movies = (data.docs || []).map(doc => doc.movie).filter(Boolean);
-      if (movies.length === 0) continue;
+      const items = data.items || data.results || [];
+      if (!Array.isArray(items) || items.length === 0) continue;
 
       const yearNum = Number(year);
       const matched = (Number.isFinite(yearNum) && yearNum > 1000)
-        ? (movies.find(m => Math.abs(Number(m.year) - yearNum) <= 1) || movies[0])
-        : movies[0];
+        ? (items.find(i => {
+            const iy = itemYear(i);
+            return iy !== null && Math.abs(iy - yearNum) <= 1;
+          }) || items[0])
+        : items[0];
 
       result = extractRating(matched);
       if (result !== null) break;
     } catch (e) {
       // CORS/сеть/формат ответа — молча пропускаем, КП опционален
+      console.warn('Кинопоиск: запрос не удался', e && e.message);
       continue;
     }
   }

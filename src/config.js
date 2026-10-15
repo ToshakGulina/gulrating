@@ -49,13 +49,15 @@ export const CONFIG = {
   // Пример: "https://tmdb-proxy.ваш-логин.workers.dev"
   TMDB_PROXY_URL: "",
 
-  // ОПЦИОНАЛЬНО: рейтинг Кинопоиска.
-  // KINOPOISK_API_KEY — ключ «API Кинопоиска» (api.kinopoisk.ru, Яндекс Cloud).
+  // ОПЦИОНАЛЬНО: рейтинг Кинопоиска (неофициальный API kinopoiskapiunofficial.tech).
+  // KINOPOISK_API_KEY — ваш личный токен сервиса (лимит ~200 запросов в сутки).
+  //   Токен лежит здесь для простоты; при желании его можно убрать в секреты
+  //   Cloudflare Worker и использовать только прокси-режим.
   // KINOPOISK_PROXY_URL — адрес Cloudflare Worker с префиксом /kp
-  // (см. optional/proxy-worker.js): прямой запрос из браузера блокируется
-  // отсутствием CORS, поэтому рекомендуемый способ — прокси, а ключ держать
-  // секретом воркера. Пока оба поля пустые, значок Кинопоиска просто не показывается.
-  KINOPOISK_API_KEY: "",
+  //   (см. optional/proxy-worker.js): полезен, если браузер упирается в CORS
+  //   или хочется кэшировать ответы на стороне Cloudflare (экономит лимит).
+  // Пока оба поля пустые, значок Кинопоиска просто не показывается.
+  KINOPOISK_API_KEY: "0MHQ7TX-71WMDSP-HVF6YHV-FMWFRDM",
   KINOPOISK_PROXY_URL: "",
 
   // Настройки приложения
