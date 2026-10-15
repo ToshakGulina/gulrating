@@ -1,6 +1,6 @@
-import { missingConfigFields } from '../config.js';
+import { missingConfigFields, saveLocalAnonKey, clearLocalAnonKey } from '../config.js';
 import { supabase } from '../lib/supabase.js';
-import { escapeHtml } from '../lib/dom.js';
+import { escapeHtml, showToast } from '../lib/dom.js';
 
 function shell(inner) {
   return `
@@ -21,20 +21,52 @@ function shell(inner) {
 // Экран-подсказка: в src/config.js не заполнены ключи
 export function renderSetupPage(app) {
   const missing = missingConfigFields();
+  const canPasteAnon = missing.includes('SUPABASE_ANON_KEY');
   app.innerHTML = shell(`
     <h2 class="text-lg font-semibold mb-3">⚙️ Приложение не настроено</h2>
-    <p class="text-gray-300 mb-4">В файле <code class="bg-slate-800 px-1.5 py-0.5 rounded">src/config.js</code> не заполнены ключи:</p>
+    <p class="text-gray-300 mb-4">Не заполнены ключи:</p>
     <ul class="list-disc pl-5 space-y-1 mb-4 text-gray-200">
       ${missing.map(f => `<li><code class="bg-slate-800 px-1.5 py-0.5 rounded">${escapeHtml(f)}</code></li>`).join('')}
     </ul>
-    <p class="text-gray-400 mb-2">Где их взять:</p>
+
+    ${canPasteAnon ? `
+      <div class="bg-slate-800/60 border border-slate-700 rounded-xl p-4 mb-4">
+        <p class="text-gray-300 mb-2 font-medium">Быстрый способ: вставить anon key прямо здесь</p>
+        <p class="text-gray-500 text-xs mb-3">Ключ сохранится только в этом браузере (localStorage) — удобно для проверки. Чтобы приложение работало у всех друзей без настроек, впишите ключ в файл <code class="bg-slate-800 px-1 py-0.5 rounded">src/config.js</code> и задеплойте снова.</p>
+        <textarea id="anon-key-input" rows="3" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+          class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-600 text-xs font-mono mb-2"></textarea>
+        <div class="flex gap-2">
+          <button id="save-anon-btn" class="flex-1 bg-primary hover:bg-primary/90 text-white font-semibold py-2 rounded-lg text-sm">Сохранить и запустить</button>
+          <button id="clear-anon-btn" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-gray-300" title="Убрать сохранённый в браузере ключ">Сброс</button>
+        </div>
+        <p class="text-gray-500 text-xs mt-2">Где взять: Supabase → Settings → API → <b class="text-gray-400">anon public</b>.</p>
+      </div>
+    ` : ''}
+
+    <p class="text-gray-400 mb-2">Или заполнить вручную в <code class="bg-slate-800 px-1.5 py-0.5 rounded">src/config.js</code>:</p>
     <ul class="list-disc pl-5 space-y-1 text-gray-400 mb-4">
       <li><b class="text-gray-300">SUPABASE_URL</b> и <b class="text-gray-300">SUPABASE_ANON_KEY</b> — Supabase → Settings → API (Project URL и anon public key).</li>
       <li><b class="text-gray-300">TMDB_API_KEY</b> — themoviedb.org → Настройки → API → API Key (v3 auth).</li>
     </ul>
-    <p class="text-gray-400">После того как вставите ключи, обновите эту страницу.</p>
-    <button onclick="location.reload()" class="w-full mt-4 bg-primary hover:bg-primary/90 text-white font-semibold py-2.5 rounded-xl">Обновить страницу</button>
+    <button onclick="location.reload()" class="w-full mt-1 bg-slate-800 hover:bg-slate-700 text-gray-200 font-semibold py-2.5 rounded-xl">Обновить страницу</button>
   `);
+
+  const saveBtn = document.getElementById('save-anon-btn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      const value = document.getElementById('anon-key-input').value.trim();
+      if (value.length < 20) {
+        showToast('Похоже, ключ вставлен не полностью', 'error');
+        return;
+      }
+      saveLocalAnonKey(value);
+      location.reload();
+    });
+    document.getElementById('clear-anon-btn').addEventListener('click', () => {
+      clearLocalAnonKey();
+      location.reload();
+    });
+  }
 }
 
 // Профиль пользователя не найден в базе — скорее всего не запущен supabase-schema.sql
