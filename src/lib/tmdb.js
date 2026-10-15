@@ -65,9 +65,9 @@ export async function searchTitles(query) {
     }));
 }
 
-// Недельные тренды TMDb (фильмы + сериалы) — для ряда «Сейчас в тренде»
-export async function getTrending(limit = 12) {
-  const data = await tmdbFetch('/trending/all/week');
+// Тренды TMDb: окно (day/week) и тип (all/movie/tv) выбираются вызывающим
+export async function getTrending({ mediaType = 'all', window = 'week', limit = 12 } = {}) {
+  const data = await tmdbFetch(`/trending/${mediaType}/${window}`);
 
   return (data.results || [])
     .filter(item => item.media_type === 'movie' || item.media_type === 'tv')

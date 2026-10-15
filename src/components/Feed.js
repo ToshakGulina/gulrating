@@ -37,7 +37,7 @@ let activeSort = readSort();   // сортировка ленты: new | rating_
 let feedChannel = null;
 let realtimeTimer = null;
 // Кэши рекомендаций на сессию: TMDb-запросы дорогие, повторный рендер ленты их не повторяет
-const recsCache = { trending: null, personal: null, personalKey: '' };
+const recsCache = { trends: {}, personal: null, personalKey: '' };
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
 
 export function cleanupFeed() {
@@ -361,19 +361,33 @@ async function loadRecs(currentUser) {
   }
 
   section.innerHTML = `
+    ${recRowSkeleton('recs-trend-day', 'В тренде сегодня')}
     ${recRowSkeleton('recs-popular', 'Популярно сейчас')}
+    ${recRowSkeleton('recs-trend-movie', 'Популярные фильмы')}
+    ${recRowSkeleton('recs-trend-tv', 'Популярные сериалы')}
     ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
     ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
     ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
   `;
 
-  // Ряд 1: тренды недели
-  try {
-    if (!recsCache.trending) recsCache.trending = await getTrending(12);
-    fillRecRow(section, 'recs-popular', 'Популярно сейчас', 'неделя · TMDb', recsCache.trending, null, 'Тренды недоступны — проверьте соединение с TMDb.');
-  } catch (e) {
-    dropRecRow(section, 'recs-popular');
-  }
+  // Тренды: четыре ряда (сутки, неделя, фильмы, сериалы), каждый со своим
+  // кэшем на сессию и независимой загрузкой — один упавший ряд не тянет остальных
+  const trendRows = [
+    { id: 'recs-trend-day', title: 'В тренде сегодня', sub: 'сутки · TMDb', key: 'day', mediaType: 'all', window: 'day' },
+    { id: 'recs-popular', title: 'Популярно сейчас', sub: 'неделя · TMDb', key: 'week', mediaType: 'all', window: 'week' },
+    { id: 'recs-trend-movie', title: 'Популярные фильмы', sub: 'неделя · TMDb · только фильмы', key: 'movie', mediaType: 'movie', window: 'week' },
+    { id: 'recs-trend-tv', title: 'Популярные сериалы', sub: 'неделя · TMDb · только сериалы', key: 'tv', mediaType: 'tv', window: 'week' },
+  ];
+  await Promise.all(trendRows.map(async (row) => {
+    try {
+      if (!recsCache.trends[row.key]) {
+        recsCache.trends[row.key] = await getTrending({ mediaType: row.mediaType, window: row.window, limit: 15 });
+      }
+      fillRecRow(section, row.id, row.title, row.sub, recsCache.trends[row.key], null, 'Тренды недоступны — проверьте соединение с TMDb.');
+    } catch (e) {
+      dropRecRow(section, row.id);
+    }
+  }));
 
   // Ряд 2 и 3: одним запросом по всем оценкам компании
   try {
