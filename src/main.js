@@ -10,7 +10,7 @@ try {
 
 console.info(`🎬 ГульРейтинг — сборка ${APP_BUILD}`);
 import { showToast } from './lib/dom.js';
-import { renderAuthPage } from './components/Auth.js';
+import { renderAuthPage, openRecoveryPasswordModal } from './components/Auth.js';
 import { renderFeed, cleanupFeed } from './components/Feed.js';
 import { renderAccessDenied } from './components/AccessDenied.js';
 import { renderSetupPage, renderFatalError, renderProfileMissing } from './components/Setup.js';
@@ -66,6 +66,10 @@ async function init() {
   supabase.auth.onAuthStateChange((event) => {
     if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
       renderApp();
+    } else if (event === 'PASSWORD_RECOVERY') {
+      // Вход по ссылке восстановления: перерисовываем app и сразу просим задать пароль
+      renderApp();
+      openRecoveryPasswordModal();
     }
   });
 
