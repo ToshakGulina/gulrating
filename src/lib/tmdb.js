@@ -172,7 +172,8 @@ export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortB
   return {
     items: mapResults(data.results, limit),
     hasMore: (data.page || 1) < (data.total_pages || 1),
-    total: data.total_results || 0
+    total: data.total_results || 0,
+    totalPages: data.total_pages || 1
   };
 }
 
