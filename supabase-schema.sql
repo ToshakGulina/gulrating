@@ -117,6 +117,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+-- Количество профилей в обход RLS (нужно политике INSERT, см. ниже).
+-- SECURITY DEFINER обязателен: обычный подselect внутри политики видел бы
+-- только строки, разрешённые самому пользователю, и всегда возвращал бы 0.
+CREATE OR REPLACE FUNCTION public.profile_count()
+RETURNS BIGINT AS $$
+  SELECT COUNT(*) FROM public.profiles;
+$$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+
 -- Профили
 DROP POLICY IF EXISTS "Пользователи видят профиль до одобрения" ON public.profiles;
 CREATE POLICY "Пользователи видят профиль до одобрения" ON public.profiles
@@ -135,6 +143,47 @@ CREATE POLICY "Админы могут одобрять пользователе
   FOR UPDATE USING (
     EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_admin = true)
   ) WITH CHECK (true);
+
+-- Пользователь может сам создать СВОЙ профиль, если триггер не сработал
+-- (аккаунт появился до запуска схемы). Права при этом ограничены:
+-- обычный пользователь не может выдать себе админа или одобрение,
+-- исключением является самый первый профиль в пустой базе — он, как и в
+-- триггере, становится админом и сразу одобрен.
+DROP POLICY IF EXISTS "Пользователь может создать свой профиль" ON public.profiles;
+CREATE POLICY "Пользователь может создать свой профиль" ON public.profiles
+  FOR INSERT WITH CHECK (
+    auth.uid() = id
+    AND (
+      public.profile_count() = 0
+      OR (is_admin = false AND is_approved = false)
+    )
+  );
+
+-- Защита привилегий: не-админ не может повысить себя через UPDATE своего
+-- профиля (is_admin / is_approved всегда возвращаются к старым значениям).
+CREATE OR REPLACE FUNCTION public.protect_profile_privileges()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Служебные изменения из SQL Editor / сервисных роли (без JWT) не трогаем
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND is_admin = true
+  ) THEN
+    RETURN NEW; -- администратор может менять всё
+  END IF;
+  NEW.is_admin := OLD.is_admin;
+  NEW.is_approved := OLD.is_approved;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS protect_profile_privileges ON public.profiles;
+CREATE TRIGGER protect_profile_privileges
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.protect_profile_privileges();
 
 -- Тайтлы: одобренные пользователи читают и добавляют тайтлы.
 -- UPDATE нужен, потому что приложение сохраняет фильм через upsert

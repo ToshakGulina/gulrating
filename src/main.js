@@ -26,8 +26,9 @@ async function renderApp() {
       renderAuthPage(app);
     } else if (!currentUser.profile) {
       // Вошли, но профиля в базе нет: не запущен supabase-schema.sql
+      // или аккаунт создан до запуска схемы
       cleanupFeed();
-      renderProfileMissing(app);
+      renderProfileMissing(app, currentUser);
     } else if (!currentUser.profile.is_approved) {
       cleanupFeed();
       renderAccessDenied(app);
