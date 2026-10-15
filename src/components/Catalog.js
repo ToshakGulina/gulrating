@@ -27,9 +27,11 @@ const YEAR_MAX = 2030;
 // фильтров (переход из карточки тайтла по жанру)
 export async function openCatalog(currentUser, onOpenTitle, presets = {}) {
   const overlay = document.createElement('div');
-  overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4';
+  // Оверлей сам задаёт высоту (fixed inset-0): ни одной vh-единицы на
+// мобильном — шапка не может уехать за экран из-за резиновых панелей
+overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex flex-col p-0 sm:p-4 sm:justify-center';
   overlay.innerHTML = `
-    <div class="bg-card w-full max-w-5xl rounded-t-2xl sm:rounded-2xl max-h-[94vh] sm:max-h-[90vh] flex flex-col overflow-hidden">
+    <div class="bg-card w-full max-w-5xl mx-auto sm:rounded-2xl flex-1 min-h-0 sm:flex-none sm:max-h-[90vh] flex flex-col overflow-hidden">
       <div class="flex justify-between items-center p-4 border-b border-slate-700 flex-shrink-0 min-h-[52px]">
         <h3 class="font-bold text-lg">Каталог фильмов и сериалов</h3>
         <button id="catalog-close" class="text-gray-400 hover:text-white px-2 text-xl leading-none" aria-label="Закрыть">×</button>
@@ -37,7 +39,7 @@ export async function openCatalog(currentUser, onOpenTitle, presets = {}) {
 
       <!-- Дублирующий крестик поверх всего: даже если шапку когда-нибудь
            снова сожмёт чужой CSS/кэш, закрытие останется доступным -->
-      <button id="catalog-close-float" class="sm:hidden absolute top-2 right-2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-card/90 border border-slate-700 text-gray-200 text-xl leading-none" aria-label="Закрыть каталог">×</button>
+      <button id="catalog-close-float" class="sm:hidden fixed top-2 right-2 z-[70] w-10 h-10 flex items-center justify-center rounded-full bg-card/90 border border-slate-700 text-gray-200 text-xl leading-none" aria-label="Закрыть каталог">×</button>
 
       <div class="flex flex-col sm:flex-row flex-1 min-h-0">
         <!-- Фильтры: сайдбар на десктопе, шторка на мобильном -->
