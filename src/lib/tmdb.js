@@ -142,7 +142,7 @@ export async function getGenreMap(mediaType) {
 
 // Каталог: discover с жанрами, сортировкой, порогом рейтинга и годами.
 // Возвращает страницу результатов и признак «есть ещё».
-export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortBy = 'popularity.desc', voteGte = 0, yearGte = '', yearLte = '', page = 1, limit = 18 } = {}) {
+export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortBy = 'popularity.desc', voteGte = 0, voteLte = 0, yearGte = '', yearLte = '', page = 1, limit = 18 } = {}) {
   // include_adult уже добавляет tmdbFetch через API_PARAMS.
   // Минимальный набор параметров: TMDb отвечает 400 на некоторые
   // комбинации фильтров, поэтому всё необязательное добавляем только
@@ -153,6 +153,7 @@ export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortB
   });
   if (genreIds.length) params.set('with_genres', genreIds.join(','));
   if (voteGte) params.set('vote_average.gte', String(voteGte));
+  if (voteLte) params.set('vote_average.lte', String(voteLte));
   const dateKey = mediaType === 'tv' ? 'first_air_date' : 'primary_release_date';
   if (yearGte) params.set(`${dateKey}.gte`, `${yearGte}-01-01`);
   if (yearLte) params.set(`${dateKey}.lte`, `${yearLte}-12-31`);
@@ -165,8 +166,8 @@ export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortB
     // сортировку и страницу — каталог обязан открыться
     if (!/400/.test(e.message || '')) throw e;
     // Мультисорт (через запятую) TMDb может отвергнуть — оставляем первичный ключ
-    const fallback = new URLSearchParams({ sort_by: sortBy.split(',')[0], page: String(page) });
-    if (genreIds.length) fallback.set('with_genres', genreIds.join(','));
+    const fallback = new URLSearchParams(params);
+    fallback.set('sort_by', sortBy.split(',')[0]);
     data = await tmdbFetch(`${path}?${fallback.toString()}`);
   }
   return {
@@ -175,11 +176,4 @@ export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortB
     total: data.total_results || 0,
     totalPages: data.total_pages || 1
   };
-}
-
-// Популярное в жанре: для клика по жанру в карточке фильма
-export async function discoverByGenre(genreId, mediaType = 'movie', limit = 12) {
-  const path = mediaType === 'tv' ? '/discover/tv' : '/discover/movie';
-  const data = await tmdbFetch(`${path}?with_genres=${genreId}&sort_by=popularity.desc&vote_count.gte=50`);
-  return mapResults(data.results, limit);
 }

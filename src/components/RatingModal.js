@@ -1,5 +1,6 @@
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
-import { getTitleDetails, getGenreMap, discoverByGenre } from '../lib/tmdb.js';
+import { getTitleDetails } from '../lib/tmdb.js';
+import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
@@ -170,7 +171,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           <h3 class="font-bold text-lg leading-tight">${escapeHtml(title.title)}</h3>
           <p class="text-sm text-gray-400 mb-1">${year ? escapeHtml(year) + ' • ' : ''}${mediaType === 'movie' ? 'фильм' : 'сериал'}</p>
           <div class="flex gap-2 flex-wrap mb-2">
-            ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Популярное в жанре «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
+            ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Открыть каталог с фильтром по жанру «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
           </div>
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
@@ -263,10 +264,16 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       posterBox.addEventListener('click', () => openLightbox(title.poster_path, title.title));
     }
 
-    // --- Жанры: клик открывает популярное в жанре ---
+    // --- Жанры: клик открывает каталог с уже выставленным фильтром ---
     modal.querySelectorAll('.genre-chip').forEach(chip => {
       chip.addEventListener('click', () => {
-        openGenreOverlay(chip.dataset.genre, mediaType, currentUser, onSaveCallback);
+        closeModal();
+        openCatalog(currentUser, (id, type) => {
+          openRatingModal(id, type, currentUser, onSaveCallback);
+        }, {
+          genres: [chip.dataset.genre],
+          types: [mediaType]
+        });
       });
     });
 
@@ -435,55 +442,4 @@ function openLightbox(posterPath, titleText) {
   overlay.addEventListener('click', close);
   document.addEventListener('keydown', onEsc);
   document.body.appendChild(overlay);
-}
-
-// Оверлей «Популярное в жанре»: список кликабельных карточек,
-// клик по карточке закрывает оверлей и открывает обычную модалку тайтла
-async function openGenreOverlay(genreName, mediaType, currentUser, onSaveCallback) {
-  const overlay = document.createElement('div');
-  overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-4';
-  overlay.innerHTML = `
-    <div class="bg-card w-full max-w-lg rounded-2xl max-h-[80vh] overflow-y-auto p-4">
-      <div class="flex justify-between items-center mb-3">
-        <h3 class="font-bold">Популярное в жанре «${escapeHtml(genreName)}»</h3>
-        <button id="genre-close" class="text-gray-400 hover:text-white px-2 text-xl leading-none" aria-label="Закрыть">×</button>
-      </div>
-      <div id="genre-list" class="space-y-2 text-sm text-gray-400">Загружаем…</div>
-    </div>
-  `;
-  const close = () => overlay.remove();
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  overlay.querySelector('#genre-close').addEventListener('click', close);
-  document.body.appendChild(overlay);
-
-  const list = overlay.querySelector('#genre-list');
-  try {
-    const map = await getGenreMap(mediaType);
-    const genreId = map[String(genreName).toLowerCase()];
-    const items = genreId ? await discoverByGenre(genreId, mediaType, 10) : [];
-    if (!items.length) {
-      list.innerHTML = 'В этом жанре ничего не нашлось.';
-      return;
-    }
-    list.innerHTML = items.map(item => `
-      <div class="genre-item flex items-center gap-3 p-2 hover:bg-slate-700 rounded-xl cursor-pointer" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
-        <div class="flex-shrink-0 w-10">
-          ${posterImg(item.poster_path, item.title, 'w-10 aspect-[2/3] rounded')}
-        </div>
-        <div class="min-w-0 flex-1">
-          <div class="text-sm font-medium truncate text-white">${escapeHtml(item.title)}</div>
-          <div class="text-xs text-gray-500">${escapeHtml(releaseYear(item.release_date) || '—')} • ${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
-        </div>
-        ${item.vote_average ? `<span class="text-xs font-bold text-cyan-300">${Number(item.vote_average).toFixed(1)}</span>` : ''}
-      </div>
-    `).join('');
-    list.querySelectorAll('.genre-item').forEach(el => {
-      el.addEventListener('click', () => {
-        close();
-        openRatingModal(el.dataset.id, el.dataset.type, currentUser, onSaveCallback);
-      });
-    });
-  } catch (e) {
-    list.innerHTML = 'Не удалось загрузить список жанра.';
-  }
 }

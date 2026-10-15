@@ -1,9 +1,20 @@
 import { discoverTitles, getGenreMap } from '../lib/tmdb.js';
-import { escapeHtml, releaseYear, posterImg } from '../lib/dom.js';
+import { escapeHtml, releaseYear, posterImg, showToast } from '../lib/dom.js';
 
 // Каталог TMDb. Фильтры — боковая панель на десктопе и складная шторка
 // на телефоне: результаты видны сразу, крутить колесо к фильтрам не нужно.
 // Типы — мультивыбор, сортировка с направлением, рейтинг и годы — слайдеры.
+//
+// Два режима ленты:
+//  • «Рейтинг» — режим полных диапазонов: лента собирается по диапазонам
+//    0.1 балла через фильтры vote_average.gte/lte (НЕ через сортировку:
+//    пагинация TMDb на группах равных значений ненадёжна). У каждого
+//    диапазона есть total_results, поэтому диапазон выкачивается целиком
+//    и помечается «N из N — все»; между карточками 7.0 и 7.2 гарантированно
+//    лежат все существующие 7.1.
+//  • «Популярность» / «Год выхода» — префикс-лента с покрытием глобального
+//    топ-K и пределом глубины: дальше 50 страниц на тип TMDb порядок не
+//    гарантирует, и мы честно останавливаемся.
 const SORTS = [
   { id: 'popularity', label: 'Популярность' },
   { id: 'vote', label: 'Рейтинг' },
@@ -12,12 +23,14 @@ const SORTS = [
 const YEAR_MIN = 1900;
 const YEAR_MAX = 2030;
 
-export async function openCatalog(currentUser, onOpenTitle) {
+// presets: { genres: [названия], types: ['movie'|'tv'] } — предустановка
+// фильтров (переход из карточки тайтла по жанру)
+export async function openCatalog(currentUser, onOpenTitle, presets = {}) {
   const overlay = document.createElement('div');
   overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4';
   overlay.innerHTML = `
     <div class="bg-card w-full max-w-5xl rounded-t-2xl sm:rounded-2xl max-h-[94vh] sm:max-h-[90vh] flex flex-col overflow-hidden">
-      <div class="flex justify-between items-center p-4 border-b border-slate-700">
+      <div class="flex justify-between items-center p-4 border-b border-slate-700 flex-shrink-0">
         <h3 class="font-bold text-lg">Каталог фильмов и сериалов</h3>
         <button id="catalog-close" class="text-gray-400 hover:text-white px-2 text-xl leading-none" aria-label="Закрыть">×</button>
       </div>
@@ -60,7 +73,7 @@ export async function openCatalog(currentUser, onOpenTitle) {
 
         <!-- Результаты -->
         <div class="flex-1 min-w-0 flex flex-col min-h-0">
-          <div class="p-3 border-b border-slate-700 flex items-center gap-2">
+          <div class="p-3 border-b border-slate-700 flex items-center gap-2 flex-shrink-0">
             <button id="filters-toggle" class="sm:hidden px-3 py-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-lg text-xs text-gray-300">Фильтры</button>
             <button id="catalog-random" class="px-3 py-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-lg text-xs text-gray-300" title="Случайный тайтл по текущим фильтрам">🎲 Случайное</button>
             <span id="catalog-count" class="text-xs text-gray-500 ml-auto"></span>
@@ -90,23 +103,28 @@ export async function openCatalog(currentUser, onOpenTitle) {
   // Типы — мультивыбор: по умолчанию включены оба; мультфильмы входят
   // и в фильмы, и в сериалы (жанр «мультфильм» / «анимация»)
   const state = {
-    types: new Set(['movie', 'tv']),
-    genres: new Set(),
+    types: new Set(presets.types && presets.types.length ? presets.types : ['movie', 'tv']),
+    genres: new Set((presets.genres || []).map(g => String(g).toLowerCase())),
     dir: 'desc',
+    // префикс-лента (популярность/год)
     pages: { movie: 0, tv: 0 },
     hasMoreType: { movie: true, tv: true },
+    buffers: { movie: [], tv: [] },
+    shownCount: 0,
+    // диапазоны (рейтинг)
+    bands: [],
+    nextBand: null,
     totals: { movie: 0, tv: 0 },
     totalPages: { movie: 0, tv: 0 },
-    buffers: { movie: [], tv: [] },
     params: null,
-    loading: false,
-    shownCount: 0
+    loading: false
   };
   const PAGE_SIZE = 20; // размер страницы TMDb
-  // Дальше 50 страниц (1000 позиций) на тип поисковый движок TMDb не
-  // гарантирует устойчивый порядок при сортировке с группами равных
-  // значений — честно останавливаем ленту там, а не показываем кашу
+  // Предел глубины префикс-ленты: дальше 50 страниц (1000 позиций) на тип
+  // поисковый движок TMDb не гарантирует устойчивый порядок
   const MAX_PAGES = 50;
+  // Предел выкачки одного диапазона рейтинга на тип: 400 тайтлов
+  const BAND_CAP = 400;
   const grid = overlay.querySelector('#catalog-grid');
   const genresBox = overlay.querySelector('#catalog-genres');
   const moreBtn = overlay.querySelector('#catalog-more');
@@ -173,27 +191,172 @@ export async function openCatalog(currentUser, onOpenTitle) {
     };
   }
 
-  // Первичный ключ сортировки + вторичный: вторичный ломает гигантские
-  // группы равных значений, и пагинация TMDb становится воспроизводимой
+  // Первичный ключ сортировки префикс-ленты. Мультисорт запятой TMDb может
+  // проигнорировать молча, поэтому вторичных ключей не используем вовсе
   function sortByFor(type, sortRaw, dir) {
     const base = sortRaw === 'release'
       ? (type === 'tv' ? 'first_air_date' : 'primary_release_date')
       : sortRaw;
-    const tieBreak = sortRaw === 'vote' ? 'vote_count.desc' : 'popularity.desc';
-    return `${base}.${dir},${tieBreak}`;
+    return `${base}.${dir}`;
   }
+
+  async function genreIdsFor(type) {
+    const genreMap = await getGenreMap(type);
+    return [...state.genres].map(n => genreMap[n]).filter(Boolean);
+  }
+
+  function tilesHtml(items) {
+    return items.map(item => `
+      <div class="catalog-item cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
+        <div class="relative group-hover:opacity-80 transition-opacity">
+          ${posterImg(item.poster_path, item.title, 'w-full aspect-[2/3] rounded-lg')}
+          ${item.vote_average
+            ? `<span class="absolute top-1 right-1 bg-black/70 text-cyan-300 text-[11px] font-bold px-1.5 py-0.5 rounded-md" title="Оценок на TMDb: ${item.vote_count || 0}">${Number(item.vote_average).toFixed(1)}</span>`
+            : '<span class="absolute top-1 right-1 bg-black/70 text-gray-400 text-[11px] font-medium px-1.5 py-0.5 rounded-md">нет оценок</span>'}
+        </div>
+        <div class="mt-1.5 text-xs font-medium line-clamp-2 leading-tight">${escapeHtml(item.title)}</div>
+        <div class="text-[11px] text-gray-500">${escapeHtml(releaseYear(item.release_date) || '—')} • ${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
+      </div>
+    `).join('');
+  }
+
+  function bandDividerHtml(band) {
+    const note = band.partial
+      ? `показано ${band.items.length} из ${band.total} — диапазон велик, выкачан не весь`
+      : `${band.total} из ${band.total} — все`;
+    return `
+      <div class="col-span-full flex items-center gap-2 mt-3 mb-1 first:mt-0 text-[11px] text-gray-500">
+        <span class="h-px bg-slate-700 flex-1"></span>
+        <span>рейтинг ${band.b.toFixed(1)} · ${note}</span>
+        <span class="h-px bg-slate-700 flex-1"></span>
+      </div>
+    `;
+  }
+
+  // ---------- Режим полных диапазонов (сортировка «Рейтинг») ----------
+
+  function stepBand(b) {
+    const next = Math.round((b + (state.dir === 'asc' ? 0.1 : -0.1)) * 10) / 10;
+    return next;
+  }
+
+  function bandInRange(b) {
+    if (state.dir === 'asc') return b <= 10.0;
+    const { voteGte } = state.params;
+    return b + 0.09 >= voteGte && b >= 0;
+  }
+
+  // Стартовый диапазон: первая страница сортировки даёт реальную границу
+  // оценок (заодно снимаем total_results для счётчика «из ~M»)
+  async function probeStartBand() {
+    const { voteGte, yearGte, yearLte } = state.params;
+    const probed = await Promise.all([...state.types].map(async (type) => {
+      const r = await discoverTitles({
+        mediaType: type,
+        genreIds: await genreIdsFor(type),
+        sortBy: `vote_average.${state.dir}`,
+        voteGte,
+        yearGte,
+        yearLte,
+        page: 1,
+        limit: 1
+      });
+      state.totals[type] = r.total || state.totals[type];
+      state.totalPages[type] = r.totalPages || state.totalPages[type];
+      return r.items[0] ? Number(r.items[0].vote_average) : null;
+    }));
+    const vals = probed.filter(v => v != null && !Number.isNaN(v));
+    if (!vals.length) return null;
+    const edge = state.dir === 'asc' ? Math.min(...vals) : Math.max(...vals);
+    return Math.floor(edge * 10 + 1e-6) / 10;
+  }
+
+  // Выкачивает диапазон [b, b+0.09] целиком: фильтр диапазона, а не сортировка,
+  // поэтому полнота контролируется через total_results
+  async function loadBand(b) {
+    const { voteGte, yearGte, yearLte } = state.params;
+    const lte = Math.round((b + 0.1) * 10) / 10 - 0.01;
+    const perType = await Promise.all([...state.types].map(async (type) => {
+      const common = {
+        mediaType: type,
+        genreIds: await genreIdsFor(type),
+        sortBy: 'popularity.desc', // внутри диапазона порядок не важен, важна устойчивая пагинация
+        voteGte: Math.max(voteGte, b),
+        voteLte: lte,
+        yearGte,
+        yearLte,
+        limit: PAGE_SIZE
+      };
+      const first = await discoverTitles({ ...common, page: 1 });
+      const total = first.total;
+      const pages = Math.ceil(Math.min(total, BAND_CAP) / PAGE_SIZE);
+      const items = [...first.items];
+      if (pages > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: pages - 1 }, (_, i) => discoverTitles({ ...common, page: i + 2 }))
+        );
+        rest.forEach(r => items.push(...r.items));
+      }
+      return { items, total };
+    }));
+    const seen = new Set();
+    const items = [];
+    for (const t of perType) {
+      for (const it of t.items) {
+        const k = `${it.media_type}:${it.id}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        items.push(it);
+      }
+    }
+    items.sort((a, b2) => (b2.vote_count || 0) - (a.vote_count || 0));
+    const total = perType.reduce((s, t) => s + t.total, 0);
+    return { b, items, total, partial: items.length < total };
+  }
+
+  async function loadBandsUntil(minAdd) {
+    if (state.nextBand === null && !state.bands.length) {
+      state.nextBand = await probeStartBand();
+    }
+    let added = 0;
+    let guard = 0;
+    while (state.nextBand !== null && added < minAdd && guard < 12) {
+      guard += 1;
+      const b = state.nextBand;
+      if (!bandInRange(b)) { state.nextBand = null; break; }
+      const band = await loadBand(b);
+      if (band.total > 0) {
+        state.bands.push(band);
+        added += band.items.length;
+      }
+      const next = stepBand(b);
+      state.nextBand = bandInRange(next) ? next : null;
+    }
+  }
+
+  function renderBands() {
+    const scroller = grid.parentElement;
+    const scrollTop = scroller ? scroller.scrollTop : 0;
+    const cards = state.bands.reduce((s, b) => s + b.items.length, 0);
+    grid.innerHTML = state.bands.map(band => bandDividerHtml(band) + tilesHtml(band.items)).join('')
+      || '<p class="col-span-full text-sm text-gray-500 text-center py-8">Ничего не нашлось — попробуйте смягчить фильтры.</p>';
+    if (scroller) scroller.scrollTop = scrollTop;
+    const totalEst = [...state.types].reduce((sum, t) => sum + (state.totals[t] || 0), 0);
+    countEl.textContent = `показано ${cards} из ~${totalEst.toLocaleString('ru-RU')} · полнота по разделителям диапазонов`;
+    moreBtn.classList.toggle('hidden', state.nextBand === null);
+  }
+
+  // ---------- Префикс-лента (популярность / год) ----------
 
   // Докачивает указанные страницы типа в буфер (дедуп по id)
   async function fetchTypePages(type, pagesArr) {
     if (!pagesArr.length) return;
     const { sortRaw, voteGte, yearGte, yearLte } = state.params;
-    const genreMap = await getGenreMap(type);
-    const genreIds = [...state.genres].map(n => genreMap[n]).filter(Boolean);
-    const sortBy = sortByFor(type, sortRaw, state.dir);
+    const genreIds = await genreIdsFor(type);
     const rs = await Promise.all(pagesArr.map(page => discoverTitles({
       mediaType: type,
       genreIds,
-      sortBy,
+      sortBy: sortByFor(type, sortRaw, state.dir),
       voteGte,
       yearGte,
       yearLte,
@@ -215,27 +378,11 @@ export async function openCatalog(currentUser, onOpenTitle) {
     state.hasMoreType[type] = last.hasMore && last.items.length > 0;
   }
 
-  function tilesHtml(items) {
-    return items.map(item => `
-      <div class="catalog-item cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
-        <div class="relative group-hover:opacity-80 transition-opacity">
-          ${posterImg(item.poster_path, item.title, 'w-full aspect-[2/3] rounded-lg')}
-          ${item.vote_average
-            ? `<span class="absolute top-1 right-1 bg-black/70 text-cyan-300 text-[11px] font-bold px-1.5 py-0.5 rounded-md" title="Оценок на TMDb: ${item.vote_count || 0}">${Number(item.vote_average).toFixed(1)}</span>`
-            : '<span class="absolute top-1 right-1 bg-black/70 text-gray-400 text-[11px] font-medium px-1.5 py-0.5 rounded-md">нет оценок</span>'}
-        </div>
-        <div class="mt-1.5 text-xs font-medium line-clamp-2 leading-tight">${escapeHtml(item.title)}</div>
-        <div class="text-[11px] text-gray-500">${escapeHtml(releaseYear(item.release_date) || '—')} • ${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
-      </div>
-    `).join('');
-  }
-
   // Лента = строго отсортированный префикс буфера длиной cap.
   // cap — глубина, до которой покрытие точно полное: тайтл из глобального
   // топ-K внутри своего типа имеет ранг ≤ K, значит страниц типа должно быть
   // загружено ≥ K / PAGE_SIZE. Перерисовываем префикс целиком (сохраняя
-  // скролл): если TMDb прислал низкую позицию с опозданием, она встанет на
-  // своё место, а не пойдёт вниз по ленте.
+  // скролл): порядок на экране всегда совпадает с сортировкой буфера.
   function renderShown(replaceGrid) {
     const { sortRaw } = state.params;
     const merged = [...state.types].flatMap(t => state.buffers[t]);
@@ -256,38 +403,52 @@ export async function openCatalog(currentUser, onOpenTitle) {
     grid.innerHTML = tilesHtml(merged.slice(0, cap)) || '<p class="col-span-full text-sm text-gray-500 text-center py-8">Ничего не нашлось — попробуйте смягчить фильтры.</p>';
     if (!replaceGrid && scroller) scroller.scrollTop = scrollTop;
     const totalEst = [...state.types].reduce((sum, t) => sum + (state.totals[t] || 0), 0);
-    countEl.textContent = `показано ${cap} из ~${totalEst.toLocaleString('ru-RU')}`;
     const depthCapped = [...state.types].some(t => state.hasMoreType[t] && state.pages[t] >= MAX_PAGES);
     const canMore = merged.length > cap || [...state.types].some(t => state.hasMoreType[t] && state.pages[t] < MAX_PAGES);
     moreBtn.classList.toggle('hidden', !canMore);
-    countEl.textContent = depthCapped && !canMore
-      ? `${countEl.textContent} · предел глубины: дальше TMDb не гарантирует порядок — сузьте фильтры или нажмите «Случайное»`
-      : countEl.textContent;
+    countEl.textContent = `показано ${cap} из ~${totalEst.toLocaleString('ru-RU')}`;
+    if (depthCapped && !canMore) {
+      countEl.textContent += ' · предел глубины: дальше TMDb не гарантирует порядок — сузьте фильтры или нажмите «Случайное»';
+    }
+  }
+
+  // ---------- Общая загрузка ----------
+
+  function paintSkeleton() {
+    grid.innerHTML = Array.from({ length: 10 }).map(() => `
+      <div class="animate-pulse"><div class="w-full aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-1.5"></div></div>
+    `).join('');
+    countEl.textContent = '';
   }
 
   async function load(reset) {
     if (state.loading) return;
     state.loading = true;
     state.params = readParams();
+    const voteMode = state.params.sortRaw === 'vote';
     if (reset) {
       state.buffers = { movie: [], tv: [] };
       state.pages = { movie: 0, tv: 0 };
       state.hasMoreType = { movie: true, tv: true };
       state.shownCount = 0;
-      grid.innerHTML = Array.from({ length: 10 }).map(() => `
-        <div class="animate-pulse"><div class="w-full aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-1.5"></div></div>
-      `).join('');
-      countEl.textContent = '';
+      state.bands = [];
+      state.nextBand = null;
+      paintSkeleton();
     }
 
     try {
-      const pagesArrFor = (t) => reset
-        ? [1, 2]
-        : (state.hasMoreType[t] && state.pages[t] < MAX_PAGES
-          ? [state.pages[t] + 1, state.pages[t] + 2].filter(pg => pg <= MAX_PAGES)
-          : []);
-      await Promise.all([...state.types].map(t => fetchTypePages(t, pagesArrFor(t))));
-      renderShown(reset);
+      if (voteMode) {
+        await loadBandsUntil(40);
+        renderBands();
+      } else {
+        const pagesArrFor = (t) => reset
+          ? [1, 2]
+          : (state.hasMoreType[t] && state.pages[t] < MAX_PAGES
+            ? [state.pages[t] + 1, state.pages[t] + 2].filter(pg => pg <= MAX_PAGES)
+            : []);
+        await Promise.all([...state.types].map(t => fetchTypePages(t, pagesArrFor(t))));
+        renderShown(reset);
+      }
     } catch (e) {
       if (reset) {
         grid.innerHTML = `
@@ -357,20 +518,18 @@ export async function openCatalog(currentUser, onOpenTitle) {
     randomBtn.textContent = 'Ищем…';
     try {
       state.params = readParams();
-      const { sortRaw } = state.params;
+      const { voteGte, yearGte, yearLte } = state.params;
       const pool = [];
       await Promise.all([...state.types].map(async (type) => {
         const maxPage = Math.min(state.totalPages[type] || 1, 500);
         const page = 1 + Math.floor(Math.random() * maxPage);
-        const genreMap = await getGenreMap(type);
-        const genreIds = [...state.genres].map(n => genreMap[n]).filter(Boolean);
         const r = await discoverTitles({
           mediaType: type,
-          genreIds,
-          sortBy: sortByFor(type, sortRaw, state.dir),
-          voteGte: state.params.voteGte,
-          yearGte: state.params.yearGte,
-          yearLte: state.params.yearLte,
+          genreIds: await genreIdsFor(type),
+          sortBy: 'popularity.desc',
+          voteGte,
+          yearGte,
+          yearLte,
           page,
           limit: PAGE_SIZE
         });
@@ -391,6 +550,7 @@ export async function openCatalog(currentUser, onOpenTitle) {
     }
   }
   randomBtn.addEventListener('click', pickRandom);
+
   grid.addEventListener('click', (e) => {
     const item = e.target.closest('.catalog-item');
     if (!item) return;
