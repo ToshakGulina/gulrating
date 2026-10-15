@@ -93,3 +93,70 @@ export async function getTitleDetails(id, mediaType) {
     genres: (data.genres || []).map(g => g.name)
   };
 }
+
+// Приводим ответ TMDb к общему виду карточки рекомендации
+function mapResults(results, limit) {
+  return (results || [])
+    .filter(item => item.media_type === 'movie' || item.media_type === 'tv' || item.title || item.name)
+    .slice(0, limit)
+    .map(item => ({
+      id: item.id,
+      media_type: item.media_type || (item.title ? 'movie' : 'tv'),
+      title: item.title || item.name,
+      release_date: item.release_date || item.first_air_date,
+      poster_path: item.poster_path,
+      vote_average: item.vote_average
+    }));
+}
+
+// Рекомендации TMDb «похоже на» для тайтла (блок персонального подбора)
+export async function getRecommendations(id, mediaType, limit = 12) {
+  const data = await tmdbFetch(`/${mediaType}/${id}/recommendations`);
+  return mapResults(data.results, limit);
+}
+
+// Карта «название жанра → id» для фильмов или сериалов отдельно
+// (id жанров у TMDb различаются по типам). Имена приходят на русском
+// из-за language=ru-RU. Кэш на сессию: список жанров меняется крайне редко.
+let genreMapCache = null;
+export async function getGenreMap(mediaType) {
+  if (!genreMapCache) {
+    const [movies, tv] = await Promise.all([
+      tmdbFetch('/genre/movie/list'),
+      tmdbFetch('/genre/tv/list')
+    ]);
+    genreMapCache = { movie: {}, tv: {} };
+    for (const g of movies.genres || []) genreMapCache.movie[String(g.name).toLowerCase()] = g.id;
+    for (const g of tv.genres || []) genreMapCache.tv[String(g.name).toLowerCase()] = g.id;
+  }
+  return genreMapCache[mediaType === 'tv' ? 'tv' : 'movie'] || {};
+}
+
+// Каталог: discover с жанрами, сортировкой, порогом рейтинга и годами.
+// Возвращает страницу результатов и признак «есть ещё».
+export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortBy = 'popularity.desc', voteGte = 0, yearGte = '', yearLte = '', page = 1, limit = 18 } = {}) {
+  const params = new URLSearchParams({
+    sort_by: sortBy,
+    page: String(page),
+    'vote_count.gte': '50',
+    include_adult: 'false'
+  });
+  if (genreIds.length) params.set('with_genres', genreIds.join(','));
+  if (voteGte) params.set('vote_average.gte', String(voteGte));
+  const dateKey = mediaType === 'tv' ? 'first_air_date' : 'primary_release_date';
+  if (yearGte) params.set(`${dateKey}.gte`, `${yearGte}-01-01`);
+  if (yearLte) params.set(`${dateKey}.lte`, `${yearLte}-12-31`);
+  const path = mediaType === 'tv' ? '/discover/tv' : '/discover/movie';
+  const data = await tmdbFetch(`${path}?${params.toString()}`);
+  return {
+    items: mapResults(data.results, limit),
+    hasMore: (data.page || 1) < (data.total_pages || 1) && (data.page || 1) < 20
+  };
+}
+
+// Популярное в жанре: для клика по жанру в карточке фильма
+export async function discoverByGenre(genreId, mediaType = 'movie', limit = 12) {
+  const path = mediaType === 'tv' ? '/discover/tv' : '/discover/movie';
+  const data = await tmdbFetch(`${path}?with_genres=${genreId}&sort_by=popularity.desc&vote_count.gte=50`);
+  return mapResults(data.results, limit);
+}
