@@ -36,6 +36,15 @@ let activeFilter = 'all';
 let activeSort = readSort();   // сортировка ленты: new | rating_desc | rating_asc
 let feedChannel = null;
 let realtimeTimer = null;
+// Вкладки трендов: каждая — своя выборка TMDb, показываются сеткой
+const TREND_TABS = [
+  { key: 'day', label: 'Сегодня', mediaType: 'all', window: 'day' },
+  { key: 'week', label: 'Неделя', mediaType: 'all', window: 'week' },
+  { key: 'movie', label: 'Фильмы', mediaType: 'movie', window: 'week' },
+  { key: 'tv', label: 'Сериалы', mediaType: 'tv', window: 'week' },
+];
+let trendsActive = 'week';
+
 // Кэши рекомендаций на сессию: TMDb-запросы дорогие, повторный рендер ленты их не повторяет
 const recsCache = { trends: {}, personal: null, personalKey: '' };
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
@@ -361,33 +370,50 @@ async function loadRecs(currentUser) {
   }
 
   section.innerHTML = `
-    ${recRowSkeleton('recs-trend-day', 'В тренде сегодня')}
-    ${recRowSkeleton('recs-popular', 'Популярно сейчас')}
-    ${recRowSkeleton('recs-trend-movie', 'Популярные фильмы')}
-    ${recRowSkeleton('recs-trend-tv', 'Популярные сериалы')}
+    <div id="recs-trends">
+      <div class="flex items-center gap-2 mb-3 overflow-x-auto scrollbar-hide">
+        <h3 class="font-semibold mr-1">Тренды</h3>
+        ${TREND_TABS.map(t => `<button class="trend-tab px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap ${t.key === trendsActive ? 'bg-primary text-white' : 'bg-card hover:bg-slate-700 text-gray-300'}" data-key="${t.key}">${t.label}</button>`).join('')}
+      </div>
+      <div id="trends-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+        ${Array.from({ length: 12 }).map(() => `<div class="animate-pulse"><div class="w-full aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-1.5"></div></div>`).join('')}
+      </div>
+    </div>
     ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
     ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
     ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
   `;
 
-  // Тренды: четыре ряда (сутки, неделя, фильмы, сериалы), каждый со своим
-  // кэшем на сессию и независимой загрузкой — один упавший ряд не тянет остальных
-  const trendRows = [
-    { id: 'recs-trend-day', title: 'В тренде сегодня', sub: 'сутки · TMDb', key: 'day', mediaType: 'all', window: 'day' },
-    { id: 'recs-popular', title: 'Популярно сейчас', sub: 'неделя · TMDb', key: 'week', mediaType: 'all', window: 'week' },
-    { id: 'recs-trend-movie', title: 'Популярные фильмы', sub: 'неделя · TMDb · только фильмы', key: 'movie', mediaType: 'movie', window: 'week' },
-    { id: 'recs-trend-tv', title: 'Популярные сериалы', sub: 'неделя · TMDb · только сериалы', key: 'tv', mediaType: 'tv', window: 'week' },
-  ];
-  await Promise.all(trendRows.map(async (row) => {
+  // Тренды: четыре выборки грузятся параллельно, активная вкладка — сеткой
+  await Promise.all(TREND_TABS.map(async (t) => {
+    if (recsCache.trends[t.key]) return;
     try {
-      if (!recsCache.trends[row.key]) {
-        recsCache.trends[row.key] = await getTrending({ mediaType: row.mediaType, window: row.window, limit: 15 });
-      }
-      fillRecRow(section, row.id, row.title, row.sub, recsCache.trends[row.key], null, 'Тренды недоступны — проверьте соединение с TMDb.');
+      recsCache.trends[t.key] = await getTrending({ mediaType: t.mediaType, window: t.window, limit: 18 });
     } catch (e) {
-      dropRecRow(section, row.id);
+      recsCache.trends[t.key] = null;
     }
   }));
+  renderTrendsGrid(currentUser);
+
+  // Вкладки трендов + делегированный клик по карточкам рекомендаций
+  section.querySelectorAll('.trend-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (trendsActive === btn.dataset.key) return;
+      trendsActive = btn.dataset.key;
+      renderTrendsGrid(currentUser);
+    });
+  });
+  if (!section.dataset.bound) {
+    section.dataset.bound = '1';
+    section.addEventListener('click', (e) => {
+      const card = e.target.closest('.rec-card');
+      if (!card) return;
+      openRatingModal(card.dataset.id, card.dataset.type, currentUser, () => {
+        loadRatings(currentUser, activeFilter);
+        loadRecs(currentUser);
+      });
+    });
+  }
 
   // Ряд 2 и 3: одним запросом по всем оценкам компании
   try {
@@ -471,14 +497,42 @@ async function loadRecs(currentUser) {
     dropRecRow(section, 'recs-personal');
   }
 
-  section.querySelectorAll('.rec-card').forEach(card => {
-    card.addEventListener('click', () => {
-      openRatingModal(card.dataset.id, card.dataset.type, currentUser, () => {
-        loadRatings(currentUser, activeFilter);
-        loadRecs(currentUser);
-      });
-    });
+}
+
+// Сетка активной вкладки трендов + подсветка активной кнопки
+function renderTrendsGrid(currentUser) {
+  const grid = document.getElementById('trends-grid');
+  if (!grid) return;
+  const items = recsCache.trends[trendsActive];
+  document.querySelectorAll('.trend-tab').forEach(btn => {
+    const active = btn.dataset.key === trendsActive;
+    btn.classList.toggle('bg-primary', active);
+    btn.classList.toggle('text-white', active);
+    btn.classList.toggle('bg-card', !active);
+    btn.classList.toggle('hover:bg-slate-700', !active);
+    btn.classList.toggle('text-gray-300', !active);
   });
+  if (!items) {
+    grid.innerHTML = '<p class="col-span-full text-sm text-gray-500 py-6">Тренды недоступны — проверьте соединение с TMDb.</p>';
+    return;
+  }
+  if (!items.length) {
+    grid.innerHTML = '<p class="col-span-full text-sm text-gray-500 py-6">В этой выборке пусто.</p>';
+    return;
+  }
+  grid.innerHTML = items.map(item => {
+    const year = releaseYear(item.release_date);
+    return `
+      <div class="rec-card cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
+        <div class="relative group-hover:opacity-80 transition-opacity">
+          ${posterImg(item.poster_path, item.title, 'w-full aspect-[2/3] rounded-lg shadow-lg')}
+          ${item.vote_average ? `<span class="absolute top-1 right-1 bg-black/700 text-cyan-300 text-[11px] font-bold px-1.5 py-0.5 rounded-md">${Number(item.vote_average).toFixed(1)}</span>` : ''}
+        </div>
+        <div class="mt-1.5 text-xs font-medium truncate">${escapeHtml(item.title)}</div>
+        <div class="text-[11px] text-gray-500">${year ? escapeHtml(year) + ' • ' : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
+      </div>
+    `;
+  }).join('');
 }
 
 // Название тайтла пользователя для подписи третьего ряда

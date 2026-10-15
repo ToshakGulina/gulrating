@@ -56,6 +56,19 @@
   </style>
   <style>
     :root { --p-rgb: 99 102 241; }
+
+    /* Тонкие скроллбары: горизонтальные ленты не выглядят тяжеловесно */
+    * { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    *::-webkit-scrollbar { width: 6px; height: 6px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+    /* Нижняя навигация не наезжает на домашний индикатор iPhone */
+    nav.fixed { padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
+
+    /* Карточки ленты: тонкая рамка и мягкий отклик вместо плоских плиток */
+    #ratings-list .title-card { border: 1px solid rgb(51 65 85 / .45); transition: border-color .15s ease, background-color .15s ease; }
+    #ratings-list .title-card:hover { border-color: rgb(71 85 105 / .8); }
     /* Заставка до загрузки JS — чтобы не было пустого белого экрана */
     #boot-splash {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
