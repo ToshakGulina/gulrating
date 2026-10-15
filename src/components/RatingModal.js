@@ -5,6 +5,17 @@ import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
+// Фирменные иконки источников оценок (inline SVG, без внешних запросов):
+// Кинопоиск — оранжевая звезда их рейтинговой шкалы,
+// TMDb — зелёный квадрат фирменного цвета (#90cea4),
+// друзья — розовый силуэт компании.
+const KP_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><path fill="#ff5c00" d="M12 1.8l3 6.5 7.1.8-5.3 4.9 1.5 7-6.3-3.6-6.3 3.6 1.5-7L2 9.1l7.1-.8z"/></svg>';
+const TMDB_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#90cea4"/><text x="12" y="15.5" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="7.5" font-weight="700" fill="#0d253f">TMDb</text></svg>';
+const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="#f472b6"><path d="M9 11a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5zm8-2a3.5 3.5 0 10-2.4-6 5.5 5.5 0 010 8c.8.6 1.6 1 2.4 1zm0 2c-.6 0-1.3-.1-2-.3 1.2 1 2 2.3 2 3.8v1.5h6v-2c0-2.2-3.6-3-6-3z"/></svg>';
+
+// Пока оценка не выбрана — показываем «пустой» контур звезды вместо черты
+const EMPTY_STAR = '<svg viewBox="0 0 24 24" class="w-11 h-11" aria-hidden="true"><path fill="none" stroke="#64748b" stroke-width="1.5" stroke-linejoin="round" d="M12 2.6l2.9 6.2 6.8.8-5 4.7 1.3 6.7-6-3.4-6 3.4 1.3-6.7-5-4.7 6.8-.8z"/></svg>';
+
 export async function openRatingModal(titleId, mediaType, currentUser, onSaveCallback) {
   // Создаем оверлей модалки
   const modal = document.createElement('div');
@@ -95,23 +106,26 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           <div class="flex gap-2 flex-wrap mb-2">
             ${(title.genres || []).slice(0, 3).map(g => `<span class="text-xs px-2 py-0.5 bg-slate-700 rounded-full">${escapeHtml(g)}</span>`).join('')}
           </div>
-          <div class="flex gap-3 text-sm flex-wrap">
-            ${kpRating !== null ? `<span class="flex items-center gap-1"><span class="text-orange-400">★</span> Кинопоиск: ${kpRating.toFixed(1)}</span>` : ''}
-            ${title.tmdb_rating ? `<span class="flex items-center gap-1"><span class="text-cyan-400">★</span> TMDb: ${Number(title.tmdb_rating).toFixed(1)}</span>` : ''}
-            ${averageRating ? `<span class="flex items-center gap-1"><span class="text-pink-400">★</span> Средняя у друзей: ${averageRating}</span>` : ''}
+          <div class="flex flex-col items-start gap-1.5 text-sm">
+            ${kpRating !== null ? `<span class="flex items-center gap-1.5">${KP_ICON} Кинопоиск: <b class="text-orange-300">${kpRating.toFixed(1)}</b></span>` : ''}
+            ${title.tmdb_rating ? `<span class="flex items-center gap-1.5">${TMDB_ICON} TMDb: <b class="text-cyan-300">${Number(title.tmdb_rating).toFixed(1)}</b></span>` : ''}
+            ${averageRating ? `<span class="flex items-center gap-1.5">${FRIENDS_ICON} Средняя у друзей: <b class="text-pink-300">${averageRating}</b></span>` : ''}
           </div>
         </div>
       </div>
 
-      ${title.overview ? `<p class="text-sm text-gray-300 mb-4 line-clamp-3">${escapeHtml(title.overview)}</p>` : ''}
+      ${title.overview ? `
+        <p id="overview-text" class="text-sm text-gray-300 mb-1 line-clamp-3">${escapeHtml(title.overview)}</p>
+        <button id="overview-toggle" class="text-xs text-primary hover:underline mb-4 hidden">Читать дальше</button>
+      ` : ''}
 
       <div class="border-t border-slate-700 pt-4 mb-4">
         <h4 class="font-semibold mb-3">Ваша оценка</h4>
 
         <!-- Слайдер оценки: как яркость на телефоне, с шагом 0.1 -->
         <div class="text-center mb-2">
-          <span id="rating-value" class="text-5xl font-bold">—</span>
-          <span class="text-gray-500 text-lg ml-1">/10</span>
+          <span id="rating-value" class="text-5xl font-bold align-middle"></span>
+          <span id="rating-scale" class="text-gray-500 text-lg ml-1 hidden">/10</span>
         </div>
         <div class="flex items-center gap-3 mb-3">
           <button id="rating-minus" class="w-10 h-10 flex-shrink-0 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold" aria-label="Минус 0.1">−</button>
@@ -162,6 +176,20 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       ` : ''}
     `;
 
+    // --- Раскрывающееся описание ---
+    const overviewText = document.getElementById('overview-text');
+    const overviewToggle = document.getElementById('overview-toggle');
+    if (overviewText && overviewToggle) {
+      // Кнопка нужна только если текст реально обрезан
+      if (overviewText.scrollHeight > overviewText.clientHeight + 4) {
+        overviewToggle.classList.remove('hidden');
+      }
+      overviewToggle.addEventListener('click', () => {
+        const collapsed = overviewText.classList.toggle('line-clamp-3');
+        overviewToggle.textContent = collapsed ? 'Читать дальше' : 'Свернуть';
+      });
+    }
+
     // --- Логика слайдера оценки ---
     const slider = document.getElementById('rating-slider');
     const valueEl = document.getElementById('rating-value');
@@ -174,13 +202,17 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
 
     function renderValue() {
+      const scaleEl = document.getElementById('rating-scale');
       if (selectedScore === null) {
-        valueEl.textContent = '—';
-        valueEl.className = 'text-5xl font-bold text-gray-500';
+        valueEl.innerHTML = EMPTY_STAR;
+        valueEl.className = 'font-bold text-gray-500 align-middle';
+        valueEl.title = 'Оценка ещё не выбрана';
+        scaleEl.classList.add('hidden');
         return;
       }
       valueEl.textContent = formatRating(selectedScore);
       valueEl.className = `text-5xl font-bold ${valueColor(selectedScore)}`;
+      scaleEl.classList.remove('hidden');
     }
 
     function setScore(n, fromSlider) {
