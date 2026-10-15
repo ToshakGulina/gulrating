@@ -85,6 +85,10 @@ export async function renderProfilePage(app, currentUser) {
               <button id="avatar-remove-btn" class="text-xs text-gray-400 hover:text-white">Убрать аватар</button>
             </div>
           </div>
+          <div class="mb-4">
+            <p class="text-xs text-gray-500 mb-2">Или выберите готовый аватар</p>
+            <div id="avatar-presets" class="grid grid-cols-8 sm:grid-cols-12 gap-2"></div>
+          </div>
           <div class="flex gap-2">
             <input id="nick-input" type="text" value="${escapeHtml(currentUser.profile.username)}" maxlength="40"
               class="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white" placeholder="Ник">
@@ -212,6 +216,7 @@ export async function renderProfilePage(app, currentUser) {
   // --- Настройки: аватар, ник, лента ---
   const avatarPreview = document.getElementById('avatar-preview');
   const avatarInput = document.getElementById('avatar-input');
+  const presetsBox = document.getElementById('avatar-presets');
   const nickInput = document.getElementById('nick-input');
   const sortSelect = document.getElementById('sort-select');
   const recsToggle = document.getElementById('recs-toggle');
@@ -245,6 +250,27 @@ export async function renderProfilePage(app, currentUser) {
       showToast('Не удалось прочитать картинку', 'error', 5000);
     }
     avatarInput.value = '';
+  });
+
+  // Пресеты аватаров: emoji на цветном фоне, хранится как data-URI SVG
+  presetsBox.innerHTML = AVATAR_PRESETS.map(([emoji, bg], i) => `
+    <button class="avatar-preset aspect-square rounded-full overflow-hidden border-2 ${currentUser.profile.avatar_url === presetAvatarUri(emoji, bg) ? 'border-primary' : 'border-transparent'} hover:border-slate-500" data-i="${i}" title="Выбрать аватар">
+      <img src="${presetAvatarUri(emoji, bg)}" alt="" class="w-full h-full">
+    </button>
+  `).join('');
+  presetsBox.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.avatar-preset');
+    if (!btn) return;
+    const [emoji, bg] = AVATAR_PRESETS[Number(btn.dataset.i)];
+    const uri = presetAvatarUri(emoji, bg);
+    if (await saveProfileFields({ avatar_url: uri })) {
+      avatarPreview.src = uri;
+      presetsBox.querySelectorAll('.avatar-preset').forEach((b) => {
+        b.classList.toggle('border-primary', b === btn);
+        b.classList.toggle('border-transparent', b !== btn);
+      });
+      showToast('Аватар обновлён', 'success');
+    }
   });
 
   document.getElementById('avatar-remove-btn').addEventListener('click', async () => {
@@ -497,6 +523,22 @@ function initTitleCards(currentUser) {
 }
 
 // Уменьшает картинку до квадрата не больше maxSide и отдаёт data-URL JPEG.
+// Пресеты аватаров: emoji на цветном фоне. Храним как data-URI SVG прямо
+// в profiles.avatar_url — отдельное хранилище не нужно.
+const AVATAR_PRESETS = [
+  ['🦖', '#0f766e'], ['🦊', '#b45309'], ['🐙', '#7c3aed'], ['🦉', '#334155'],
+  ['🐸', '#3f6212'], ['🦄', '#be185d'], ['🐳', '#0c4a6e'], ['🦅', '#78350f'],
+  ['🐢', '#166534'], ['🦋', '#1d4ed8'], ['🍄', '#b91c1c'], ['🌵', '#15803d'],
+  ['🎬', '#1e293b'], ['🍿', '#a16207'], ['👾', '#6d28d9'], ['🤖', '#475569'],
+  ['🐺', '#57534e'], ['🔥', '#c2410c'], ['❄️', '#0369a1'], ['🌙', '#312e81'],
+  ['⭐', '#a16207'], ['🎧', '#0f766e'], ['🐻', '#713f12'], ['🍩', '#9d174d']
+];
+
+function presetAvatarUri(emoji, bg) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="32" fill="${bg}"/><text x="32" y="45" font-size="36" text-anchor="middle">${emoji}</text></svg>`;
+  return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+}
+
 // Храним аватар прямо в profiles.avatar_url — отдельное хранилище не нужно.
 function downscaleImage(file, maxSide) {
   return new Promise((resolve, reject) => {

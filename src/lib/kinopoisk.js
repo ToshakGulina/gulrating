@@ -23,6 +23,13 @@ const DIRECT_BASE = 'https://api.poiskkino.dev';
 // Кэш на сессию: повторное открытие карточки не тратит лимит запросов
 const cache = new Map();
 
+// Ссылка на страницу тайтла на Кинопоиске; по требованию домен
+// kinopoisk.ru в итоговой ссылке заменяется на kinokino.vip
+export function kinopoiskPageUrl(kpId) {
+  if (!kpId) return '';
+  return `https://www.kinopoisk.ru/film/${kpId}/`.replace('kinopoisk.ru', 'kinokino.vip');
+}
+
 export function kinopoiskConfigured() {
   return Boolean(CONFIG.KINOPOISK_API_KEY) || Boolean(CONFIG.KINOPOISK_PROXY_URL);
 }
@@ -135,7 +142,8 @@ export async function getKinopoiskRatings(title, originalTitle, year) {
 
       const ratings = extractRatings(matched);
       if (ratings && Object.values(ratings).some((x) => x !== null)) {
-        result = ratings;
+        const rawId = matched && (matched.id !== undefined ? matched.id : matched.kinopoiskId);
+        result = { ...ratings, kpId: rawId !== undefined && rawId !== null ? Number(rawId) : null };
         break;
       }
     }
