@@ -3,7 +3,8 @@ import { CONFIG } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { searchTitles } from '../lib/tmdb.js';
 import { openRatingModal } from './RatingModal.js';
-import { escapeHtml, safeAvatarUrl, releaseYear } from '../lib/dom.js';
+import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating } from '../lib/dom.js';
+import { getSearchQueries, getRecentTitles, addSearchQuery, clearHistory } from '../lib/history.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -181,7 +182,7 @@ async function loadRatings(currentUser, filter = 'all') {
               </div>
               ${!isWatchlistView ? `
                 <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
-                  ${escapeHtml(item.rating)}
+                  ${escapeHtml(formatRating(item.rating))}
                 </div>
               ` : `
                 <div class="px-2 py-1 rounded-lg bg-slate-700 text-yellow-400 font-medium text-sm">
@@ -219,6 +220,77 @@ function initSearch(currentUser) {
   const searchInput = document.getElementById('search-input');
   const resultsContainer = document.getElementById('search-results');
   let searchTimeout;
+
+  // При фокусе на пустом поле показываем историю поиска
+  searchInput.addEventListener('focus', () => {
+    if (searchInput.value.trim().length < 2) showHistoryDropdown();
+  });
+
+  // История: недавние запросы и недавно открытые тайтлы (хранятся локально)
+  function showHistoryDropdown() {
+    const queries = getSearchQueries();
+    const titles = getRecentTitles();
+    if (queries.length === 0 && titles.length === 0) {
+      resultsContainer.classList.add('hidden');
+      return;
+    }
+
+    resultsContainer.innerHTML = `
+      <div class="p-2 flex items-center justify-between border-b border-slate-700">
+        <span class="text-xs text-gray-500 px-1">Недавние</span>
+        <button id="clear-history-btn" class="text-xs text-gray-400 hover:text-white px-2 py-1 rounded">Очистить</button>
+      </div>
+      ${queries.length ? `
+        <div class="p-1">
+          ${queries.map(q => `
+            <div class="history-query p-2 hover:bg-slate-700 cursor-pointer flex items-center gap-2 rounded-lg" data-query="${escapeHtml(q)}">
+              <svg class="w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <span class="text-sm truncate">${escapeHtml(q)}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+      ${titles.length ? `
+        <div class="p-1 border-t border-slate-700">
+          ${titles.map(t => `
+            <div class="history-title p-2 hover:bg-slate-700 cursor-pointer flex items-center gap-3 rounded-lg" data-id="${escapeHtml(t.id)}" data-type="${escapeHtml(t.media_type)}">
+              ${t.poster_path
+                ? `<img src="${CONFIG.TMDB_IMG_BASE}${escapeHtml(t.poster_path)}" alt="" loading="lazy" class="w-8 h-12 rounded object-cover">`
+                : `<div class="w-8 h-12 rounded bg-slate-700 flex items-center justify-center text-xs">🎬</div>`
+              }
+              <div class="min-w-0">
+                <div class="text-sm truncate">${escapeHtml(t.title)}</div>
+                <div class="text-xs text-gray-500">${escapeHtml(t.year || '')}${t.year ? ' • ' : ''}${t.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    `;
+    resultsContainer.classList.remove('hidden');
+
+    document.getElementById('clear-history-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearHistory();
+      resultsContainer.classList.add('hidden');
+      showToast('История очищена', 'success');
+    });
+    document.querySelectorAll('.history-query').forEach(el => {
+      el.addEventListener('click', () => {
+        searchInput.value = el.dataset.query;
+        searchInput.dispatchEvent(new Event('input'));
+        searchInput.focus();
+      });
+    });
+    document.querySelectorAll('.history-title').forEach(el => {
+      el.addEventListener('click', () => {
+        resultsContainer.classList.add('hidden');
+        openRatingModal(el.dataset.id, el.dataset.type, currentUser, () => {
+          loadRatings(currentUser, activeFilter);
+        });
+      });
+    });
+  }
 
   searchInput.addEventListener('input', async (e) => {
     clearTimeout(searchTimeout);
@@ -266,6 +338,9 @@ function initSearch(currentUser) {
           item.addEventListener('click', () => {
             const titleId = item.dataset.id;
             const mediaType = item.dataset.type;
+
+            // Запоминаем запрос, который привёл к выбору
+            addSearchQuery(searchInput.value);
 
             resultsContainer.classList.add('hidden');
             searchInput.value = '';

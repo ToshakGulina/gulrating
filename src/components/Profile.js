@@ -3,7 +3,7 @@ import { CONFIG } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { openRatingModal } from './RatingModal.js';
 import { cleanupFeed } from './Feed.js';
-import { escapeHtml, safeAvatarUrl, releaseYear, showToast } from '../lib/dom.js';
+import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating } from '../lib/dom.js';
 
 export async function renderProfilePage(app, currentUser) {
   cleanupFeed();
@@ -258,7 +258,7 @@ function renderMyRatings(ratings) {
               <h3 class="font-semibold leading-tight">${escapeHtml(title.title)}</h3>
               <p class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${title.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
             </div>
-            <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold min-w-[40px] text-center">${escapeHtml(r.rating)}</div>
+            <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold min-w-[40px] text-center">${escapeHtml(formatRating(r.rating))}</div>
           </div>
           ${r.comment ? `<p class="mt-1 text-sm text-gray-300 line-clamp-2">${escapeHtml(r.comment)}</p>` : ''}
           <p class="text-xs text-gray-500 mt-1">${formatDistanceToNow(new Date(r.created_at))}</p>

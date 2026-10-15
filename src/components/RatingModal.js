@@ -1,8 +1,10 @@
 import { CONFIG } from '../config.js';
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
 import { getTitleDetails } from '../lib/tmdb.js';
+import { getKinopoiskRating } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
-import { escapeHtml, safeAvatarUrl, releaseYear, showToast } from '../lib/dom.js';
+import { addRecentTitle } from '../lib/history.js';
+import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating } from '../lib/dom.js';
 
 export async function openRatingModal(titleId, mediaType, currentUser, onSaveCallback) {
   // Создаем оверлей модалки
@@ -52,23 +54,33 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
   });
 
   try {
-    // Загружаем детали тайтла и статус пользователя
-    const [title, status] = await Promise.all([
-      getTitleDetails(titleId, mediaType),
-      getUserTitleStatus(currentUser.id, titleId)
+    // Загружаем детали тайтла, затем параллельно статус пользователя,
+    // оценки друзей и (опционально) рейтинг Кинопоиска
+    const title = await getTitleDetails(titleId, mediaType);
+    const year = releaseYear(title.release_date);
+
+    const [status, allRatings, kpRating] = await Promise.all([
+      getUserTitleStatus(currentUser.id, titleId),
+      supabase
+        .from('ratings')
+        .select(`*, profiles!inner(*)`)
+        .eq('title_id', titleId)
+        .order('rating', { ascending: false })
+        .then(({ data }) => data || []),
+      getKinopoiskRating(title.title, title.original_title, year)
     ]);
 
-    // Получаем все оценки на этот тайтл
-    const { data: ratings } = await supabase
-      .from('ratings')
-      .select(`*, profiles!inner(*)`)
-      .eq('title_id', titleId)
-      .order('rating', { ascending: false });
+    // Запоминаем тайтл в «недавно открытых» для истории поиска
+    addRecentTitle({
+      id: title.id,
+      media_type: mediaType,
+      title: title.title,
+      poster_path: title.poster_path,
+      year
+    });
 
-    const allRatings = ratings || [];
-    const year = releaseYear(title.release_date);
     const averageRating = allRatings.length > 0
-      ? (allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length).toFixed(1)
+      ? (allRatings.reduce((sum, r) => sum + Number(r.rating), 0) / allRatings.length).toFixed(1)
       : null;
 
     modal.querySelector('h2').textContent = title.title || 'Фильм';
@@ -88,6 +100,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             ${(title.genres || []).slice(0, 3).map(g => `<span class="text-xs px-2 py-0.5 bg-slate-700 rounded-full">${escapeHtml(g)}</span>`).join('')}
           </div>
           <div class="flex gap-3 text-sm flex-wrap">
+            ${kpRating !== null ? `<span class="flex items-center gap-1"><span class="text-orange-400">★</span> Кинопоиск: ${kpRating.toFixed(1)}</span>` : ''}
             ${title.tmdb_rating ? `<span class="flex items-center gap-1"><span class="text-cyan-400">★</span> TMDb: ${Number(title.tmdb_rating).toFixed(1)}</span>` : ''}
             ${averageRating ? `<span class="flex items-center gap-1"><span class="text-pink-400">★</span> Средняя у друзей: ${averageRating}</span>` : ''}
           </div>
@@ -98,11 +111,19 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
       <div class="border-t border-slate-700 pt-4 mb-4">
         <h4 class="font-semibold mb-3">Ваша оценка</h4>
-        <div class="flex gap-1 mb-3 flex-wrap" id="rating-stars">
-          ${Array.from({ length: 10 }, (_, i) => i + 1).map(score => `
-            <button class="rating-star w-9 h-9 rounded-lg text-lg font-bold ${status.hasRating && status.rating.rating === score ? 'bg-primary text-white' : 'bg-slate-700 hover:bg-slate-600'}" data-score="${score}">${score}</button>
-          `).join('')}
+
+        <!-- Слайдер оценки: как яркость на телефоне, с шагом 0.1 -->
+        <div class="text-center mb-2">
+          <span id="rating-value" class="text-5xl font-bold">—</span>
+          <span class="text-gray-500 text-lg ml-1">/10</span>
         </div>
+        <div class="flex items-center gap-3 mb-3">
+          <button id="rating-minus" class="w-10 h-10 flex-shrink-0 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold" aria-label="Минус 0.1">−</button>
+          <input type="range" id="rating-slider" min="1" max="10" step="0.1" class="rating-slider flex-1" aria-label="Оценка от 1 до 10">
+          <button id="rating-plus" class="w-10 h-10 flex-shrink-0 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold" aria-label="Плюс 0.1">+</button>
+        </div>
+        <p class="text-xs text-gray-500 text-center mb-3">Тяните бегунок или листайте кнопками — шаг 0.1</p>
+
         <textarea id="rating-comment" placeholder="Комментарий (опционально)" rows="2"
           class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500 text-sm mb-3"
         >${escapeHtml(status.hasRating ? (status.rating.comment || '') : '')}</textarea>
@@ -134,7 +155,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2">
                     <span class="font-medium text-sm">${escapeHtml(r.profiles.username)}</span>
-                    <span class="font-bold text-sm ${r.rating >= 8 ? 'text-green-400' : r.rating >= 5 ? 'text-yellow-400' : 'text-red-400'}">${escapeHtml(r.rating)}/10</span>
+                    <span class="font-bold text-sm ${Number(r.rating) >= 8 ? 'text-green-400' : Number(r.rating) >= 5 ? 'text-yellow-400' : 'text-red-400'}">${escapeHtml(formatRating(r.rating))}/10</span>
                   </div>
                   ${r.comment ? `<p class="text-sm text-gray-400 mt-0.5">${escapeHtml(r.comment)}</p>` : ''}
                 </div>
@@ -145,24 +166,50 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       ` : ''}
     `;
 
-    // Обработка выбора оценки
-    let selectedScore = status.hasRating ? status.rating.rating : null;
-    document.querySelectorAll('.rating-star').forEach(star => {
-      star.addEventListener('click', () => {
-        selectedScore = parseInt(star.dataset.score, 10);
-        document.querySelectorAll('.rating-star').forEach(s => {
-          s.classList.remove('bg-primary', 'text-white');
-          s.classList.add('bg-slate-700', 'hover:bg-slate-600');
-        });
-        star.classList.remove('bg-slate-700', 'hover:bg-slate-600');
-        star.classList.add('bg-primary', 'text-white');
-      });
+    // --- Логика слайдера оценки ---
+    const slider = document.getElementById('rating-slider');
+    const valueEl = document.getElementById('rating-value');
+    let selectedScore = status.hasRating ? Math.round(Number(status.rating.rating) * 10) / 10 : null;
+
+    function valueColor(n) {
+      if (n >= 8) return 'text-green-400';
+      if (n >= 5) return 'text-yellow-400';
+      return 'text-red-400';
+    }
+
+    function renderValue() {
+      if (selectedScore === null) {
+        valueEl.textContent = '—';
+        valueEl.className = 'text-5xl font-bold text-gray-500';
+        return;
+      }
+      valueEl.textContent = formatRating(selectedScore);
+      valueEl.className = `text-5xl font-bold ${valueColor(selectedScore)}`;
+    }
+
+    function setScore(n, fromSlider) {
+      selectedScore = Math.min(10, Math.max(1, Math.round(n * 10) / 10));
+      if (!fromSlider) slider.value = String(selectedScore);
+      renderValue();
+    }
+
+    slider.addEventListener('input', () => setScore(parseFloat(slider.value), true));
+    document.getElementById('rating-minus').addEventListener('click', () => {
+      setScore((selectedScore === null ? 5.1 : selectedScore) - 0.1, false);
     });
+    document.getElementById('rating-plus').addEventListener('click', () => {
+      setScore((selectedScore === null ? 4.9 : selectedScore) + 0.1, false);
+    });
+
+    if (selectedScore !== null) {
+      slider.value = String(selectedScore);
+    }
+    renderValue();
 
     // Сохранение оценки
     document.getElementById('save-rating-btn').addEventListener('click', async () => {
-      if (!selectedScore) {
-        showToast('Выберите оценку от 1 до 10', 'error');
+      if (selectedScore === null) {
+        showToast('Подвиньте бегунок, чтобы поставить оценку', 'error');
         return;
       }
       const comment = document.getElementById('rating-comment').value.trim();
@@ -174,7 +221,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       try {
         await saveRating(currentUser.id, titleId, mediaType, selectedScore, comment);
         closeModal();
-        showToast('Оценка сохранена', 'success');
+        showToast(`Оценка ${formatRating(selectedScore)} сохранена`, 'success');
         if (onSaveCallback) onSaveCallback();
       } catch (e) {
         showToast('Ошибка при сохранении: ' + e.message, 'error', 5000);

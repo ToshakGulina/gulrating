@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS public.ratings (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
   title_id BIGINT REFERENCES public.titles(id) ON DELETE CASCADE NOT NULL,
-  rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 10),
+  -- NUMERIC(3,1): оценка с точностью до десятых (7.5, 8.3) — слайдер в интерфейсе
+  rating NUMERIC(3,1) NOT NULL CHECK (rating BETWEEN 1 AND 10),
   comment TEXT,
   tags TEXT[] DEFAULT '{}'::text[],
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
@@ -89,6 +90,10 @@ CREATE TABLE IF NOT EXISTS public.watchlist (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   UNIQUE(user_id, title_id)
 );
+
+-- Миграция для баз, созданных старыми версиями схемы: оценки были SMALLINT,
+-- теперь допускаем десятые доли. Повторный запуск безопасен (тип уже такой).
+ALTER TABLE public.ratings ALTER COLUMN rating TYPE NUMERIC(3,1);
 
 -- Индексы для быстрых выборок ленты и карточки фильма
 CREATE INDEX IF NOT EXISTS idx_ratings_created_at ON public.ratings (created_at DESC);

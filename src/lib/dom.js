@@ -35,6 +35,13 @@ export function releaseYear(releaseDate) {
   return Number.isFinite(year) && year > 1000 ? String(year) : '';
 }
 
+// Красивый показ оценки: 8 -> "8", 7.5 -> "7.5" (оценки теперь с десятыми)
+export function formatRating(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  return Number.isInteger(n) ? String(n) : (Math.round(n * 10) / 10).toFixed(1);
+}
+
 // Показать всплывающее сообщение (аккуратнее, чем alert): тост внизу экрана
 export function showToast(message, type = 'info', timeout = 3500) {
   const container = document.getElementById('toast-container') || createToastContainer();
