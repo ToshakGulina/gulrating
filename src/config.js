@@ -22,7 +22,7 @@ function readStoredAnonKey() {
   }
 }
 
-const FILE_ANON_KEY = "ВСТАВЬТЕ_ANON_KEY_ИЗ_SUPABASE";
+const FILE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFocGd4eWZrYnZ1YWJndHJnYWN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDkzNzksImV4cCI6MjEwNzYyNTM3OX0.8yQcEkiA2zQv_nt5ZqrVq0kNkJ4QuSne3aMnpSn7OlA";
 const storedAnonKey = readStoredAnonKey();
 
 // Ключ из localStorage имеет приоритет над файлом (если он похож на настоящий)
@@ -31,7 +31,11 @@ export const ANON_KEY_SOURCE = (storedAnonKey && !/ВАШ_|ВСТАВЬТЕ/.tes
   : 'config.js';
 
 export const CONFIG = {
-  // Supabase
+  // Supabase (проект GulRating, регион Frankfurt eu-central-1).
+  // Project URL — это адрес проекта; строка вида sb_publishable_... в дашборде
+  // называется "Publishable key" и является равноценной заменой anon-ключа
+  // нового формата. Если захотите перейти на неё, просто замените значение
+  // SUPABASE_ANON_KEY на sb_publishable_... — код работать будет так же.
   SUPABASE_URL: "https://ahpgxyfkbvuabgtrgacu.supabase.co",
   SUPABASE_ANON_KEY: ANON_KEY_SOURCE === 'localStorage' ? storedAnonKey : FILE_ANON_KEY,
 
