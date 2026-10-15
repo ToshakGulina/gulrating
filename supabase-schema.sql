@@ -239,6 +239,28 @@ CREATE POLICY "Пользователи могут удалять из свое�
   FOR DELETE USING (auth.uid() = user_id);
 
 -- ----------------------------------------------------------------------------
+-- Права доступа ролей Supabase к таблицам.
+--
+-- ВАЖНО: в новых проектах Supabase таблицы, созданные через SQL Editor,
+-- по умолчанию НЕ доступны ролям anon/authenticated на уровне привилегий
+-- (ошибка "permission denied for table ..."), даже если RLS настроен верно.
+-- RLS по-прежнему ограничивает строки, поэтому выдача табличных прав безопасна:
+-- не одобренный пользователь не увидит ничего благодаря политикам выше.
+-- ----------------------------------------------------------------------------
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+
+-- То же самое для таблиц, которые появятся в будущем
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
 -- Реалтайм синхронизация оценок и списков
 -- ----------------------------------------------------------------------------
 DO $$
