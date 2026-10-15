@@ -5,6 +5,7 @@ import { openRatingModal } from './RatingModal.js';
 import { openCatalog } from './Catalog.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getSearchQueries, getRecentTitles, addSearchQuery, clearHistory } from '../lib/history.js';
+import { getPendingRatings, flushPendingRatings } from '../lib/offline.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -54,6 +55,26 @@ const WANT_EMPTY_HINT = 'Появится, когда друзья добавя�
 const PERSONAL_EMPTY_HINT = 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших оценок.';
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
 let searchDocClickHandler = null; // document-обработчик клика из поиска
+let onlineFlushHandler = null;    // автосинк отложенных оценок при появлении сети
+
+// Офлайн-копия ленты: последний успешный срез по каждому фильтру
+const FEED_CACHE_KEY = 'gulrating:feed_cache';
+function writeFeedCache(filter, items) {
+  try {
+    const all = JSON.parse(localStorage.getItem(FEED_CACHE_KEY) || '{}');
+    all[filter] = (items || []).slice(0, 40);
+    localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(all));
+  } catch (e) { /* приватный режим */ }
+}
+function readFeedCache(filter) {
+  try {
+    const all = JSON.parse(localStorage.getItem(FEED_CACHE_KEY) || '{}');
+    const items = all[filter];
+    return Array.isArray(items) && items.length ? items : null;
+  } catch (e) {
+    return null;
+  }
+}
 
 export function cleanupFeed() {
   if (feedChannel) {
@@ -64,6 +85,10 @@ export function cleanupFeed() {
   if (searchDocClickHandler) {
     document.removeEventListener('click', searchDocClickHandler);
     searchDocClickHandler = null;
+  }
+  if (onlineFlushHandler) {
+    window.removeEventListener('online', onlineFlushHandler);
+    onlineFlushHandler = null;
   }
 }
 
@@ -117,6 +142,12 @@ export async function renderFeed(app, currentUser) {
         <!-- Рекомендации: популярность, вкусы друзей, персональный подбор -->
         <div id="recs-section" class="space-y-6 mb-6"></div>
 
+        <!-- Отложенные (офлайн) оценки: видно очередь и можно отправить вручную -->
+        <div id="pending-banner" class="hidden mb-3 text-xs bg-slate-800/70 border border-slate-700 rounded-xl px-3 py-2 text-gray-300 flex items-center gap-2">
+          <span id="pending-text"></span>
+          <button id="pending-flush" class="ml-auto px-2 py-1 bg-primary hover:bg-primary/90 text-white rounded-lg flex-shrink-0">Отправить сейчас</button>
+        </div>
+
         <div id="ratings-list" class="space-y-4">
           ${skeletonCards(3)}
         </div>
@@ -146,6 +177,31 @@ export async function renderFeed(app, currentUser) {
   initSearch(currentUser);
   initNav(currentUser);
   initSort(currentUser);
+
+  // Очередь офлайн-оценок: баннер, ручная отправка
+  paintPending();
+  document.getElementById('pending-flush').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
+    btn.disabled = false;
+    if (sent) showToast(`Отправлено отложенных оценок: ${sent}`, 'success');
+    paintPending();
+    loadRatings(currentUser, activeFilter);
+  });
+
+  // Сеть появилась: отложенные оценки улетают сами
+  onlineFlushHandler = async () => {
+    const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
+    if (sent) showToast(`Отложенные оценки отправлены в базу: ${sent}`, 'success');
+    paintPending();
+    if (document.getElementById('ratings-list')) {
+      loadRatings(currentUser, activeFilter);
+      recsCache.dbAt = 0;
+      loadRecs(currentUser);
+    }
+  };
+  window.addEventListener('online', onlineFlushHandler);
 
   // Каталог: полноценный просмотр с жанрами и фильтрами
   document.getElementById('catalog-btn').addEventListener('click', () => {
@@ -196,6 +252,7 @@ async function loadRatings(currentUser, filter = 'all') {
   if (noteEl) noteEl.classList.toggle('hidden', filter !== 'watchlist');
 
   let data;
+  let offlineCopy = false;
 
   if (filter === 'watchlist') {
     const { data: watchlist, error } = await supabase
@@ -204,10 +261,17 @@ async function loadRatings(currentUser, filter = 'all') {
       .order('created_at', { ascending: false });
 
     if (error) {
-      listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
-      return;
+      const cached = readFeedCache(filter);
+      if (!cached) {
+        listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+        return;
+      }
+      data = cached;
+      offlineCopy = true;
+    } else {
+      data = watchlist;
+      writeFeedCache(filter, watchlist);
     }
-    data = watchlist;
   } else {
     // titles!inner — внутренний join: фильтр по типу тайтла применяется к строкам
     // ленты, а не к вложенному объекту (без !inner PostgREST вернул бы все оценки
@@ -228,10 +292,17 @@ async function loadRatings(currentUser, filter = 'all') {
     const { data: ratings, error } = await query;
 
     if (error) {
-      listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
-      return;
+      const cached = readFeedCache(filter);
+      if (!cached) {
+        listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+        return;
+      }
+      data = cached;
+      offlineCopy = true;
+    } else {
+      data = applySort(ratings);
+      writeFeedCache(filter, ratings);
     }
-    data = applySort(ratings);
   }
 
   if (!data || data.length === 0) {
@@ -310,6 +381,14 @@ async function loadRatings(currentUser, filter = 'all') {
     `;
   }).join('');
 
+  if (offlineCopy) {
+    listEl.insertAdjacentHTML('afterbegin', `
+      <div class="text-xs bg-slate-800/70 border border-slate-700 rounded-xl px-3 py-2 text-gray-400">
+        Офлайн: показана сохранённая копия ленты. Новые оценки сохраняются на устройстве и отправятся при появлении сети.
+      </div>`);
+  }
+  paintPending();
+
   // Обработчик клика по карточке тайтла
   document.querySelectorAll('.title-card').forEach(card => {
     card.addEventListener('click', () => {
@@ -320,6 +399,17 @@ async function loadRatings(currentUser, filter = 'all') {
       });
     });
   });
+}
+
+// Баннер очереди отложенных оценок
+function paintPending() {
+  const banner = document.getElementById('pending-banner');
+  if (!banner) return;
+  const pending = getPendingRatings();
+  banner.classList.toggle('hidden', pending.length === 0);
+  if (!pending.length) return;
+  const textEl = document.getElementById('pending-text');
+  if (textEl) textEl.textContent = `📴 Отложенных оценок: ${pending.length} — отправятся в базу при появлении сети`;
 }
 
 // Сортировка оценок ленты (выбор пользователя хранится локально)
