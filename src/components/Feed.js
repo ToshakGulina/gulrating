@@ -8,6 +8,7 @@ import { getSearchQueries, getRecentTitles, addSearchQuery, clearHistory } from 
 import { getPendingRatings, flushPendingRatings } from '../lib/offline.js';
 import { searchOfflineCatalog, getPopularOffline, getOfflineCatalogStats } from '../lib/offlineCatalog.js';
 import { isFullCatalogInstalled, searchFullCatalog } from '../lib/fullCatalog.js';
+import { getNotifications, markNotificationsRead, unreadNotifications } from '../lib/watchHistory.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -110,10 +111,14 @@ export async function renderFeed(app, currentUser) {
         <div class="flex items-center gap-3 mb-3">
           <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
             class="w-10 h-10 rounded-full bg-slate-700 border border-slate-600">
-          <div class="min-w-0">
+          <div class="min-w-0 flex-1">
             <h1 class="text-xl font-bold leading-tight truncate">Привет, ${escapeHtml(currentUser.profile.username)}! 👋</h1>
             <p class="text-xs text-gray-400">${escapeHtml(todayCaption())}</p>
           </div>
+          <button id="notif-btn" class="relative flex-shrink-0 w-10 h-10 rounded-xl bg-card hover:bg-slate-700 flex items-center justify-center" aria-label="Уведомления" title="Уведомления">
+            <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+            <span id="notif-badge" class="hidden absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-secondary text-white text-[10px] font-bold flex items-center justify-center"></span>
+          </button>
         </div>
         <div class="relative">
           <input type="text" id="search-input" placeholder="Поиск фильма или сериала..." autocomplete="off"
@@ -209,6 +214,45 @@ export async function renderFeed(app, currentUser) {
     applyFeedOrder();
   });
   applyFeedOrder();
+
+  // Уведомления: колокол с бейджем и список в оверлее
+  function paintNotifBadge() {
+    const badge = document.getElementById('notif-badge');
+    if (!badge) return;
+    const n = unreadNotifications();
+    badge.textContent = n ? String(n) : '';
+    badge.classList.toggle('hidden', !n);
+  }
+  document.getElementById('notif-btn').addEventListener('click', () => {
+    const list = getNotifications();
+    const ov = document.createElement('div');
+    ov.className = 'fixed inset-0 z-40 bg-black/60 p-4';
+    ov.innerHTML = `
+      <div class="mx-auto max-w-md mt-12 bg-card rounded-2xl border border-slate-700 p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <h3 class="font-semibold flex-1">Уведомления</h3>
+          <button id="notif-read" class="text-xs text-primary underline">все прочитаны</button>
+          <button id="notif-close" class="text-gray-400 hover:text-white text-2xl leading-none px-1" aria-label="Закрыть">&times;</button>
+        </div>
+        <div class="space-y-2 max-h-96 overflow-y-auto">
+          ${list.length ? list.map(n => `
+            <div class="text-sm rounded-xl p-2 ${n.read ? 'text-gray-400 bg-slate-800/40' : 'text-white bg-slate-800'}">
+              ${escapeHtml(n.text)}
+              <div class="text-[10px] text-gray-500 mt-0.5">${new Date(n.at).toLocaleString('ru-RU')}</div>
+            </div>`).join('')
+            : '<p class="text-xs text-gray-600">Пока тихо. Сюда придут уведомления о новых сезонах и сериях досмотренных сериалов.</p>'}
+        </div>
+      </div>`;
+    ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+    ov.querySelector('#notif-close').addEventListener('click', () => ov.remove());
+    ov.querySelector('#notif-read').addEventListener('click', () => {
+      markNotificationsRead();
+      paintNotifBadge();
+      ov.remove();
+    });
+    document.body.appendChild(ov);
+  });
+  paintNotifBadge();
 
   // Липкие фильтры: отступ сверху = высота шапки (меняется с размером окна)
   const filtersBar = document.getElementById('feed-filters');

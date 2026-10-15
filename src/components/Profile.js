@@ -6,6 +6,8 @@ import { cleanupFeed } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
+import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, reportWatchNative } from '../lib/watchHistory.js';
+import { openWatchOverlay } from './RatingModal.js';
 
 // Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
 const ACCENTS = [
@@ -72,6 +74,12 @@ export async function renderProfilePage(app, currentUser) {
               <div class="text-xs text-gray-400">В планах</div>
             </div>
           </div>
+        </div>
+
+        <!-- История просмотров: продолжить с места, прогресс, «досмотрено» -->
+        <div class="bg-card rounded-2xl border border-slate-700 p-4 mb-4">
+          <h3 class="font-semibold mb-3">История просмотров</h3>
+          <div id="watch-history" class="space-y-2"></div>
         </div>
 
         <!-- Настройки: ник, аватар, поведение ленты -->
@@ -428,6 +436,58 @@ export async function renderProfilePage(app, currentUser) {
     clearInterval(tick);
     paintCatStatus();
   });
+
+  // История просмотров: продолжение, прогресс-бар (позиция из APK), «досмотрено»
+  const whBox = document.getElementById('watch-history');
+  function paintWatchHistory() {
+    const items = getWatchHistory();
+    const positions = getPositions();
+    if (!items.length) {
+      whBox.innerHTML = '<p class="text-xs text-gray-600">Пока пусто: нажмите «Смотреть» в карточке фильма или сериала.</p>';
+      return;
+    }
+    whBox.innerHTML = items.map(i => {
+      const pos = positions[i.key];
+      const pct = pos && pos.d ? Math.min(100, Math.round(pos.t / pos.d * 100)) : null;
+      return `
+      <div class="flex items-center gap-3 bg-slate-800/50 rounded-xl p-2" data-key="${escapeHtml(i.key)}">
+        ${posterImg(i.poster_path, i.title, 'w-10 aspect-[2/3] rounded-md')}
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium truncate">${escapeHtml(i.title)}</div>
+          <div class="text-[11px] text-gray-500">${i.media_type === 'movie' ? 'фильм' : 'сериал'} • ${new Date(i.last_at).toLocaleDateString('ru-RU')}${i.done ? ' • досмотрено' : ''}</div>
+          ${pct !== null ? `
+            <div class="h-1 mt-1 rounded bg-slate-700 overflow-hidden"><div class="h-full bg-red-500" style="width:${pct}%"></div></div>
+            <div class="text-[10px] text-gray-500">просмотрено ${pct}%</div>` : ''}
+        </div>
+        <div class="flex flex-col gap-1 flex-shrink-0 items-stretch">
+          ${i.kp_url ? '<button class="wh-continue px-2 py-1 text-[11px] bg-primary hover:bg-primary/90 text-white rounded-lg">Продолжить</button>' : ''}
+          ${i.media_type === 'tv' && !i.done ? '<button class="wh-done px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded-lg">Досмотрено</button>' : ''}
+          <button class="wh-del px-2 py-1 text-[11px] text-gray-500 hover:text-red-400" aria-label="Убрать из истории">&times;</button>
+        </div>
+      </div>`;
+    }).join('');
+    whBox.querySelectorAll('.wh-continue').forEach(b => b.addEventListener('click', () => {
+      const item = getWatchHistory().find(x => x.key === b.closest('[data-key]').dataset.key);
+      if (!item || !item.kp_url) return;
+      reportWatchNative(item.id, item.media_type);
+      if (/GulRatingApp/.test(navigator.userAgent)) window.location.href = item.kp_url;
+      else openWatchOverlay(item.kp_url, item.title);
+    }));
+    whBox.querySelectorAll('.wh-done').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+      await markWatchDone(b.closest('[data-key]').dataset.key).catch(() => null);
+      showToast('Слежение включено: о новом сезоне придёт уведомление', 'info', 4000);
+      paintWatchHistory();
+    }));
+    whBox.querySelectorAll('.wh-del').forEach(b => b.addEventListener('click', () => {
+      removeWatchEntry(b.closest('[data-key]').dataset.key);
+      paintWatchHistory();
+    }));
+  }
+  paintWatchHistory();
 
   // Установка на телефон: кнопка системного install-промта либо подсказка
   const installBox = document.getElementById('install-box');

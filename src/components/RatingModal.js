@@ -5,6 +5,7 @@ import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { enqueueRating, networkLikeError } from '../lib/offline.js';
+import { addWatchEntry, reportWatchNative } from '../lib/watchHistory.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -21,7 +22,7 @@ const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-
 
 // Оверлей с плеером: если сторонний сайт запрещает встраивание во фрейм,
 // браузер сам покажет пусто — тогда рядом ссылка «открыть в новой вкладке»
-function openWatchOverlay(url, titleText) {
+export function openWatchOverlay(url, titleText) {
   const ov = document.createElement('div');
   ov.className = 'fixed inset-0 z-50 bg-black/90 flex flex-col p-3 gap-2';
   ov.innerHTML = `
@@ -409,6 +410,15 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const watchBtn = modal.querySelector('#watch-btn');
     if (watchBtn) {
       watchBtn.addEventListener('click', () => {
+        // История просмотров: «Продолжить» и прогресс берут её отсюда
+        addWatchEntry({
+          id: titleId,
+          media_type: mediaType,
+          title: title.title,
+          poster_path: title.poster_path,
+          kp_url: kpPageUrl
+        });
+        reportWatchNative(titleId, mediaType);
         if (/GulRatingApp/.test(navigator.userAgent)) {
           window.location.href = kpPageUrl;
           return;

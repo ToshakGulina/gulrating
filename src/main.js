@@ -1,5 +1,6 @@
 import { supabase, getCurrentUser } from './lib/supabase.js';
 import { syncOfflineCatalog, isAppContext } from './lib/offlineCatalog.js';
+import { checkNewSeasons } from './lib/watchHistory.js';
 import { configIsComplete, APP_BUILD } from './config.js';
 
 // Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
@@ -117,6 +118,9 @@ async function init() {
   // Фоновая закачка офлайн-базы фильмов (resume-able, не блокирует интерфейс).
   // Только в приложении: десктоп-сайту офлайн-база не нужна
   if (isAppContext()) syncOfflineCatalog().catch(() => {});
+
+  // Досмотренные сериалы: вышел новый сезон/серии — уведомление (троттлинг внутри)
+  checkNewSeasons().catch(() => {});
 
   // Интерфейс отдаётся из кэша мгновенно (sw.js), а здесь фоном проверяем,
   // не появился ли новый деплой: если сборка отличается — ненавязчивый тост

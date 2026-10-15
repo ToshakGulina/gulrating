@@ -169,7 +169,9 @@ export async function getTitleDetails(id, mediaType) {
     tmdb_rating: data.vote_average,
     genres: (data.genres || []).map(g => g.name),
     budget: data.budget || null,
-    revenue: data.revenue || null
+    revenue: data.revenue || null,
+    seasons: data.number_of_seasons != null ? data.number_of_seasons : null,
+    episodes: data.number_of_episodes != null ? data.number_of_episodes : null
   };
   writeTitleCache(readTitleCache(), `${mediaType}:${id}`, details);
   return details;
