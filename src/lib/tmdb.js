@@ -115,22 +115,43 @@ export async function getRecommendations(id, mediaType, limit = 12) {
   return mapResults(data.results, limit);
 }
 
-// Карта «название жанра → id» (имена приходят на русском из-за language=ru-RU).
-// Кэш на сессию: список жанров меняется крайне редко.
+// Карта «название жанра → id» для фильмов или сериалов отдельно
+// (id жанров у TMDb различаются по типам). Имена приходят на русском
+// из-за language=ru-RU. Кэш на сессию: список жанров меняется крайне редко.
 let genreMapCache = null;
-export async function getGenreMap() {
+export async function getGenreMap(mediaType) {
   if (!genreMapCache) {
     const [movies, tv] = await Promise.all([
       tmdbFetch('/genre/movie/list'),
       tmdbFetch('/genre/tv/list')
     ]);
-    const map = {};
-    for (const g of [...(movies.genres || []), ...(tv.genres || [])]) {
-      map[String(g.name).toLowerCase()] = g.id;
-    }
-    genreMapCache = map;
+    genreMapCache = { movie: {}, tv: {} };
+    for (const g of movies.genres || []) genreMapCache.movie[String(g.name).toLowerCase()] = g.id;
+    for (const g of tv.genres || []) genreMapCache.tv[String(g.name).toLowerCase()] = g.id;
   }
-  return genreMapCache;
+  return genreMapCache[mediaType === 'tv' ? 'tv' : 'movie'] || {};
+}
+
+// Каталог: discover с жанрами, сортировкой, порогом рейтинга и годами.
+// Возвращает страницу результатов и признак «есть ещё».
+export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortBy = 'popularity.desc', voteGte = 0, yearGte = '', yearLte = '', page = 1, limit = 18 } = {}) {
+  const params = new URLSearchParams({
+    sort_by: sortBy,
+    page: String(page),
+    'vote_count.gte': '50',
+    include_adult: 'false'
+  });
+  if (genreIds.length) params.set('with_genres', genreIds.join(','));
+  if (voteGte) params.set('vote_average.gte', String(voteGte));
+  const dateKey = mediaType === 'tv' ? 'first_air_date' : 'primary_release_date';
+  if (yearGte) params.set(`${dateKey}.gte`, `${yearGte}-01-01`);
+  if (yearLte) params.set(`${dateKey}.lte`, `${yearLte}-12-31`);
+  const path = mediaType === 'tv' ? '/discover/tv' : '/discover/movie';
+  const data = await tmdbFetch(`${path}?${params.toString()}`);
+  return {
+    items: mapResults(data.results, limit),
+    hasMore: (data.page || 1) < (data.total_pages || 1) && (data.page || 1) < 20
+  };
 }
 
 // Популярное в жанре: для клика по жанру в карточке фильма

@@ -458,7 +458,7 @@ async function openGenreOverlay(genreName, mediaType, currentUser, onSaveCallbac
 
   const list = overlay.querySelector('#genre-list');
   try {
-    const map = await getGenreMap();
+    const map = await getGenreMap(mediaType);
     const genreId = map[String(genreName).toLowerCase()];
     const items = genreId ? await discoverByGenre(genreId, mediaType, 10) : [];
     if (!items.length) {

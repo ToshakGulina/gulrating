@@ -102,6 +102,12 @@ export async function renderProfilePage(app, currentUser) {
               </select>
             </label>
             <label class="flex items-center justify-between gap-3">
+              <span class="text-gray-300">Порог ряда «Друзья оценили высоко»</span>
+              <select id="threshold-select" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white">
+                ${[6, 6.5, 7, 7.5, 8, 8.5, 9].map(v => `<option value="${v}">${v.toFixed(1)}</option>`).join('')}
+              </select>
+            </label>
+            <label class="flex items-center justify-between gap-3">
               <span class="text-gray-300">Блок рекомендаций в ленте</span>
               <input id="recs-toggle" type="checkbox" class="w-4 h-4">
             </label>
@@ -250,6 +256,13 @@ export async function renderProfilePage(app, currentUser) {
   sortSelect.addEventListener('change', () => {
     localStorage.setItem('gulrating:feed_sort', sortSelect.value);
     showToast('Порядок ленты обновлён', 'success');
+  });
+
+  const thresholdSelect = document.getElementById('threshold-select');
+  thresholdSelect.value = localStorage.getItem('gulrating:friends_threshold') || '7.5';
+  thresholdSelect.addEventListener('change', () => {
+    localStorage.setItem('gulrating:friends_threshold', thresholdSelect.value);
+    showToast('Порог применится к рекомендациям в ленте', 'success');
   });
 
   recsToggle.checked = localStorage.getItem('gulrating:show_recs') !== '0';

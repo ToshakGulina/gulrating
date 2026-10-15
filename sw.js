@@ -9,7 +9,7 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v1';
+const CACHE_VERSION = 'gulrating-v2';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -63,9 +63,17 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Код приложения и документы — ТОЛЬКО network-first с фолбэком в кэш.
-  // Раньше здесь для /src/* был stale-while-revalidate, из-за чего после
-  // обновлений браузер показывал старую версию («ничего не изменилось»).
+  // Служебная проверка свежести сборки из main.js: всегда в сеть, мимо кэша
+  if (url.searchParams.has('build-check')) {
+    event.respondWith(fetch(request, { cache: 'no-store' }).catch(() => new Response('', { status: 503 })));
+    return;
+  }
+
+  // Код приложения и документы — cache-first с фоновым обновлением:
+  // интерфейс открывается мгновенно (в том числе при восстановлении
+  // вкладки браузером), свежая версия приезжает в кэш фоном, а main.js
+  // сравнивает APP_BUILD и сам просит перезагрузить, если сборка новая.
+  // (Чистый network-first здесь давал секундную пустоту при возврате на вкладку.)
   const isCode = request.mode === 'navigate'
     || url.pathname === '/'
     || url.pathname === '/index.html'
@@ -75,13 +83,18 @@ self.addEventListener('fetch', (event) => {
 
   if (isCode) {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
-          return response;
-        })
-        .catch(() => caches.match(request))
+      caches.match(request).then((cached) => {
+        const network = fetch(request)
+          .then((response) => {
+            if (response && response.ok) {
+              const copy = response.clone();
+              caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+            }
+            return response;
+          })
+          .catch(() => cached);
+        return cached || network;
+      })
     );
     return;
   }

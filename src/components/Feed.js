@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { searchTitles, getTrending, getRecommendations } from '../lib/tmdb.js';
 import { openRatingModal } from './RatingModal.js';
+import { openCatalog } from './Catalog.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getSearchQueries, getRecentTitles, addSearchQuery, clearHistory } from '../lib/history.js';
 
@@ -64,10 +65,11 @@ export async function renderFeed(app, currentUser) {
         </div>
         <div class="relative">
           <input type="text" id="search-input" placeholder="Поиск фильма или сериала..." autocomplete="off"
-            class="w-full pl-10 pr-4 py-3 bg-card border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
+            class="w-full pl-10 pr-24 py-3 bg-card border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
           <svg class="absolute left-3 top-3.5 w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
           </svg>
+          <button id="catalog-btn" class="absolute right-2 top-1.5 bottom-1.5 px-3 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs text-gray-300" title="Каталог: жанры, годы, рейтинг">Каталог</button>
         </div>
         <div id="search-results" class="absolute left-4 right-4 mt-2 bg-card rounded-xl border border-slate-700 shadow-xl z-30 max-h-96 overflow-y-auto hidden"></div>
       </div>
@@ -124,6 +126,13 @@ export async function renderFeed(app, currentUser) {
   initSearch(currentUser);
   initNav(currentUser);
   initSort(currentUser);
+
+  // Каталог: полноценный просмотр с жанрами и фильтрами
+  document.getElementById('catalog-btn').addEventListener('click', () => {
+    openCatalog(currentUser, (id, type) => {
+      openRatingModal(id, type, currentUser, () => loadRatings(currentUser, activeFilter));
+    });
+  });
 
   // Подписываемся на реалтайм обновления оценок и watchlist.
   // Чужие новые оценки дополнительно подсвечиваем тостом — реалтайм становится заметным.
@@ -354,6 +363,7 @@ async function loadRecs(currentUser) {
   section.innerHTML = `
     ${recRowSkeleton('recs-popular', 'Популярно сейчас')}
     ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
+    ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
     ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
   `;
 
@@ -390,13 +400,40 @@ async function loadRecs(currentUser) {
       agg.set(String(t.id), cur);
     }
 
+    const friendsThreshold = parseFloat(localStorage.getItem('gulrating:friends_threshold') || '7.5') || 7.5;
     const friendsHigh = [...agg.values()]
       .map(cur => ({ ...cur.title, friends_avg: cur.sum / cur.count, friends_count: cur.count }))
-      .filter(t => t.friends_avg >= 7.5 && !mine.has(String(t.id)))
+      .filter(t => t.friends_avg >= friendsThreshold && !mine.has(String(t.id)))
       .sort((a, b) => b.friends_avg - a.friends_avg || b.friends_count - a.friends_count)
       .slice(0, 12)
       .map(t => ({ id: t.id, media_type: t.media_type, title: t.title, release_date: t.release_date, poster_path: t.poster_path, badge: t.friends_avg.toFixed(1) }));
-    fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', 'средняя ≥ 7.5 · вы ещё не оценили', friendsHigh, 'bg-pink-600');
+    fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', `средняя ≥ ${friendsThreshold.toFixed(1)} · вы ещё не оценили`, friendsHigh, 'bg-pink-600');
+
+    // Ряд без оценок: агрегат списков «хочу посмотреть» всей компании
+    const { data: wl } = await supabase
+      .from('watchlist')
+      .select('user_id, titles(*)');
+    const wantAgg = new Map();
+    for (const w of wl || []) {
+      const t = w.titles;
+      if (!t || w.user_id === currentUser.id) continue;
+      const cur = wantAgg.get(String(t.id)) || { title: t, users: new Set() };
+      cur.users.add(w.user_id);
+      wantAgg.set(String(t.id), cur);
+    }
+    const wantItems = [...wantAgg.values()]
+      .filter(cur => cur.users.size >= 2 && !mine.has(String(cur.title.id)))
+      .sort((a, b) => b.users.size - a.users.size)
+      .slice(0, 12)
+      .map(cur => ({
+        id: cur.title.id,
+        media_type: cur.title.media_type,
+        title: cur.title.title,
+        release_date: cur.title.release_date,
+        poster_path: cur.title.poster_path,
+        badge: String(cur.users.size)
+      }));
+    fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', 'в списках у двух и более друзей · на постере число друзей', wantItems, 'bg-secondary');
 
     // Ряд 3: персональный подбор от вашей лучшей оценки
     if (myTop) {
@@ -512,16 +549,15 @@ function initSearch(currentUser) {
         </div>
       ` : ''}
       ${titles.length ? `
-        <div class="p-1 border-t border-slate-700">
-          ${titles.map(t => `
-            <div class="history-title p-2 hover:bg-slate-700 cursor-pointer flex items-center gap-3 rounded-lg" data-id="${escapeHtml(t.id)}" data-type="${escapeHtml(t.media_type)}">
-              ${posterImg(t.poster_path, t.title, 'w-8 h-12 rounded', 'absolute inset-0 w-full h-full object-cover rounded')}
-              <div class="min-w-0">
-                <div class="text-sm truncate">${escapeHtml(t.title)}</div>
-                <div class="text-xs text-gray-500">${escapeHtml(t.year || '')}${t.year ? ' • ' : ''}${t.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
+        <div class="p-2 border-t border-slate-700">
+          <div class="grid grid-cols-4 gap-2">
+            ${titles.map(t => `
+              <div class="history-title cursor-pointer group min-w-0" data-id="${escapeHtml(t.id)}" data-type="${escapeHtml(t.media_type)}">
+                ${posterImg(t.poster_path, t.title, 'w-full aspect-[2/3] rounded-lg')}
+                <div class="text-[11px] truncate mt-1 group-hover:text-white">${escapeHtml(t.title)}</div>
               </div>
-            </div>
-          `).join('')}
+            `).join('')}
+          </div>
         </div>
       ` : ''}
     `;

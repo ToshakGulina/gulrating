@@ -9,6 +9,7 @@ try {
 } catch (e) { /* приватный режим и т.п. */ }
 
 console.info(`🎬 ГульРейтинг — сборка ${APP_BUILD}`);
+import { showToast } from './lib/dom.js';
 import { renderAuthPage } from './components/Auth.js';
 import { renderFeed, cleanupFeed } from './components/Feed.js';
 import { renderAccessDenied } from './components/AccessDenied.js';
@@ -69,6 +70,20 @@ async function init() {
   });
 
   await renderApp();
+
+  // Интерфейс отдаётся из кэша мгновенно (sw.js), а здесь фоном проверяем,
+  // не появился ли новый деплой: если сборка отличается — ненавязчивый тост
+  setTimeout(() => {
+    fetch('/src/config.js?build-check=1', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.text() : ''))
+      .then((text) => {
+        const m = text.match(/APP_BUILD\s*=\s*"([^"]+)"/);
+        if (m && m[1] && m[1] !== APP_BUILD) {
+          showToast('Доступна новая версия сайта — обновите страницу', 'info', 8000);
+        }
+      })
+      .catch(() => {});
+  }, 4000);
 }
 
 init();
