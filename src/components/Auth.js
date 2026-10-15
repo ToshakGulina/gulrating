@@ -41,6 +41,10 @@ export function renderAuthPage(app) {
                 Войти
               </button>
 
+              <p id="forgot-row" class="text-xs text-center">
+                <button id="forgot-btn" class="text-gray-400 hover:underline">Забыли пароль или не задавали его? Прислать письмо</button>
+              </p>
+
               <p class="text-xs text-center">
                 <button id="switch-btn" class="text-primary hover:underline">Нет аккаунта? Создать</button>
               </p>
@@ -62,6 +66,8 @@ export function renderAuthPage(app) {
   const input = document.getElementById('email-input');
   const btn = document.getElementById('login-btn');
   const switchBtn = document.getElementById('switch-btn');
+  const forgotRow = document.getElementById('forgot-row');
+  const forgotBtn = document.getElementById('forgot-btn');
   const hint = document.getElementById('auth-hint');
   const tabPassword = document.getElementById('tab-password');
   const tabOtp = document.getElementById('tab-otp');
@@ -77,6 +83,7 @@ export function renderAuthPage(app) {
     passRow.classList.toggle('hidden', !passActive);
     nameRow.classList.toggle('hidden', !(passActive && signup));
     switchBtn.classList.toggle('hidden', !passActive);
+    forgotRow.classList.toggle('hidden', !(passActive && !signup));
     passInput.autocomplete = signup ? 'new-password' : 'current-password';
     if (passActive) {
       btn.textContent = signup ? 'Создать аккаунт' : 'Войти';
@@ -88,6 +95,33 @@ export function renderAuthPage(app) {
     }
     btn.disabled = false;
   }
+
+  async function sendRecovery() {
+    const email = input.value.trim();
+    if (!email) {
+      showToast('Введите email — на него придёт письмо для создания пароля', 'error');
+      input.focus();
+      return;
+    }
+    forgotBtn.disabled = true;
+    const res = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + '/'
+    });
+    forgotBtn.disabled = false;
+    if (res.error) {
+      showToast(humanizeAuthError(res.error), 'error', 6000);
+      return;
+    }
+    document.getElementById('auth-form-container').innerHTML = `
+      <div class="text-center py-6">
+        <div class="text-4xl mb-3">📧</div>
+        <h3 class="text-xl font-semibold mb-2">Письмо отправлено</h3>
+        <p class="text-gray-400 mb-4">Откройте ссылку из письма — сайт предложит задать новый пароль.</p>
+        <p class="text-xs text-gray-500">Если письма нет во «Входящих» — загляните в «Спам». Пароль станет единственным способом входа вместо одноразовых ссылок.</p>
+      </div>
+    `;
+  }
+  forgotBtn.addEventListener('click', sendRecovery);
 
   tabPassword.addEventListener('click', () => { mode = 'password'; repaint(); });
   tabOtp.addEventListener('click', () => { mode = 'otp'; repaint(); });
@@ -140,6 +174,10 @@ export function renderAuthPage(app) {
     if (error) {
       btn.disabled = false;
       btn.textContent = oldLabel;
+      if (signup && /already registered/i.test(error.message)) {
+        signup = false;
+        repaint();
+      }
       showToast(humanizeAuthError(error), 'error', 6000);
       return;
     }
@@ -180,12 +218,66 @@ export function renderAuthPage(app) {
   repaint();
 }
 
+// Вход по ссылке восстановления: Supabase даёт сессию с событием
+// PASSWORD_RECOVERY — в этот момент нужно задать новый пароль.
+export function openRecoveryPasswordModal() {
+  if (document.getElementById('recovery-overlay')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'recovery-overlay';
+  overlay.className = 'fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4';
+  overlay.innerHTML = `
+    <div class="bg-card w-full max-w-sm rounded-2xl p-6 shadow-xl">
+      <h3 class="text-lg font-bold mb-1">Задайте новый пароль</h3>
+      <p class="text-xs text-gray-400 mb-4">Вы вошли по ссылке из письма. Придумайте пароль — дальше вход будет по нему, без одноразовых ссылок.</p>
+      <input type="password" id="recovery-pass" placeholder="Минимум 6 символов" autocomplete="new-password"
+        class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
+      <input type="password" id="recovery-pass2" placeholder="Повторите пароль" autocomplete="new-password"
+        class="w-full mt-3 px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
+      <button id="recovery-save" class="w-full mt-4 bg-primary hover:bg-primary/90 text-white font-semibold py-3 px-4 rounded-xl">Сохранить пароль</button>
+      <button id="recovery-cancel" class="w-full mt-2 text-xs text-gray-400 hover:underline">Позже</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const pass1 = overlay.querySelector('#recovery-pass');
+  const pass2 = overlay.querySelector('#recovery-pass2');
+  const save = overlay.querySelector('#recovery-save');
+  const close = () => overlay.remove();
+  overlay.querySelector('#recovery-cancel').addEventListener('click', close);
+
+  async function submit() {
+    const password = pass1.value;
+    if (password.length < 6) {
+      showToast('Пароль минимум 6 символов', 'error');
+      return;
+    }
+    if (password !== pass2.value) {
+      showToast('Пароли не совпадают', 'error');
+      return;
+    }
+    save.disabled = true;
+    const res = await supabase.auth.updateUser({ password });
+    save.disabled = false;
+    if (res.error) {
+      showToast(humanizeAuthError(res.error), 'error', 6000);
+      return;
+    }
+    close();
+    showToast('Пароль сохранён — дальше входите по нему', 'success');
+  }
+  save.addEventListener('click', submit);
+  [pass1, pass2].forEach(el => el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submit();
+  }));
+  pass1.focus();
+}
+
 function humanizeAuthError(error) {
   const msg = (error && error.message) || '';
   if (/rate limit/i.test(msg)) return 'Слишком много попыток подряд. Подождите минуту и попробуйте снова.';
   if (/invalid email/i.test(msg)) return 'Похоже, в email опечатка. Проверьте адрес.';
-  if (/invalid login credentials/i.test(msg)) return 'Неверный email или пароль.';
-  if (/already registered/i.test(msg)) return 'Этот email уже зарегистрирован — попробуйте войти.';
+  if (/invalid login credentials/i.test(msg)) return 'Неверный email или пароль. Если пароль не задавали (аккаунт создан по ссылке) — нажмите «Забыли пароль…» и задайте его.';
+  if (/already registered/i.test(msg)) return 'Этот email уже зарегистрирован: войдите с паролем, а если пароль не задавали — «Забыли пароль или не задавали его?».';
   if (/email not confirmed/i.test(msg)) return 'Почта не подтверждена. Проверьте письмо со ссылкой или войдите по ссылке на почту.';
   if (/password.*at least|at least 6/i.test(msg)) return 'Пароль должен быть не короче 6 символов.';
   if (/Failed to fetch|NetworkError/i.test(msg)) return 'Нет соединения с Supabase. Проверьте интернет.';
