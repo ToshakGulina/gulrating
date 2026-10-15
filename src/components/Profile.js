@@ -1,9 +1,9 @@
 import { supabase } from '../lib/supabase.js';
-import { CONFIG } from '../config.js';
+import { APP_BUILD } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { openRatingModal } from './RatingModal.js';
 import { cleanupFeed } from './Feed.js';
-import { escapeHtml, safeAvatarUrl, releaseYear, showToast } from '../lib/dom.js';
+import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
 export async function renderProfilePage(app, currentUser) {
   cleanupFeed();
@@ -111,6 +111,8 @@ export async function renderProfilePage(app, currentUser) {
         <div id="profile-content" class="space-y-3">
           ${renderMyRatings(myRatingsList)}
         </div>
+
+        <p class="text-[10px] text-gray-600 text-center mt-8">Кино для друзей · сборка ${escapeHtml(APP_BUILD)}</p>
       </div>
 
       <!-- Нижняя навигация -->
@@ -247,10 +249,7 @@ function renderMyRatings(ratings) {
     return `
       <div class="title-card bg-card rounded-2xl p-4 flex gap-4 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="flex-shrink-0 w-16">
-          ${title.poster_path
-            ? `<img src="${CONFIG.TMDB_IMG_BASE}${escapeHtml(title.poster_path)}" alt="${escapeHtml(title.title)}" loading="lazy" class="w-full aspect-[2/3] rounded-lg object-cover">`
-            : `<div class="w-full aspect-[2/3] rounded-lg bg-slate-700 flex items-center justify-center text-gray-500">🎬</div>`
-          }
+          ${posterImg(title.poster_path, title.title, 'w-16 aspect-[2/3] rounded-lg')}
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-start justify-between gap-2">
@@ -258,7 +257,7 @@ function renderMyRatings(ratings) {
               <h3 class="font-semibold leading-tight">${escapeHtml(title.title)}</h3>
               <p class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${title.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
             </div>
-            <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold min-w-[40px] text-center">${escapeHtml(r.rating)}</div>
+            <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold min-w-[40px] text-center">${escapeHtml(formatRating(r.rating))}</div>
           </div>
           ${r.comment ? `<p class="mt-1 text-sm text-gray-300 line-clamp-2">${escapeHtml(r.comment)}</p>` : ''}
           <p class="text-xs text-gray-500 mt-1">${formatDistanceToNow(new Date(r.created_at))}</p>
@@ -286,10 +285,7 @@ function renderWatchlist(items) {
     return `
       <div class="title-card bg-card rounded-2xl p-4 flex gap-4 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="flex-shrink-0 w-16">
-          ${title.poster_path
-            ? `<img src="${CONFIG.TMDB_IMG_BASE}${escapeHtml(title.poster_path)}" alt="${escapeHtml(title.title)}" loading="lazy" class="w-full aspect-[2/3] rounded-lg object-cover">`
-            : `<div class="w-full aspect-[2/3] rounded-lg bg-slate-700 flex items-center justify-center text-gray-500">🎬</div>`
-          }
+          ${posterImg(title.poster_path, title.title, 'w-16 aspect-[2/3] rounded-lg')}
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-semibold leading-tight">${escapeHtml(title.title)}</h3>

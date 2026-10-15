@@ -9,7 +9,7 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'kino-druzey-v4';
+const CACHE_VERSION = 'kino-druzey-v7';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -27,6 +27,8 @@ const SHELL_ASSETS = [
   '/src/lib/ratings.js',
   '/src/lib/date.js',
   '/src/lib/dom.js',
+  '/src/lib/history.js',
+  '/src/lib/kinopoisk.js',
   '/src/components/Auth.js',
   '/src/components/Setup.js',
   '/src/components/AccessDenied.js',
@@ -61,21 +63,30 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Навигация: сначала сеть (свежий деплой), офлайн — кэш оболочки
-  if (request.mode === 'navigate') {
+  // Код приложения и документы — ТОЛЬКО network-first с фолбэком в кэш.
+  // Раньше здесь для /src/* был stale-while-revalidate, из-за чего после
+  // обновлений браузер показывал старую версию («ничего не изменилось»).
+  const isCode = request.mode === 'navigate'
+    || url.pathname === '/'
+    || url.pathname === '/index.html'
+    || url.pathname === '/manifest.json'
+    || url.pathname === '/sw.js'
+    || url.pathname.startsWith('/src/');
+
+  if (isCode) {
     event.respondWith(
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put('/index.html', copy));
+          caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
           return response;
         })
-        .catch(() => caches.match('/index.html'))
+        .catch(() => caches.match(request))
     );
     return;
   }
 
-  // Статика: кэш с фоновым обновлением (stale-while-revalidate)
+  // Иконки и прочая статика: кэш с фоновым обновлением (stale-while-revalidate)
   event.respondWith(
     caches.match(request).then((cached) => {
       const network = fetch(request)

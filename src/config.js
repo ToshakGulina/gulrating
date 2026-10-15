@@ -44,15 +44,29 @@ export const CONFIG = {
   TMDB_IMG_BASE: "https://image.tmdb.org/t/p/w500",
   TMDB_IMG_BACKDROP_BASE: "https://image.tmdb.org/t/p/w1280",
 
-  // ОПЦИОНАЛЬНО: адрес прокси TMDb через Cloudflare Worker (см. optional/tmdb-proxy-worker.js).
+  // ОПЦИОНАЛЬНО: адрес прокси TMDb через Cloudflare Worker (см. optional/proxy-worker.js).
   // Оставьте пустым, если api.themoviedb.org открывается напрямую.
   // Пример: "https://tmdb-proxy.ваш-логин.workers.dev"
   TMDB_PROXY_URL: "",
+
+  // ОПЦИОНАЛЬНО: рейтинг Кинопоиска.
+  // KINOPOISK_API_KEY — ключ «API Кинопоиска» (api.kinopoisk.ru, Яндекс Cloud).
+  // KINOPOISK_PROXY_URL — адрес Cloudflare Worker с префиксом /kp
+  // (см. optional/proxy-worker.js): прямой запрос из браузера блокируется
+  // отсутствием CORS, поэтому рекомендуемый способ — прокси, а ключ держать
+  // секретом воркера. Пока оба поля пустые, значок Кинопоиска просто не показывается.
+  KINOPOISK_API_KEY: "",
+  KINOPOISK_PROXY_URL: "",
 
   // Настройки приложения
   APP_NAME: "Кино для друзей",
   RATING_SCALE_MAX: 10,
 };
+
+// Метка сборки: видна в профиле внизу и в консоли браузера.
+// Помогает мгновенно понять, какая версия кода реально крутится в браузере
+// (предпросмотр / локальная копия / продакшен).
+export const APP_BUILD = "2026.10.15-2 (слайдер, тренды, история)";
 
 export function saveLocalAnonKey(key) {
   try {

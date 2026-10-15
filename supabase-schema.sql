@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS public.ratings (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
   title_id BIGINT REFERENCES public.titles(id) ON DELETE CASCADE NOT NULL,
-  rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 10),
+  -- NUMERIC(3,1): оценка с точностью до десятых (7.5, 8.3) — слайдер в интерфейсе
+  rating NUMERIC(3,1) NOT NULL CHECK (rating BETWEEN 1 AND 10),
   comment TEXT,
   tags TEXT[] DEFAULT '{}'::text[],
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
@@ -89,6 +90,10 @@ CREATE TABLE IF NOT EXISTS public.watchlist (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   UNIQUE(user_id, title_id)
 );
+
+-- Миграция для баз, созданных старыми версиями схемы: оценки были SMALLINT,
+-- теперь допускаем десятые доли. Повторный запуск безопасен (тип уже такой).
+ALTER TABLE public.ratings ALTER COLUMN rating TYPE NUMERIC(3,1);
 
 -- Индексы для быстрых выборок ленты и карточки фильма
 CREATE INDEX IF NOT EXISTS idx_ratings_created_at ON public.ratings (created_at DESC);
@@ -117,6 +122,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+-- Количество профилей в обход RLS (нужно политике INSERT, см. ниже).
+-- SECURITY DEFINER обязателен: обычный подselect внутри политики видел бы
+-- только строки, разрешённые самому пользователю, и всегда возвращал бы 0.
+CREATE OR REPLACE FUNCTION public.profile_count()
+RETURNS BIGINT AS $$
+  SELECT COUNT(*) FROM public.profiles;
+$$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+
 -- Профили
 DROP POLICY IF EXISTS "Пользователи видят профиль до одобрения" ON public.profiles;
 CREATE POLICY "Пользователи видят профиль до одобрения" ON public.profiles
@@ -135,6 +148,47 @@ CREATE POLICY "Админы могут одобрять пользователе
   FOR UPDATE USING (
     EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_admin = true)
   ) WITH CHECK (true);
+
+-- Пользователь может сам создать СВОЙ профиль, если триггер не сработал
+-- (аккаунт появился до запуска схемы). Права при этом ограничены:
+-- обычный пользователь не может выдать себе админа или одобрение,
+-- исключением является самый первый профиль в пустой базе — он, как и в
+-- триггере, становится админом и сразу одобрен.
+DROP POLICY IF EXISTS "Пользователь может создать свой профиль" ON public.profiles;
+CREATE POLICY "Пользователь может создать свой профиль" ON public.profiles
+  FOR INSERT WITH CHECK (
+    auth.uid() = id
+    AND (
+      public.profile_count() = 0
+      OR (is_admin = false AND is_approved = false)
+    )
+  );
+
+-- Защита привилегий: не-админ не может повысить себя через UPDATE своего
+-- профиля (is_admin / is_approved всегда возвращаются к старым значениям).
+CREATE OR REPLACE FUNCTION public.protect_profile_privileges()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Служебные изменения из SQL Editor / сервисных роли (без JWT) не трогаем
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND is_admin = true
+  ) THEN
+    RETURN NEW; -- администратор может менять всё
+  END IF;
+  NEW.is_admin := OLD.is_admin;
+  NEW.is_approved := OLD.is_approved;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS protect_profile_privileges ON public.profiles;
+CREATE TRIGGER protect_profile_privileges
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.protect_profile_privileges();
 
 -- Тайтлы: одобренные пользователи читают и добавляют тайтлы.
 -- UPDATE нужен, потому что приложение сохраняет фильм через upsert
@@ -188,6 +242,28 @@ CREATE POLICY "Пользователи могут обновлять свой w
 DROP POLICY IF EXISTS "Пользователи могут удалять из своего списка" ON public.watchlist;
 CREATE POLICY "Пользователи могут удалять из своего списка" ON public.watchlist
   FOR DELETE USING (auth.uid() = user_id);
+
+-- ----------------------------------------------------------------------------
+-- Права доступа ролей Supabase к таблицам.
+--
+-- ВАЖНО: в новых проектах Supabase таблицы, созданные через SQL Editor,
+-- по умолчанию НЕ доступны ролям anon/authenticated на уровне привилегий
+-- (ошибка "permission denied for table ..."), даже если RLS настроен верно.
+-- RLS по-прежнему ограничивает строки, поэтому выдача табличных прав безопасна:
+-- не одобренный пользователь не увидит ничего благодаря политикам выше.
+-- ----------------------------------------------------------------------------
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+
+-- То же самое для таблиц, которые появятся в будущем
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
 -- Реалтайм синхронизация оценок и списков

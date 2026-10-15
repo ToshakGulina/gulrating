@@ -59,6 +59,23 @@ export async function searchTitles(query) {
     }));
 }
 
+// Недельные тренды TMDb (фильмы + сериалы) — для ряда «Сейчас в тренде»
+export async function getTrending(limit = 12) {
+  const data = await tmdbFetch('/trending/all/week');
+
+  return (data.results || [])
+    .filter(item => item.media_type === 'movie' || item.media_type === 'tv')
+    .slice(0, limit)
+    .map(item => ({
+      id: item.id,
+      media_type: item.media_type,
+      title: item.media_type === 'movie' ? item.title : item.name,
+      release_date: item.media_type === 'movie' ? item.release_date : item.first_air_date,
+      poster_path: item.poster_path,
+      vote_average: item.vote_average
+    }));
+}
+
 // Получаем полную информацию о тайтле по ID
 export async function getTitleDetails(id, mediaType) {
   const data = await tmdbFetch(`/${mediaType}/${id}`);

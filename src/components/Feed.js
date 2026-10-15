@@ -1,15 +1,42 @@
 import { supabase } from '../lib/supabase.js';
-import { CONFIG } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
-import { searchTitles } from '../lib/tmdb.js';
+import { searchTitles, getTrending } from '../lib/tmdb.js';
 import { openRatingModal } from './RatingModal.js';
-import { escapeHtml, safeAvatarUrl, releaseYear } from '../lib/dom.js';
+import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
+import { getSearchQueries, getRecentTitles, addSearchQuery, clearHistory } from '../lib/history.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
+const SORT_KEY = 'gulrating:feed_sort';
+const SORT_OPTIONS = [
+  { id: 'new', label: 'Новые' },
+  { id: 'rating_desc', label: 'Высокие сначала' },
+  { id: 'rating_asc', label: 'Низкие сначала' },
+];
+
+function readSort() {
+  try {
+    const value = localStorage.getItem(SORT_KEY);
+    return SORT_OPTIONS.some(o => o.id === value) ? value : 'new';
+  } catch (e) {
+    return 'new';
+  }
+}
+
+function saveSort(value) {
+  try {
+    localStorage.setItem(SORT_KEY, value);
+  } catch (e) {
+    // игнорируем
+  }
+}
+
 let activeFilter = 'all';
+let activeSort = readSort();   // сортировка ленты: new | rating_desc | rating_asc
 let feedChannel = null;
 let realtimeTimer = null;
+let trendingCache = null;   // тренды на сессию, чтобы не дёргать TMDb при каждом рендере
+let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
 
 export function cleanupFeed() {
   if (feedChannel) {
@@ -26,7 +53,14 @@ export async function renderFeed(app, currentUser) {
   app.innerHTML = `
     <div class="max-w-4xl mx-auto pb-20">
       <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
-        <h1 class="text-2xl font-bold mb-3">Лента оценок</h1>
+        <div class="flex items-center gap-3 mb-3">
+          <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
+            class="w-10 h-10 rounded-full bg-slate-700 border border-slate-600">
+          <div class="min-w-0">
+            <h1 class="text-xl font-bold leading-tight truncate">Привет, ${escapeHtml(currentUser.profile.username)}! 👋</h1>
+            <p class="text-xs text-gray-400">${escapeHtml(todayCaption())}</p>
+          </div>
+        </div>
         <div class="relative">
           <input type="text" id="search-input" placeholder="Поиск фильма или сериала..." autocomplete="off"
             class="w-full pl-10 pr-4 py-3 bg-card border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
@@ -46,10 +80,19 @@ export async function renderFeed(app, currentUser) {
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="watchlist">Хочу посмотреть</button>
         </div>
 
+        <div class="flex items-center gap-2 mb-4 text-xs text-gray-400">
+          <span class="flex-shrink-0">Сортировка:</span>
+          <div class="flex gap-1.5 overflow-x-auto scrollbar-hide">
+            ${SORT_OPTIONS.map(o => `
+              <button class="sort-btn px-3 py-1.5 rounded-full whitespace-nowrap transition-colors ${o.id === activeSort ? 'bg-secondary text-white' : 'bg-card hover:bg-slate-700'}" data-sort="${o.id}">${o.label}</button>
+            `).join('')}
+          </div>
+        </div>
+
         <div id="feed-note" class="hidden text-xs text-gray-500 mb-3">Показан список «хочу посмотреть» всей вашей компании</div>
 
         <div id="ratings-list" class="space-y-4">
-          <div class="text-center py-12 text-gray-500">Загружаем оценки...</div>
+          ${skeletonCards(3)}
         </div>
       </div>
 
@@ -75,11 +118,26 @@ export async function renderFeed(app, currentUser) {
   // Инициализируем поиск и навигацию
   initSearch(currentUser);
   initNav(currentUser);
+  initSort(currentUser);
 
-  // Подписываемся на реалтайм обновления оценок и watchlist
+  // Подписываемся на реалтайм обновления оценок и watchlist.
+  // Чужие новые оценки дополнительно подсвечиваем тостом — реалтайм становится заметным.
+  const onRemoteChange = (payload) => {
+    const isNewFromFriend = payload && payload.eventType === 'INSERT'
+      && payload.new && payload.new.user_id !== currentUser.id;
+    if (isNewFromFriend) {
+      const now = Date.now();
+      if (now - lastNewToastAt > 5000) {
+        lastNewToastAt = now;
+        showToast('🎬 Кто-то из друзей только что обновил ленту', 'info', 2500);
+      }
+    }
+    scheduleReload(currentUser);
+  };
+
   feedChannel = supabase.channel('feed-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ratings' }, () => scheduleReload(currentUser))
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'watchlist' }, () => scheduleReload(currentUser))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ratings' }, onRemoteChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'watchlist' }, onRemoteChange)
     .subscribe();
 }
 
@@ -137,10 +195,33 @@ async function loadRatings(currentUser, filter = 'all') {
       listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
       return;
     }
-    data = ratings;
+    data = applySort(ratings);
   }
 
   if (!data || data.length === 0) {
+    if (filter === 'all') {
+      // Первое впечатление: не пустое полотно, а онбординг + живые постеры трендов
+      listEl.innerHTML = `
+        <div class="bg-gradient-to-br from-primary/25 via-card to-secondary/15 border border-slate-700/70 rounded-2xl p-5 mb-6">
+          <h2 class="text-xl font-bold mb-1">Добро пожаловать в «Кино для друзей»! </h2>
+          <p class="text-sm text-gray-300 mb-4">Здесь появится лента оценок вашей компании. Начать очень просто:</p>
+          <ol class="space-y-2 text-sm text-gray-200 mb-4">
+            <li class="flex gap-2"><span>🔍</span><span>Найдите фильм или сериал через поиск сверху — с постерами, чтобы не перепутать одноимённые.</span></li>
+            <li class="flex gap-2"><span>⭐</span><span>Поставьте оценку слайдером (можно 7.5!) и добавьте комментарий.</span></li>
+            <li class="flex gap-2"><span>👥</span><span>Друзья увидят оценку мгновенно и поставят свои — средняя по компании посчитается сама.</span></li>
+          </ol>
+          <button id="focus-search-btn" class="bg-primary hover:bg-primary/90 text-white font-semibold py-2.5 px-5 rounded-xl">
+            Выбрать фильм прямо сейчас
+          </button>
+        </div>
+        <div id="trending-section"></div>
+      `;
+      const focusBtn = document.getElementById('focus-search-btn');
+      if (focusBtn) focusBtn.addEventListener('click', () => document.getElementById('search-input').focus());
+      renderTrendingSection(currentUser);
+      return;
+    }
+
     let emptyText = 'Пока нет оценок. Найдите фильм через поиск и поставьте первую оценку!';
     if (filter === 'watchlist') emptyText = 'В списке «Хочу посмотреть» пока ничего нет. Найдите фильм и добавьте его.';
     if (filter === 'mine') emptyText = 'Вы еще не поставили ни одной оценки.';
@@ -168,10 +249,7 @@ async function loadRatings(currentUser, filter = 'all') {
       <div class="title-card bg-card rounded-2xl overflow-hidden hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="p-4 flex gap-4">
           <div class="flex-shrink-0 w-20">
-            ${title.poster_path
-              ? `<img src="${CONFIG.TMDB_IMG_BASE}${escapeHtml(title.poster_path)}" alt="${escapeHtml(title.title)}" loading="lazy" class="w-full aspect-[2/3] rounded-lg object-cover">`
-              : `<div class="w-full aspect-[2/3] rounded-lg bg-slate-700 flex items-center justify-center text-gray-500">🎬</div>`
-            }
+            ${posterImg(title.poster_path, title.title, 'w-20 aspect-[2/3] rounded-lg')}
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-start justify-between gap-2">
@@ -181,7 +259,7 @@ async function loadRatings(currentUser, filter = 'all') {
               </div>
               ${!isWatchlistView ? `
                 <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
-                  ${escapeHtml(item.rating)}
+                  ${escapeHtml(formatRating(item.rating))}
                 </div>
               ` : `
                 <div class="px-2 py-1 rounded-lg bg-slate-700 text-yellow-400 font-medium text-sm">
@@ -215,10 +293,177 @@ async function loadRatings(currentUser, filter = 'all') {
   });
 }
 
+// Сортировка оценок ленты (выбор пользователя хранится локально)
+function applySort(list) {
+  const arr = [...(list || [])];
+  if (activeSort === 'rating_desc') {
+    arr.sort((a, b) => Number(b.rating) - Number(a.rating));
+  } else if (activeSort === 'rating_asc') {
+    arr.sort((a, b) => Number(a.rating) - Number(b.rating));
+  }
+  return arr;
+}
+
+function initSort(currentUser) {
+  document.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeSort = btn.dataset.sort;
+      saveSort(activeSort);
+      document.querySelectorAll('.sort-btn').forEach(b => {
+        const active = b.dataset.sort === activeSort;
+        b.classList.toggle('bg-secondary', active);
+        b.classList.toggle('text-white', active);
+        b.classList.toggle('bg-card', !active);
+        b.classList.toggle('hover:bg-slate-700', !active);
+      });
+      loadRatings(currentUser, activeFilter);
+    });
+  });
+}
+
+// Подпись под приветствием: сегодняшняя дата по-русски
+function todayCaption() {
+  const s = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  return s.charAt(0).toUpperCase() + s.slice(1) + ' — самое время оценить что-то новое';
+}
+
+// Скелетоны карточек на время загрузки вместо текста «Загружаем...»
+function skeletonCards(count = 3) {
+  return Array.from({ length: count }).map(() => `
+    <div class="bg-card rounded-2xl p-4 flex gap-4 animate-pulse">
+      <div class="flex-shrink-0 w-20 aspect-[2/3] bg-slate-700 rounded-lg"></div>
+      <div class="flex-1 space-y-3 py-1">
+        <div class="h-5 bg-slate-700 rounded w-2/3"></div>
+        <div class="h-4 bg-slate-700 rounded w-1/3"></div>
+        <div class="h-4 bg-slate-700 rounded w-1/2"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// Ряд «Сейчас в тренде» — чтобы лента не выглядела пустой до первых оценок
+async function renderTrendingSection(currentUser) {
+  const section = document.getElementById('trending-section');
+  if (!section) return;
+
+  section.innerHTML = `
+    <h3 class="font-semibold mb-3 flex items-center gap-2">🔥 Сейчас в тренде <span class="text-xs text-gray-500 font-normal">неделя · TMDb</span></h3>
+    <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+      ${Array.from({ length: 6 }).map(() => `<div class="flex-shrink-0 w-28 animate-pulse"><div class="w-28 aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-2"></div></div>`).join('')}
+    </div>
+  `;
+
+  try {
+    if (!trendingCache) trendingCache = await getTrending(12);
+    const items = trendingCache;
+    if (!items || items.length === 0) {
+      section.innerHTML = '';
+      return;
+    }
+
+    section.innerHTML = `
+      <h3 class="font-semibold mb-3 flex items-center gap-2">🔥 Сейчас в тренде <span class="text-xs text-gray-500 font-normal">неделя · TMDb</span></h3>
+      <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+        ${items.map(item => {
+          const year = releaseYear(item.release_date);
+          return `
+            <div class="trending-card flex-shrink-0 w-28 cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
+              <div class="group-hover:opacity-80 transition-opacity">
+                ${posterImg(item.poster_path, item.title, 'w-28 aspect-[2/3] rounded-lg shadow-lg')}
+              </div>
+              <div class="mt-1.5 text-xs font-medium truncate">${escapeHtml(item.title)}</div>
+              <div class="text-[11px] text-gray-500">${year ? escapeHtml(year) + ' • ' : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    section.querySelectorAll('.trending-card').forEach(card => {
+      card.addEventListener('click', () => {
+        openRatingModal(card.dataset.id, card.dataset.type, currentUser, () => {
+          loadRatings(currentUser, activeFilter);
+        });
+      });
+    });
+  } catch (e) {
+    // Тренды — украшение: если TMDb недоступен, просто убираем секцию
+    section.innerHTML = '';
+  }
+}
+
 function initSearch(currentUser) {
   const searchInput = document.getElementById('search-input');
   const resultsContainer = document.getElementById('search-results');
   let searchTimeout;
+
+  // При фокусе на пустом поле показываем историю поиска
+  searchInput.addEventListener('focus', () => {
+    if (searchInput.value.trim().length < 2) showHistoryDropdown();
+  });
+
+  // История: недавние запросы и недавно открытые тайтлы (хранятся локально)
+  function showHistoryDropdown() {
+    const queries = getSearchQueries();
+    const titles = getRecentTitles();
+    if (queries.length === 0 && titles.length === 0) {
+      resultsContainer.classList.add('hidden');
+      return;
+    }
+
+    resultsContainer.innerHTML = `
+      <div class="p-2 flex items-center justify-between border-b border-slate-700">
+        <span class="text-xs text-gray-500 px-1">Недавние</span>
+        <button id="clear-history-btn" class="text-xs text-gray-400 hover:text-white px-2 py-1 rounded">Очистить</button>
+      </div>
+      ${queries.length ? `
+        <div class="p-1">
+          ${queries.map(q => `
+            <div class="history-query p-2 hover:bg-slate-700 cursor-pointer flex items-center gap-2 rounded-lg" data-query="${escapeHtml(q)}">
+              <svg class="w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <span class="text-sm truncate">${escapeHtml(q)}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+      ${titles.length ? `
+        <div class="p-1 border-t border-slate-700">
+          ${titles.map(t => `
+            <div class="history-title p-2 hover:bg-slate-700 cursor-pointer flex items-center gap-3 rounded-lg" data-id="${escapeHtml(t.id)}" data-type="${escapeHtml(t.media_type)}">
+              ${posterImg(t.poster_path, t.title, 'w-8 h-12 rounded', 'absolute inset-0 w-full h-full object-cover rounded')}
+              <div class="min-w-0">
+                <div class="text-sm truncate">${escapeHtml(t.title)}</div>
+                <div class="text-xs text-gray-500">${escapeHtml(t.year || '')}${t.year ? ' • ' : ''}${t.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    `;
+    resultsContainer.classList.remove('hidden');
+
+    document.getElementById('clear-history-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearHistory();
+      resultsContainer.classList.add('hidden');
+      showToast('История очищена', 'success');
+    });
+    document.querySelectorAll('.history-query').forEach(el => {
+      el.addEventListener('click', () => {
+        searchInput.value = el.dataset.query;
+        searchInput.dispatchEvent(new Event('input'));
+        searchInput.focus();
+      });
+    });
+    document.querySelectorAll('.history-title').forEach(el => {
+      el.addEventListener('click', () => {
+        resultsContainer.classList.add('hidden');
+        openRatingModal(el.dataset.id, el.dataset.type, currentUser, () => {
+          loadRatings(currentUser, activeFilter);
+        });
+      });
+    });
+  }
 
   searchInput.addEventListener('input', async (e) => {
     clearTimeout(searchTimeout);
@@ -248,10 +493,7 @@ function initSearch(currentUser) {
           return `
             <div class="search-result-item p-3 hover:bg-slate-700 cursor-pointer flex gap-3 transition-colors" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
               <div class="flex-shrink-0 w-10">
-                ${item.poster_path
-                  ? `<img src="${CONFIG.TMDB_IMG_BASE}${escapeHtml(item.poster_path)}" alt="" loading="lazy" class="w-full aspect-[2/3] rounded object-cover">`
-                  : `<div class="w-full aspect-[2/3] rounded bg-slate-700 flex items-center justify-center text-xs">🎬</div>`
-                }
+                ${posterImg(item.poster_path, item.title, 'w-10 aspect-[2/3] rounded')}
               </div>
               <div class="min-w-0">
                 <div class="font-medium truncate">${escapeHtml(item.title)}</div>
@@ -266,6 +508,9 @@ function initSearch(currentUser) {
           item.addEventListener('click', () => {
             const titleId = item.dataset.id;
             const mediaType = item.dataset.type;
+
+            // Запоминаем запрос, который привёл к выбору
+            addSearchQuery(searchInput.value);
 
             resultsContainer.classList.add('hidden');
             searchInput.value = '';
@@ -289,6 +534,11 @@ function initSearch(currentUser) {
   });
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') resultsContainer.classList.add('hidden');
+    // Enter открывает первый результат — быстрее на телефоне
+    if (e.key === 'Enter') {
+      const first = resultsContainer.querySelector('.search-result-item');
+      if (first) first.click();
+    }
   });
 
   // Обработчики фильтров
