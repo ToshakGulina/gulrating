@@ -135,11 +135,11 @@ export async function getGenreMap(mediaType) {
 // Каталог: discover с жанрами, сортировкой, порогом рейтинга и годами.
 // Возвращает страницу результатов и признак «есть ещё».
 export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortBy = 'popularity.desc', voteGte = 0, yearGte = '', yearLte = '', page = 1, limit = 18 } = {}) {
+  // include_adult уже добавляет tmdbFetch через API_PARAMS — дубль убран
   const params = new URLSearchParams({
     sort_by: sortBy,
     page: String(page),
-    'vote_count.gte': '50',
-    include_adult: 'false'
+    'vote_count.gte': '50'
   });
   if (genreIds.length) params.set('with_genres', genreIds.join(','));
   if (voteGte) params.set('vote_average.gte', String(voteGte));
@@ -150,7 +150,7 @@ export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortB
   const data = await tmdbFetch(`${path}?${params.toString()}`);
   return {
     items: mapResults(data.results, limit),
-    hasMore: (data.page || 1) < (data.total_pages || 1) && (data.page || 1) < 20
+    hasMore: (data.page || 1) < (data.total_pages || 1)
   };
 }
 
