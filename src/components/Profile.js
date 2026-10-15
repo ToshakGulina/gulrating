@@ -7,6 +7,7 @@ import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, poster
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
 import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, reportWatchNative } from '../lib/watchHistory.js';
+import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
 import { openWatchOverlay } from './RatingModal.js';
 
 // Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
@@ -154,6 +155,14 @@ export async function renderProfilePage(app, currentUser) {
               </div>
               <p class="text-xs text-gray-600 mb-2">Весь каталог (~1 млн тайтлов, ≈100 МБ одним скачиванием) для полностью офлайн-поиска. Хранится чанками в IndexedDB, целиком в память не загружается.</p>
               <button id="full-db-btn" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm">Скачать полную базу</button>
+            </div>
+            <div>
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <span class="text-gray-300">Кэш данных Кинопоиска (дней)</span>
+                <span id="kp-ttl-val" class="text-sm font-bold text-orange-300">14</span>
+              </div>
+              <input type="range" id="kp-ttl-range" min="1" max="90" step="1" class="rating-slider w-full" aria-label="Сколько дней хранить рейтинги Кинопоиска на устройстве">
+              <p class="text-xs text-gray-600 mt-1">Повторные карточки не обращаются к API вовсе: запрос идёт только при первом открытии тайтла за срок кэша.</p>
             </div>
             <label class="flex items-center justify-between gap-3">
               <span class="text-gray-300">Блок рекомендаций в ленте</span>
@@ -354,6 +363,16 @@ export async function renderProfilePage(app, currentUser) {
   myminRange.addEventListener('input', () => {
     myminVal.textContent = Number(myminRange.value).toFixed(1);
     localStorage.setItem('gulrating:my_min', myminRange.value);
+  });
+
+  // Срок локального кэша Кинопоиска
+  const kpTtlRange = document.getElementById('kp-ttl-range');
+  const kpTtlVal = document.getElementById('kp-ttl-val');
+  kpTtlRange.value = String(getKpCacheTtlDays());
+  kpTtlVal.textContent = kpTtlRange.value;
+  kpTtlRange.addEventListener('input', () => {
+    kpTtlVal.textContent = kpTtlRange.value;
+    localStorage.setItem('gulrating:kp_cache_days', kpTtlRange.value);
   });
 
   // Офлайн-база фильмов: размер (полная шкала) и статус закачки

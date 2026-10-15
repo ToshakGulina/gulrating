@@ -13,20 +13,22 @@ const API_PARAMS = new URLSearchParams({
 });
 if (!USE_PROXY) API_PARAMS.set('api_key', CONFIG.TMDB_API_KEY);
 
-// Запрос к TMDb с таймаутом и понятными сообщениями об ошибках
+// Запрос к TMDb с таймаутом и понятными сообщениями об ошибках.
+// Сначала напрямую; если сеть недоступна (в том числе гео-блок TMDb для
+// российских IP — GeoDNS отдаёт 127.0.0.1), прозрачно уходим на серверный
+// прокси /tmdb на собственном домене (Pages Functions): там запрос идёт с
+// края Cloudflare, которому TMDb отвечает.
 async function tmdbFetch(path) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`, {
-      signal: controller.signal
-    });
+    res = await tmdbRaw(`${API_BASE}${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`);
   } catch (e) {
-    throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
-  } finally {
-    clearTimeout(timer);
+    if (USE_PROXY) throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
+    try {
+      res = await tmdbRaw(`/tmdb${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`);
+    } catch (e2) {
+      throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
+    }
   }
 
   if (!res.ok) {
@@ -42,6 +44,16 @@ async function tmdbFetch(path) {
     throw new Error(`Ошибка базы фильмов TMDb (код ${res.status})${detail}`);
   }
   return res.json();
+}
+
+async function tmdbRaw(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Поиск фильмов и сериалов по запросу с автодополнением

@@ -9,8 +9,9 @@ import { getTitleDetails } from './tmdb.js';
 const HIST_KEY = 'gulrating:watch_history';
 const NOTIF_KEY = 'gulrating:notifications';
 const CHECK_KEY = 'gulrating:season_check_at';
-const CHECK_EVERY = 6 * 60 * 60 * 1000;     // общая проверка не чаще раза в 6 часов
-const ENTRY_RECHECK = 12 * 60 * 60 * 1000; // по каждому досмотренному — раз в 12 часов
+// Проверка только при входе в приложение и не чаще раза в неделю:
+// фоном ничего не крутится совсем
+const CHECK_EVERY = 7 * 24 * 60 * 60 * 1000;
 
 export function isApk() {
   return typeof window !== 'undefined' && Boolean(window.GulRatingBridge);
@@ -129,7 +130,6 @@ export async function checkNewSeasons() {
   const list = read(HIST_KEY, []);
   for (const entry of list) {
     if (!entry.done || entry.media_type !== 'tv') continue;
-    if (Date.now() - (entry.done.at || 0) < ENTRY_RECHECK) continue;
     let d = null;
     try {
       d = await getTitleDetails(entry.id, 'tv');

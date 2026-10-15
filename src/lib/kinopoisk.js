@@ -23,6 +23,37 @@ const DIRECT_BASE = 'https://api.poiskkino.dev';
 // Кэш на сессию: повторное открытие карточки не тратит лимит запросов
 const cache = new Map();
 
+// Долгий кэш на устройстве: рейтинг фильма не меняется на глазах, поэтому
+// повторные открытия карточек неделями не трогают API вовсе.
+// Срок настраивается ползунком в профиле (1–90 дней, по умолчанию 14).
+const KP_DISK_KEY = 'gulrating:kp_cache';
+const KP_DISK_MAX = 300;
+
+export function getKpCacheTtlDays() {
+  const n = Number(localStorage.getItem('gulrating:kp_cache_days'));
+  if (!Number.isFinite(n) || n < 1) return 14;
+  return Math.min(Math.round(n), 90);
+}
+
+function kpDiskRead(key) {
+  try {
+    const all = JSON.parse(localStorage.getItem(KP_DISK_KEY) || '{}');
+    const entry = all[key];
+    if (entry && Date.now() - entry.at < getKpCacheTtlDays() * 86400000) return entry.v;
+  } catch (e) { /* приватный режим */ }
+  return undefined;
+}
+
+function kpDiskWrite(key, value) {
+  try {
+    const all = JSON.parse(localStorage.getItem(KP_DISK_KEY) || '{}');
+    all[key] = { at: Date.now(), v: value };
+    const keys = Object.keys(all);
+    while (keys.length > KP_DISK_MAX) delete all[keys.shift()];
+    localStorage.setItem(KP_DISK_KEY, JSON.stringify(all));
+  } catch (e) { /* приватный режим */ }
+}
+
 // Ссылка на страницу тайтла на Кинопоиске; по требованию домен
 // kinopoisk.ru в итоговой ссылке заменяется на kinokino.vip
 export function kinopoiskPageUrl(kpId) {
@@ -148,6 +179,11 @@ export async function getKinopoiskRatings(title, originalTitle, year) {
 
   const cacheKey = `${title}|${year || ''}`;
   if (cache.has(cacheKey)) return cache.get(cacheKey);
+  const diskHit = kpDiskRead(cacheKey);
+  if (diskHit !== undefined) {
+    cache.set(cacheKey, diskHit);
+    return diskHit;
+  }
 
   const queries = [title];
   if (originalTitle && originalTitle !== title) queries.push(originalTitle);
@@ -198,5 +234,6 @@ export async function getKinopoiskRatings(title, originalTitle, year) {
   }
 
   cache.set(cacheKey, result);
+  kpDiskWrite(cacheKey, result);
   return result;
 }

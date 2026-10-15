@@ -75,6 +75,10 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String host = uri.getHost();
+                // Уход с плеера: снять позицию сразу, не дожидаясь тика опроса
+                if (isPlayerHost(web.getUrl()) && !isPlayerHost(uri.toString())) {
+                    probePlayer();
+                }
                 // Всё своё открываем внутри приложения, внешние ссылки
                 // (Кинопоиск, Телеграм) — в браузере телефона
                 if (host != null && host.equals(HOME_HOST)) return false;
@@ -121,14 +125,18 @@ public class MainActivity extends Activity {
             }
         }, "GulRatingBridge");
 
-        // Опрос <video> плеера: позиция и длительность для истории просмотра
+        // Опрос <video> плеера: позиция и длительность для истории просмотра.
+        // 30 секунд — компромисс точности и расхода батареи (сам опрос — это
+        // короткий JS-сниппет, копеечный на фоне декодирования видео);
+        // дополнительно позиция снимается при уходе со страницы плеера
+        // и при сворачивании приложения
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
                 probePlayer();
-                handler.postDelayed(this, 5000);
+                handler.postDelayed(this, 30000);
             }
-        }, 5000);
+        }, 8000);
 
         if (savedInstanceState == null) {
             web.loadUrl(HOME);
@@ -208,6 +216,13 @@ public class MainActivity extends Activity {
                 .setAutoCancel(true)
                 .build();
         notifManager.notify((int) (System.currentTimeMillis() % 100000), n);
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Свернули/закрыли приложение — позиция просмотра сохранена
+        probePlayer();
     }
 
     @Override
