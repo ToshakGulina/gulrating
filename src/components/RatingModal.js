@@ -1,8 +1,9 @@
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
-import { getTitleDetails } from '../lib/tmdb.js';
+import { getTitleDetails, getGenreMap, discoverByGenre } from '../lib/tmdb.js';
 import { getKinopoiskRatings } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
+import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
 // Фирменные иконки источников оценок (inline SVG по оригинальным логотипам):
@@ -27,8 +28,7 @@ function formatVotes(n) {
 }
 const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="#f472b6"><path d="M9 11a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5zm8-2a3.5 3.5 0 10-2.4-6 5.5 5.5 0 010 8c.8.6 1.6 1 2.4 1zm0 2c-.6 0-1.3-.1-2-.3 1.2 1 2 2.3 2 3.8v1.5h6v-2c0-2.2-3.6-3-6-3z"/></svg>';
 
-// Пока оценка не выбрана — показываем «пустой» контур звезды вместо черты
-const EMPTY_STAR = '<svg viewBox="0 0 24 24" class="w-11 h-11" aria-hidden="true"><path fill="none" stroke="#64748b" stroke-width="1.5" stroke-linejoin="round" d="M12 2.6l2.9 6.2 6.8.8-5 4.7 1.3 6.7-6-3.4-6 3.4 1.3-6.7-5-4.7 6.8-.8z"/></svg>';
+// Пока оценка не выбрана, пузырёк над бегунком показывает позицию серым
 
 export async function openRatingModal(titleId, mediaType, currentUser, onSaveCallback) {
   // Создаем оверлей модалки
@@ -127,46 +127,53 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         </span>`;
     }
 
-    // Дополнительные рейтинги из того же ответа ПоискКино: TMDb, критики
-    // (мир и РФ) и рейтинг ожидания (только для невышедших фильмов).
-    // Показываются свернутыми, под кнопкой «Все рейтинги».
-    const extraRows = [];
+    // Очередь внешних рейтингов: первые два доступных видны сразу,
+    // остальные — под кнопкой «Все рейтинги». Порядок: КП, IMDb, TMDb,
+    // критики РФ, критики мира, ожидание (только для невышедших).
+    const ratingRows = [];
+    if (kpRatings && kpRatings.kp !== null) {
+      ratingRows.push(`${KP_ICON} Кинопоиск: <b class="text-orange-300">${kpRatings.kp.toFixed(1)}</b>${kpRatings.votesKp ? `<span class="text-xs text-gray-500">· ${formatVotes(kpRatings.votesKp)}</span>` : ''}`);
+    }
+    if (kpRatings && kpRatings.imdb !== null) {
+      ratingRows.push(`${IMDB_ICON} IMDb: <b class="text-yellow-300">${kpRatings.imdb.toFixed(1)}</b>${kpRatings.votesImdb ? `<span class="text-xs text-gray-500">· ${formatVotes(kpRatings.votesImdb)}</span>` : ''}`);
+    }
     {
       const tmdbValue = (kpRatings && kpRatings.tmdb !== null)
         ? kpRatings.tmdb
         : (title.tmdb_rating ? Number(title.tmdb_rating) : null);
       if (tmdbValue !== null && Number.isFinite(tmdbValue)) {
-        extraRows.push(`${TMDB_ICON} TMDb: <b class="text-cyan-300">${tmdbValue.toFixed(1)}</b>`);
+        ratingRows.push(`${TMDB_ICON} TMDb: <b class="text-cyan-300">${tmdbValue.toFixed(1)}</b>`);
       }
       if (kpRatings && kpRatings.russianFilmCritics !== null) {
-        extraRows.push(`${RU_CRITICS_ICON} Российские критики: <b class="text-gray-200">${Math.round(kpRatings.russianFilmCritics)}%</b>`);
+        ratingRows.push(`${RU_CRITICS_ICON} Российские критики: <b class="text-gray-200">${Math.round(kpRatings.russianFilmCritics)}%</b>`);
       }
       if (kpRatings && kpRatings.filmCritics !== null) {
-        extraRows.push(`${CRITICS_ICON} Критики в мире: <b class="text-gray-200">${Math.round(kpRatings.filmCritics)}%</b>`);
+        ratingRows.push(`${CRITICS_ICON} Критики в мире: <b class="text-gray-200">${Math.round(kpRatings.filmCritics)}%</b>`);
       }
       const releaseDate = title.release_date ? new Date(title.release_date) : null;
       const isUnreleased = releaseDate && Number.isFinite(releaseDate.getTime()) && releaseDate.getTime() > Date.now();
       if (isUnreleased && kpRatings && kpRatings.await !== null) {
-        extraRows.push(`${AWAIT_ICON} Рейтинг ожидания: <b class="text-gray-200">${Math.round(kpRatings.await)}%</b>`);
+        ratingRows.push(`${AWAIT_ICON} Рейтинг ожидания: <b class="text-gray-200">${Math.round(kpRatings.await)}%</b>`);
       }
     }
+    const visibleRows = ratingRows.slice(0, 2);
+    const extraRows = ratingRows.slice(2);
 
     modal.querySelector('h2').textContent = title.title || 'Фильм';
 
     document.getElementById('modal-content').innerHTML = `
       <div class="flex gap-4 mb-4">
-        <div class="flex-shrink-0 w-24">
+        <div id="poster-box" class="flex-shrink-0 w-24 ${title.poster_path ? 'cursor-zoom-in' : ''}" title="${title.poster_path ? 'Открыть постер' : ''}">
           ${posterImg(title.poster_path, title.title, 'w-24 aspect-[2/3] rounded-lg')}
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-bold text-lg leading-tight">${escapeHtml(title.title)}</h3>
           <p class="text-sm text-gray-400 mb-1">${year ? escapeHtml(year) + ' • ' : ''}${mediaType === 'movie' ? 'фильм' : 'сериал'}</p>
           <div class="flex gap-2 flex-wrap mb-2">
-            ${(title.genres || []).slice(0, 3).map(g => `<span class="text-xs px-2 py-0.5 bg-slate-700 rounded-full">${escapeHtml(g)}</span>`).join('')}
+            ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Популярное в жанре «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
           </div>
           <div class="flex flex-col items-start gap-1.5 text-sm">
-            ${kpRatings && kpRatings.kp !== null ? `<span class="flex items-center gap-1.5">${KP_ICON} Кинопоиск: <b class="text-orange-300">${kpRatings.kp.toFixed(1)}</b>${kpRatings.votesKp ? `<span class="text-xs text-gray-500">· ${formatVotes(kpRatings.votesKp)}</span>` : ''}</span>` : ''}
-            ${kpRatings && kpRatings.imdb !== null ? `<span class="flex items-center gap-1.5">${IMDB_ICON} IMDb: <b class="text-yellow-300">${kpRatings.imdb.toFixed(1)}</b>${kpRatings.votesImdb ? `<span class="text-xs text-gray-500">· ${formatVotes(kpRatings.votesImdb)}</span>` : ''}</span>` : ''}
+            ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
             ${friendsBadge}
             ${extraRows.length ? `
               <button id="more-ratings-btn" class="text-xs text-gray-400 hover:text-white underline decoration-dotted underline-offset-4 text-left">Все рейтинги (${extraRows.length})</button>
@@ -186,14 +193,13 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       <div class="border-t border-slate-700 pt-4 mb-4">
         <h4 class="font-semibold mb-3">Ваша оценка</h4>
 
-        <!-- Слайдер оценки: как яркость на телефоне, с шагом 0.1 -->
-        <div class="text-center mb-2">
-          <span id="rating-value" class="text-5xl font-bold align-middle"></span>
-          <span id="rating-scale" class="text-gray-500 text-lg ml-1 hidden">/10</span>
-        </div>
-        <div class="flex items-center gap-3 mb-3">
+        <!-- Слайдер оценки: значение живёт в пузырьке над бегунком -->
+        <div class="flex items-center gap-3 mb-3 mt-9">
           <button id="rating-minus" class="w-10 h-10 flex-shrink-0 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold" aria-label="Минус 0.1">−</button>
-          <input type="range" id="rating-slider" min="1" max="10" step="0.1" class="rating-slider flex-1" aria-label="Оценка от 1 до 10">
+          <div class="relative flex-1">
+            <div id="rating-bubble" class="absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-lg text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400"></div>
+            <input type="range" id="rating-slider" min="1" max="10" step="0.1" class="rating-slider w-full" aria-label="Оценка от 1 до 10">
+          </div>
           <button id="rating-plus" class="w-10 h-10 flex-shrink-0 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold" aria-label="Плюс 0.1">+</button>
         </div>
         <p class="text-xs text-gray-500 text-center mb-3">Тяните бегунок или листайте кнопками — шаг 0.1</p>
@@ -251,6 +257,19 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       });
     }
 
+    // --- Постер: клик открывает крупный просмотр ---
+    const posterBox = document.getElementById('poster-box');
+    if (posterBox && title.poster_path) {
+      posterBox.addEventListener('click', () => openLightbox(title.poster_path, title.title));
+    }
+
+    // --- Жанры: клик открывает популярное в жанре ---
+    modal.querySelectorAll('.genre-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        openGenreOverlay(chip.dataset.genre, mediaType, currentUser, onSaveCallback);
+      });
+    });
+
     // --- Кнопка «Все рейтинги»: раскрывает скрытые строки ---
     const moreBtn = document.getElementById('more-ratings-btn');
     const moreBox = document.getElementById('more-ratings');
@@ -278,7 +297,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
     // --- Логика слайдера оценки ---
     const slider = document.getElementById('rating-slider');
-    const valueEl = document.getElementById('rating-value');
+    const bubble = document.getElementById('rating-bubble');
     let selectedScore = status.hasRating ? Math.round(Number(status.rating.rating) * 10) / 10 : null;
 
     function valueColor(n) {
@@ -287,18 +306,23 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       return 'text-red-400';
     }
 
+    function valueBg(n) {
+      if (n >= 8) return 'bg-green-600';
+      if (n >= 5) return 'bg-yellow-600';
+      return 'bg-red-600';
+    }
+
+    // Пузырёк с значением ездит над бегунком: до первого касания он серый
+    // (это позиция бегунка, а не оценка), после — окрашен по оценке
+    const THUMB_PX = 28; // ширина бегунка из стилей .rating-slider
     function renderValue() {
-      const scaleEl = document.getElementById('rating-scale');
-      if (selectedScore === null) {
-        valueEl.innerHTML = EMPTY_STAR;
-        valueEl.className = 'font-bold text-gray-500 align-middle';
-        valueEl.title = 'Оценка ещё не выбрана';
-        scaleEl.classList.add('hidden');
-        return;
-      }
-      valueEl.textContent = formatRating(selectedScore);
-      valueEl.className = `text-5xl font-bold ${valueColor(selectedScore)}`;
-      scaleEl.classList.remove('hidden');
+      const val = selectedScore === null ? Number(slider.value) : selectedScore;
+      const pct = (Math.min(10, Math.max(1, val)) - 1) / 9;
+      bubble.style.left = `calc(${(pct * 100).toFixed(2)}% + ${((0.5 - pct) * THUMB_PX).toFixed(1)}px)`;
+      bubble.textContent = formatRating(val);
+      bubble.className = selectedScore === null
+        ? 'absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-lg text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400'
+        : `absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-lg text-sm font-bold pointer-events-none whitespace-nowrap border border-transparent text-white ${valueBg(selectedScore)}`;
     }
 
     function setScore(n, fromSlider) {
@@ -394,5 +418,72 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         Ошибка загрузки: ${escapeHtml(e.message)}
       </div>
     `;
+  }
+}
+
+// Крупный постер поверх всего: закрытие кликом или Esc
+function openLightbox(posterPath, titleText) {
+  const overlay = document.createElement('div');
+  overlay.className = 'fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm flex items-center justify-center p-6 cursor-zoom-out';
+  const bigSrc = (CONFIG.TMDB_IMG_BASE || 'https://image.tmdb.org/t/p/w185').replace(/w\d+/, 'w500') + escapeHtml(posterPath);
+  overlay.innerHTML = `<img src="${bigSrc}" alt="${escapeHtml(titleText || '')}" class="max-h-[85vh] max-w-full rounded-xl shadow-2xl">`;
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onEsc);
+  };
+  function onEsc(e) { if (e.key === 'Escape') close(); }
+  overlay.addEventListener('click', close);
+  document.addEventListener('keydown', onEsc);
+  document.body.appendChild(overlay);
+}
+
+// Оверлей «Популярное в жанре»: список кликабельных карточек,
+// клик по карточке закрывает оверлей и открывает обычную модалку тайтла
+async function openGenreOverlay(genreName, mediaType, currentUser, onSaveCallback) {
+  const overlay = document.createElement('div');
+  overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-4';
+  overlay.innerHTML = `
+    <div class="bg-card w-full max-w-lg rounded-2xl max-h-[80vh] overflow-y-auto p-4">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="font-bold">Популярное в жанре «${escapeHtml(genreName)}»</h3>
+        <button id="genre-close" class="text-gray-400 hover:text-white px-2 text-xl leading-none" aria-label="Закрыть">×</button>
+      </div>
+      <div id="genre-list" class="space-y-2 text-sm text-gray-400">Загружаем…</div>
+    </div>
+  `;
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('#genre-close').addEventListener('click', close);
+  document.body.appendChild(overlay);
+
+  const list = overlay.querySelector('#genre-list');
+  try {
+    const map = await getGenreMap();
+    const genreId = map[String(genreName).toLowerCase()];
+    const items = genreId ? await discoverByGenre(genreId, mediaType, 10) : [];
+    if (!items.length) {
+      list.innerHTML = 'В этом жанре ничего не нашлось.';
+      return;
+    }
+    list.innerHTML = items.map(item => `
+      <div class="genre-item flex items-center gap-3 p-2 hover:bg-slate-700 rounded-xl cursor-pointer" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
+        <div class="flex-shrink-0 w-10">
+          ${posterImg(item.poster_path, item.title, 'w-10 aspect-[2/3] rounded')}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium truncate text-white">${escapeHtml(item.title)}</div>
+          <div class="text-xs text-gray-500">${escapeHtml(releaseYear(item.release_date) || '—')} • ${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
+        </div>
+        ${item.vote_average ? `<span class="text-xs font-bold text-cyan-300">${Number(item.vote_average).toFixed(1)}</span>` : ''}
+      </div>
+    `).join('');
+    list.querySelectorAll('.genre-item').forEach(el => {
+      el.addEventListener('click', () => {
+        close();
+        openRatingModal(el.dataset.id, el.dataset.type, currentUser, onSaveCallback);
+      });
+    });
+  } catch (e) {
+    list.innerHTML = 'Не удалось загрузить список жанра.';
   }
 }

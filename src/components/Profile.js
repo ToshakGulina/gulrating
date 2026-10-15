@@ -5,6 +5,15 @@ import { openRatingModal } from './RatingModal.js';
 import { cleanupFeed } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
+// Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
+const ACCENTS = [
+  { name: 'Индиго', rgb: '99 102 241' },
+  { name: 'Малиновый', rgb: '225 29 72' },
+  { name: 'Изумруд', rgb: '16 185 129' },
+  { name: 'Синий', rgb: '59 130 246' },
+  { name: 'Оранжевый', rgb: '249 115 22' },
+];
+
 export async function renderProfilePage(app, currentUser) {
   cleanupFeed();
 
@@ -93,9 +102,15 @@ export async function renderProfilePage(app, currentUser) {
               </select>
             </label>
             <label class="flex items-center justify-between gap-3">
-              <span class="text-gray-300">Блок «Сейчас в тренде», когда лента пустая</span>
-              <input id="trending-toggle" type="checkbox" class="w-4 h-4">
+              <span class="text-gray-300">Блок рекомендаций в ленте</span>
+              <input id="recs-toggle" type="checkbox" class="w-4 h-4">
             </label>
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-gray-300">Акцент интерфейса</span>
+              <div id="accent-swatches" class="flex gap-2">
+                ${ACCENTS.map(a => `<button class="accent-swatch w-6 h-6 rounded-full border-2" data-rgb="${a.rgb}" style="background: rgb(${a.rgb})" title="${a.name}" aria-label="${a.name}"></button>`).join('')}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -178,7 +193,7 @@ export async function renderProfilePage(app, currentUser) {
   const avatarInput = document.getElementById('avatar-input');
   const nickInput = document.getElementById('nick-input');
   const sortSelect = document.getElementById('sort-select');
-  const trendingToggle = document.getElementById('trending-toggle');
+  const recsToggle = document.getElementById('recs-toggle');
 
   async function saveProfileFields(fields) {
     const { error } = await supabase.from('profiles').update(fields).eq('id', currentUser.id);
@@ -237,9 +252,26 @@ export async function renderProfilePage(app, currentUser) {
     showToast('Порядок ленты обновлён', 'success');
   });
 
-  trendingToggle.checked = localStorage.getItem('gulrating:show_trending') !== '0';
-  trendingToggle.addEventListener('change', () => {
-    localStorage.setItem('gulrating:show_trending', trendingToggle.checked ? '1' : '0');
+  recsToggle.checked = localStorage.getItem('gulrating:show_recs') !== '0';
+  recsToggle.addEventListener('change', () => {
+    localStorage.setItem('gulrating:show_recs', recsToggle.checked ? '1' : '0');
+    showToast('В ленте обновится блок рекомендаций', 'success');
+  });
+
+  // Акцент: сохраняем RGB-тройку и сразу применяем к CSS-переменной
+  const currentAccent = localStorage.getItem('gulrating:accent') || '99 102 241';
+  document.querySelectorAll('.accent-swatch').forEach(sw => {
+    sw.classList.toggle('border-white', sw.dataset.rgb === currentAccent);
+    sw.classList.toggle('border-transparent', sw.dataset.rgb !== currentAccent);
+    sw.addEventListener('click', () => {
+      localStorage.setItem('gulrating:accent', sw.dataset.rgb);
+      document.documentElement.style.setProperty('--p-rgb', sw.dataset.rgb);
+      document.querySelectorAll('.accent-swatch').forEach(x => {
+        x.classList.toggle('border-white', x === sw);
+        x.classList.toggle('border-transparent', x !== sw);
+      });
+      showToast('Акцент применён', 'success');
+    });
   });
 
   // Обработчики табов

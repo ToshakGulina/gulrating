@@ -93,3 +93,49 @@ export async function getTitleDetails(id, mediaType) {
     genres: (data.genres || []).map(g => g.name)
   };
 }
+
+// Приводим ответ TMDb к общему виду карточки рекомендации
+function mapResults(results, limit) {
+  return (results || [])
+    .filter(item => item.media_type === 'movie' || item.media_type === 'tv' || item.title || item.name)
+    .slice(0, limit)
+    .map(item => ({
+      id: item.id,
+      media_type: item.media_type || (item.title ? 'movie' : 'tv'),
+      title: item.title || item.name,
+      release_date: item.release_date || item.first_air_date,
+      poster_path: item.poster_path,
+      vote_average: item.vote_average
+    }));
+}
+
+// Рекомендации TMDb «похоже на» для тайтла (блок персонального подбора)
+export async function getRecommendations(id, mediaType, limit = 12) {
+  const data = await tmdbFetch(`/${mediaType}/${id}/recommendations`);
+  return mapResults(data.results, limit);
+}
+
+// Карта «название жанра → id» (имена приходят на русском из-за language=ru-RU).
+// Кэш на сессию: список жанров меняется крайне редко.
+let genreMapCache = null;
+export async function getGenreMap() {
+  if (!genreMapCache) {
+    const [movies, tv] = await Promise.all([
+      tmdbFetch('/genre/movie/list'),
+      tmdbFetch('/genre/tv/list')
+    ]);
+    const map = {};
+    for (const g of [...(movies.genres || []), ...(tv.genres || [])]) {
+      map[String(g.name).toLowerCase()] = g.id;
+    }
+    genreMapCache = map;
+  }
+  return genreMapCache;
+}
+
+// Популярное в жанре: для клика по жанру в карточке фильма
+export async function discoverByGenre(genreId, mediaType = 'movie', limit = 12) {
+  const path = mediaType === 'tv' ? '/discover/tv' : '/discover/movie';
+  const data = await tmdbFetch(`${path}?with_genres=${genreId}&sort_by=popularity.desc&vote_count.gte=50`);
+  return mapResults(data.results, limit);
+}

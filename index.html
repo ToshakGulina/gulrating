@@ -25,7 +25,7 @@
       theme: {
         extend: {
           colors: {
-            primary: '#6366f1',
+            primary: 'rgb(var(--p-rgb) / <alpha-value>)',
             secondary: '#ec4899',
             dark: '#0f172a',
             card: '#1e293b',
@@ -55,6 +55,7 @@
     }
   </style>
   <style>
+    :root { --p-rgb: 99 102 241; }
     /* Заставка до загрузки JS — чтобы не было пустого белого экрана */
     #boot-splash {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -97,7 +98,7 @@
       height: 28px;
       border-radius: 50%;
       background: #ffffff;
-      border: 3px solid #6366f1;
+      border: 3px solid rgb(var(--p-rgb));
       box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
       cursor: grab;
     }
@@ -107,7 +108,7 @@
       height: 28px;
       border-radius: 50%;
       background: #ffffff;
-      border: 3px solid #6366f1;
+      border: 3px solid rgb(var(--p-rgb));
       box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
       cursor: grab;
     }

@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase.js';
 import { formatDistanceToNow } from '../lib/date.js';
-import { searchTitles, getTrending } from '../lib/tmdb.js';
+import { searchTitles, getTrending, getRecommendations } from '../lib/tmdb.js';
 import { openRatingModal } from './RatingModal.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getSearchQueries, getRecentTitles, addSearchQuery, clearHistory } from '../lib/history.js';
@@ -35,7 +35,8 @@ let activeFilter = 'all';
 let activeSort = readSort();   // сортировка ленты: new | rating_desc | rating_asc
 let feedChannel = null;
 let realtimeTimer = null;
-let trendingCache = null;   // тренды на сессию, чтобы не дёргать TMDb при каждом рендере
+// Кэши рекомендаций на сессию: TMDb-запросы дорогие, повторный рендер ленты их не повторяет
+const recsCache = { trending: null, personal: null, personalKey: '' };
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
 
 export function cleanupFeed() {
@@ -91,6 +92,9 @@ export async function renderFeed(app, currentUser) {
 
         <div id="feed-note" class="hidden text-xs text-gray-500 mb-3">Показан список «хочу посмотреть» всей вашей компании</div>
 
+        <!-- Рекомендации: популярность, вкусы друзей, персональный подбор -->
+        <div id="recs-section" class="space-y-6 mb-6"></div>
+
         <div id="ratings-list" class="space-y-4">
           ${skeletonCards(3)}
         </div>
@@ -112,7 +116,8 @@ export async function renderFeed(app, currentUser) {
     </div>
   `;
 
-  // Загружаем оценки
+  // Загружаем оценки и рекомендации (рекомендации — параллельно, не ждём их)
+  loadRecs(currentUser);
   await loadRatings(currentUser, activeFilter);
 
   // Инициализируем поиск и навигацию
@@ -209,11 +214,9 @@ async function loadRatings(currentUser, filter = 'all') {
             Найти фильм
           </button>
         </div>
-        <div id="trending-section"></div>
       `;
       const focusBtn = document.getElementById('focus-search-btn');
       if (focusBtn) focusBtn.addEventListener('click', () => document.getElementById('search-input').focus());
-      renderTrendingSection(currentUser);
       return;
     }
 
@@ -336,59 +339,142 @@ function skeletonCards(count = 3) {
   `).join('');
 }
 
-// Ряд «Сейчас в тренде» — чтобы лента не выглядела пустой до первых оценок
-async function renderTrendingSection(currentUser) {
-  const section = document.getElementById('trending-section');
+// --- Рекомендации: три ряда подборов -------------------------------------
+// 1) Популярно сейчас (тренды TMDb); 2) Друзья оценили высоко (из нашей БД,
+// среднее >= 7.5 и вы ещё не оценили); 3) Похоже на то, что вам понравилось
+// (TMDb recommendations от вашего топ-тайтла). Ряды кликабельны целиком.
+async function loadRecs(currentUser) {
+  const section = document.getElementById('recs-section');
   if (!section) return;
-  if (localStorage.getItem('gulrating:show_trending') === '0') {
+  if (localStorage.getItem('gulrating:show_recs') === '0') {
     section.innerHTML = '';
     return;
   }
 
   section.innerHTML = `
-    <h3 class="font-semibold mb-3 flex items-center gap-2">🔥 Сейчас в тренде <span class="text-xs text-gray-500 font-normal">неделя · TMDb</span></h3>
-    <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
-      ${Array.from({ length: 6 }).map(() => `<div class="flex-shrink-0 w-28 animate-pulse"><div class="w-28 aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-2"></div></div>`).join('')}
-    </div>
+    ${recRowSkeleton('recs-popular', 'Популярно сейчас')}
+    ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
+    ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
   `;
 
+  // Ряд 1: тренды недели
   try {
-    if (!trendingCache) trendingCache = await getTrending(12);
-    const items = trendingCache;
-    if (!items || items.length === 0) {
-      section.innerHTML = '';
-      return;
+    if (!recsCache.trending) recsCache.trending = await getTrending(12);
+    fillRecRow(section, 'recs-popular', 'Популярно сейчас', 'неделя · TMDb', recsCache.trending, null);
+  } catch (e) {
+    dropRecRow(section, 'recs-popular');
+  }
+
+  // Ряд 2 и 3: одним запросом по всем оценкам компании
+  try {
+    const { data, error } = await supabase
+      .from('ratings')
+      .select('user_id, rating, titles(*)');
+    if (error) throw error;
+
+    const mine = new Set();
+    let myTop = null;
+    const agg = new Map();
+    for (const r of data || []) {
+      const t = r.titles;
+      if (!t) continue;
+      if (r.user_id === currentUser.id) {
+        mine.add(String(t.id));
+        const score = Number(r.rating);
+        if (score >= 8 && (!myTop || score > myTop.score)) myTop = { id: t.id, media_type: t.media_type, score };
+        continue;
+      }
+      const cur = agg.get(String(t.id)) || { title: t, sum: 0, count: 0 };
+      cur.sum += Number(r.rating);
+      cur.count += 1;
+      agg.set(String(t.id), cur);
     }
 
-    section.innerHTML = `
-      <h3 class="font-semibold mb-3 flex items-center gap-2">🔥 Сейчас в тренде <span class="text-xs text-gray-500 font-normal">неделя · TMDb</span></h3>
-      <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
-        ${items.map(item => {
-          const year = releaseYear(item.release_date);
-          return `
-            <div class="trending-card flex-shrink-0 w-28 cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
-              <div class="group-hover:opacity-80 transition-opacity">
-                ${posterImg(item.poster_path, item.title, 'w-28 aspect-[2/3] rounded-lg shadow-lg')}
-              </div>
-              <div class="mt-1.5 text-xs font-medium truncate">${escapeHtml(item.title)}</div>
-              <div class="text-[11px] text-gray-500">${year ? escapeHtml(year) + ' • ' : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `;
+    const friendsHigh = [...agg.values()]
+      .map(cur => ({ ...cur.title, friends_avg: cur.sum / cur.count, friends_count: cur.count }))
+      .filter(t => t.friends_avg >= 7.5 && !mine.has(String(t.id)))
+      .sort((a, b) => b.friends_avg - a.friends_avg || b.friends_count - a.friends_count)
+      .slice(0, 12)
+      .map(t => ({ id: t.id, media_type: t.media_type, title: t.title, release_date: t.release_date, poster_path: t.poster_path, badge: t.friends_avg.toFixed(1) }));
+    fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', 'средняя ≥ 7.5 · вы ещё не оценили', friendsHigh, 'bg-pink-600');
 
-    section.querySelectorAll('.trending-card').forEach(card => {
-      card.addEventListener('click', () => {
-        openRatingModal(card.dataset.id, card.dataset.type, currentUser, () => {
-          loadRatings(currentUser, activeFilter);
-        });
+    // Ряд 3: персональный подбор от вашей лучшей оценки
+    if (myTop) {
+      const key = `${myTop.media_type}:${myTop.id}`;
+      if (recsCache.personalKey !== key || !recsCache.personal) {
+        const recs = await getRecommendations(myTop.id, myTop.media_type, 14);
+        recsCache.personal = recs
+          .filter(t => !mine.has(String(t.id)))
+          .slice(0, 12);
+        recsCache.personalKey = key;
+      }
+      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', `потому что вы высоко оценили «${escapeHtml(myTopTitle(data, currentUser, myTop) || '')}»`, recsCache.personal, 'bg-primary');
+    } else {
+      dropRecRow(section, 'recs-personal');
+    }
+  } catch (e) {
+    dropRecRow(section, 'recs-friends');
+    dropRecRow(section, 'recs-personal');
+  }
+
+  section.querySelectorAll('.rec-card').forEach(card => {
+    card.addEventListener('click', () => {
+      openRatingModal(card.dataset.id, card.dataset.type, currentUser, () => {
+        loadRatings(currentUser, activeFilter);
+        loadRecs(currentUser);
       });
     });
-  } catch (e) {
-    // Тренды — украшение: если TMDb недоступен, просто убираем секцию
-    section.innerHTML = '';
+  });
+}
+
+// Название тайтла пользователя для подписи третьего ряда
+function myTopTitle(data, currentUser, myTop) {
+  const row = (data || []).find(r => r.user_id === currentUser.id && r.titles && String(r.titles.id) === String(myTop.id));
+  return row ? row.titles.title : '';
+}
+
+function recRowSkeleton(id, titleText) {
+  return `
+    <div id="${id}" class="rec-row">
+      <h3 class="font-semibold mb-3">${escapeHtml(titleText)}</h3>
+      <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+        ${Array.from({ length: 6 }).map(() => `<div class="flex-shrink-0 w-28 animate-pulse"><div class="w-28 aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-2"></div></div>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function dropRecRow(section, id) {
+  const row = section.querySelector('#' + id);
+  if (row) row.remove();
+}
+
+function fillRecRow(section, id, titleText, subtitle, items, badgeClass) {
+  const row = section.querySelector('#' + id);
+  if (!row) return;
+  if (!items || items.length === 0) {
+    row.remove();
+    return;
   }
+  row.innerHTML = `
+    <h3 class="font-semibold mb-1">${escapeHtml(titleText)}</h3>
+    <p class="text-xs text-gray-500 mb-3">${escapeHtml(subtitle || '')}</p>
+    <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+      ${items.map(item => {
+        const year = releaseYear(item.release_date);
+        return `
+          <div class="rec-card flex-shrink-0 w-28 cursor-pointer group relative" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
+            <div class="group-hover:opacity-80 transition-opacity">
+              ${posterImg(item.poster_path, item.title, 'w-28 aspect-[2/3] rounded-lg shadow-lg')}
+            </div>
+            ${item.badge ? `<span class="absolute top-1 right-1 ${badgeClass || 'bg-primary'} text-white text-[11px] font-bold px-1.5 py-0.5 rounded-md">${escapeHtml(item.badge)}</span>` : ''}
+            <div class="mt-1.5 text-xs font-medium truncate">${escapeHtml(item.title)}</div>
+            <div class="text-[11px] text-gray-500">${year ? escapeHtml(year) + ' • ' : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
 }
 
 function initSearch(currentUser) {

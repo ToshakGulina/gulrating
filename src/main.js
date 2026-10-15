@@ -2,6 +2,12 @@ import { supabase, getCurrentUser } from './lib/supabase.js';
 import { configIsComplete, APP_BUILD } from './config.js';
 
 // Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
+// Акцент интерфейса из настроек профиля применяем до первой отрисовки
+try {
+  const accent = localStorage.getItem('gulrating:accent');
+  if (accent) document.documentElement.style.setProperty('--p-rgb', accent);
+} catch (e) { /* приватный режим и т.п. */ }
+
 console.info(`🎬 ГульРейтинг — сборка ${APP_BUILD}`);
 import { renderAuthPage } from './components/Auth.js';
 import { renderFeed, cleanupFeed } from './components/Feed.js';
