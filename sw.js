@@ -9,7 +9,7 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v2';
+const CACHE_VERSION = 'gulrating-v3';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -34,7 +34,8 @@ const SHELL_ASSETS = [
   '/src/components/AccessDenied.js',
   '/src/components/Feed.js',
   '/src/components/RatingModal.js',
-  '/src/components/Profile.js'
+  '/src/components/Profile.js',
+  '/src/components/Catalog.js'
 ];
 
 self.addEventListener('install', (event) => {
@@ -69,11 +70,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Код приложения и документы — cache-first с фоновым обновлением:
-  // интерфейс открывается мгновенно (в том числе при восстановлении
-  // вкладки браузером), свежая версия приезжает в кэш фоном, а main.js
-  // сравнивает APP_BUILD и сам просит перезагрузить, если сборка новая.
-  // (Чистый network-first здесь давал секундную пустоту при возврате на вкладку.)
+  // Код приложения и документы — network-first с фолбэком в кэш:
+  // после нового деплоя пользователь ОБЯЗАН получить свежий модуль с первого
+  // же захода (cache-first здесь оставлял людей на старых сборках при
+  // нестабильной сети: фоновое обновление просто не успевало доехать).
+  // Офлайн не ломается: нет сети — отдаём последнюю закэшированную версию.
   const isCode = request.mode === 'navigate'
     || url.pathname === '/'
     || url.pathname === '/index.html'
@@ -83,18 +84,15 @@ self.addEventListener('fetch', (event) => {
 
   if (isCode) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        const network = fetch(request)
-          .then((response) => {
-            if (response && response.ok) {
-              const copy = response.clone();
-              caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
-            }
-            return response;
-          })
-          .catch(() => cached);
-        return cached || network;
-      })
+      fetch(request)
+        .then((response) => {
+          if (response && response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }
