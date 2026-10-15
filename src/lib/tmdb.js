@@ -33,7 +33,13 @@ async function tmdbFetch(path) {
     if (res.status === 401) throw new Error('Ключ TMDb не принят сервером (401). Проверьте TMDB_API_KEY в src/config.js');
     if (res.status === 429) throw new Error('TMDb: слишком много запросов, подождите немного и повторите.');
     if (res.status === 404) throw new Error('Фильм не найден в базе TMDb.');
-    throw new Error(`Ошибка базы фильмов TMDb (код ${res.status}).`);
+    // Показываем причину от самого TMDb (status_message), чтобы не гадать
+    let detail = '';
+    try {
+      const body = await res.json();
+      detail = body && body.status_message ? `: ${body.status_message}` : '';
+    } catch (e) { /* тело не читается — остаёмся без детали */ }
+    throw new Error(`Ошибка базы фильмов TMDb (код ${res.status})${detail}`);
   }
   return res.json();
 }
@@ -59,9 +65,9 @@ export async function searchTitles(query) {
     }));
 }
 
-// Недельные тренды TMDb (фильмы + сериалы) — для ряда «Сейчас в тренде»
-export async function getTrending(limit = 12) {
-  const data = await tmdbFetch('/trending/all/week');
+// Тренды TMDb: окно (day/week) и тип (all/movie/tv) выбираются вызывающим
+export async function getTrending({ mediaType = 'all', window = 'week', limit = 12 } = {}) {
+  const data = await tmdbFetch(`/trending/${mediaType}/${window}`);
 
   return (data.results || [])
     .filter(item => item.media_type === 'movie' || item.media_type === 'tv')
@@ -105,7 +111,8 @@ function mapResults(results, limit) {
       title: item.title || item.name,
       release_date: item.release_date || item.first_air_date,
       poster_path: item.poster_path,
-      vote_average: item.vote_average
+      vote_average: item.vote_average,
+      popularity: item.popularity || 0
     }));
 }
 
@@ -135,11 +142,13 @@ export async function getGenreMap(mediaType) {
 // Каталог: discover с жанрами, сортировкой, порогом рейтинга и годами.
 // Возвращает страницу результатов и признак «есть ещё».
 export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortBy = 'popularity.desc', voteGte = 0, yearGte = '', yearLte = '', page = 1, limit = 18 } = {}) {
-  // include_adult уже добавляет tmdbFetch через API_PARAMS — дубль убран
+  // include_adult уже добавляет tmdbFetch через API_PARAMS.
+  // Минимальный набор параметров: TMDb отвечает 400 на некоторые
+  // комбинации фильтров, поэтому всё необязательное добавляем только
+  // когда пользователь реально выставил значение.
   const params = new URLSearchParams({
     sort_by: sortBy,
-    page: String(page),
-    'vote_count.gte': '50'
+    page: String(page)
   });
   if (genreIds.length) params.set('with_genres', genreIds.join(','));
   if (voteGte) params.set('vote_average.gte', String(voteGte));
@@ -147,7 +156,17 @@ export async function discoverTitles({ mediaType = 'movie', genreIds = [], sortB
   if (yearGte) params.set(`${dateKey}.gte`, `${yearGte}-01-01`);
   if (yearLte) params.set(`${dateKey}.lte`, `${yearLte}-12-31`);
   const path = mediaType === 'tv' ? '/discover/tv' : '/discover/movie';
-  const data = await tmdbFetch(`${path}?${params.toString()}`);
+  let data;
+  try {
+    data = await tmdbFetch(`${path}?${params.toString()}`);
+  } catch (e) {
+    // Фолбэк: если TMDb отверг комбинацию фильтров (400), пробуем только
+    // сортировку и страницу — каталог обязан открыться
+    if (!/400/.test(e.message || '')) throw e;
+    const fallback = new URLSearchParams({ sort_by: sortBy, page: String(page) });
+    if (genreIds.length) fallback.set('with_genres', genreIds.join(','));
+    data = await tmdbFetch(`${path}?${fallback.toString()}`);
+  }
   return {
     items: mapResults(data.results, limit),
     hasMore: (data.page || 1) < (data.total_pages || 1)

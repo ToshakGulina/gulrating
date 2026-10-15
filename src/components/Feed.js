@@ -37,7 +37,7 @@ let activeSort = readSort();   // сортировка ленты: new | rating_
 let feedChannel = null;
 let realtimeTimer = null;
 // Кэши рекомендаций на сессию: TMDb-запросы дорогие, повторный рендер ленты их не повторяет
-const recsCache = { trending: null, personal: null, personalKey: '' };
+const recsCache = { trends: {}, personal: null, personalKey: '' };
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
 
 export function cleanupFeed() {
@@ -361,19 +361,33 @@ async function loadRecs(currentUser) {
   }
 
   section.innerHTML = `
+    ${recRowSkeleton('recs-trend-day', 'В тренде сегодня')}
     ${recRowSkeleton('recs-popular', 'Популярно сейчас')}
+    ${recRowSkeleton('recs-trend-movie', 'Популярные фильмы')}
+    ${recRowSkeleton('recs-trend-tv', 'Популярные сериалы')}
     ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
     ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
     ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
   `;
 
-  // Ряд 1: тренды недели
-  try {
-    if (!recsCache.trending) recsCache.trending = await getTrending(12);
-    fillRecRow(section, 'recs-popular', 'Популярно сейчас', 'неделя · TMDb', recsCache.trending, null);
-  } catch (e) {
-    dropRecRow(section, 'recs-popular');
-  }
+  // Тренды: четыре ряда (сутки, неделя, фильмы, сериалы), каждый со своим
+  // кэшем на сессию и независимой загрузкой — один упавший ряд не тянет остальных
+  const trendRows = [
+    { id: 'recs-trend-day', title: 'В тренде сегодня', sub: 'сутки · TMDb', key: 'day', mediaType: 'all', window: 'day' },
+    { id: 'recs-popular', title: 'Популярно сейчас', sub: 'неделя · TMDb', key: 'week', mediaType: 'all', window: 'week' },
+    { id: 'recs-trend-movie', title: 'Популярные фильмы', sub: 'неделя · TMDb · только фильмы', key: 'movie', mediaType: 'movie', window: 'week' },
+    { id: 'recs-trend-tv', title: 'Популярные сериалы', sub: 'неделя · TMDb · только сериалы', key: 'tv', mediaType: 'tv', window: 'week' },
+  ];
+  await Promise.all(trendRows.map(async (row) => {
+    try {
+      if (!recsCache.trends[row.key]) {
+        recsCache.trends[row.key] = await getTrending({ mediaType: row.mediaType, window: row.window, limit: 15 });
+      }
+      fillRecRow(section, row.id, row.title, row.sub, recsCache.trends[row.key], null, 'Тренды недоступны — проверьте соединение с TMDb.');
+    } catch (e) {
+      dropRecRow(section, row.id);
+    }
+  }));
 
   // Ряд 2 и 3: одним запросом по всем оценкам компании
   try {
@@ -410,7 +424,7 @@ async function loadRecs(currentUser) {
       .sort((a, b) => b.friends_avg - a.friends_avg || b.friends_count - a.friends_count)
       .slice(0, 12)
       .map(t => ({ id: t.id, media_type: t.media_type, title: t.title, release_date: t.release_date, poster_path: t.poster_path, badge: t.friends_avg.toFixed(1) }));
-    fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', `средняя ≥ ${friendsThreshold.toFixed(1)} · вы ещё не оценили`, friendsHigh, 'bg-pink-600');
+    fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', `средняя ≥ ${friendsThreshold.toFixed(1)} · вы ещё не оценили`, friendsHigh, 'bg-pink-600', 'Появится, когда кто-то из компании поставит оценки.');
 
     // Ряд без оценок: агрегат списков «хочу посмотреть» всей компании
     const { data: wl } = await supabase
@@ -436,7 +450,7 @@ async function loadRecs(currentUser) {
         poster_path: cur.title.poster_path,
         badge: String(cur.users.size)
       }));
-    fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', `в списках у ${wantMin}+ друзей · на постере число друзей`, wantItems, 'bg-secondary');
+    fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', `в списках у ${wantMin}+ друзей · на постере число друзей`, wantItems, 'bg-secondary', 'Появится, когда друзья добавят тайтлы в списки «хочу посмотреть».');
 
     // Ряд 3: персональный подбор от вашей лучшей оценки
     if (myTop) {
@@ -448,9 +462,9 @@ async function loadRecs(currentUser) {
           .slice(0, 12);
         recsCache.personalKey = key;
       }
-      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', `потому что вы оценили «${escapeHtml(myTopTitle(data, currentUser, myTop) || '')}» на ${myMin.toFixed(1)}+`, recsCache.personal, 'bg-primary');
+      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', `потому что вы оценили «${escapeHtml(myTopTitle(data, currentUser, myTop) || '')}» на ${myMin.toFixed(1)}+`, recsCache.personal, 'bg-primary', 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших высоких оценок.');
     } else {
-      dropRecRow(section, 'recs-personal');
+      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', '', [], 'bg-primary', 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших высоких оценок.');
     }
   } catch (e) {
     dropRecRow(section, 'recs-friends');
@@ -489,11 +503,15 @@ function dropRecRow(section, id) {
   if (row) row.remove();
 }
 
-function fillRecRow(section, id, titleText, subtitle, items, badgeClass) {
+function fillRecRow(section, id, titleText, subtitle, items, badgeClass, emptyHint) {
   const row = section.querySelector('#' + id);
   if (!row) return;
   if (!items || items.length === 0) {
-    row.remove();
+    // Ряд не исчезает молча: объясняем, при каком условии он наполнится
+    row.innerHTML = `
+      <h3 class="font-semibold mb-1">${escapeHtml(titleText)}</h3>
+      <p class="text-xs text-gray-600">${escapeHtml(emptyHint || 'Пока пусто.')}</p>
+    `;
     return;
   }
   row.innerHTML = `
