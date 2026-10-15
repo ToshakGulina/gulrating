@@ -2,14 +2,24 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Кино для друзей</title>
+  <meta name="description" content="Совместная оценка фильмов и сериалов с друзьями: общая лента оценок, комментарии и список «хочу посмотреть».">
+  <meta name="theme-color" content="#0f172a">
+
+  <!-- PWA: установка на главный экран -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Кино">
+
   <script src="https://cdn.tailwindcss.com"></script>
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="manifest" href="manifest.json">
   <script>
     tailwind.config = {
       theme: {
@@ -44,10 +54,23 @@
       }
     }
   </style>
+  <style>
+    /* Заставка до загрузки JS — чтобы не было пустого белого экрана */
+    #boot-splash {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: #0f172a; color: #94a3b8; font-family: Inter, system-ui, sans-serif;
+      font-size: 14px; z-index: 100;
+    }
+    #boot-splash .dot { animation: blink 1.2s infinite; }
+    #boot-splash .dot:nth-child(2) { animation-delay: .2s; }
+    #boot-splash .dot:nth-child(3) { animation-delay: .4s; }
+    @keyframes blink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
+  </style>
 </head>
 <body class="bg-dark text-gray-100 font-inter min-h-screen">
   <div id="app"></div>
-  
+  <div id="boot-splash">Загружаем<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
+
   <script type="module" src="/src/main.js"></script>
   <script>
     // Регистрируем сервис-воркер для PWA
@@ -56,6 +79,19 @@
         navigator.serviceWorker.register('/sw.js').catch(() => {});
       });
     }
+
+    // Если модули приложения не загрузились (нет интернета или провайдер
+    // блокирует CDN Tailwind/esm.sh) — объясняем это вместо вечной заставки
+    setTimeout(() => {
+      const splash = document.getElementById('boot-splash');
+      const app = document.getElementById('app');
+      if (splash && app && !app.firstChild) {
+        splash.innerHTML =
+          'Не удалось загрузить приложение.<br>' +
+          'Проверьте интернет: для работы нужны CDN Tailwind и esm.sh.<br>' +
+          '<button onclick="location.reload()" style="margin-top:12px;padding:8px 20px;border-radius:12px;background:#6366f1;color:#fff;border:0;font:inherit;cursor:pointer">Повторить</button>';
+      }
+    }, 12000);
   </script>
 </body>
 </html>

@@ -1,26 +1,93 @@
-// Простой сервис-воркер для кэширования статики
-const CACHE_NAME = 'kino-druzey-v1';
-const ASSETS_TO_CACHE = [
+// Сервис-воркер для PWA: офлайн-доступ к оболочке приложения.
+//
+// Принципы (исправляет проблему старой версии, которая кэшировала ВСЁ подряд):
+// 1. Кэшируем ТОЛЬКО статику своего домена (оболочку приложения и иконки).
+//    Запросы к Supabase, TMDb и прочим внешним API воркер не трогает вообще —
+//    иначе кэшировались бы ответы авторизации и данные фильмов, и приложение
+//    показывало бы устаревшее состояние.
+// 2. Навигация (открытие страниц) — network-first с офлайн-фолбэком на кэш,
+//    чтобы после нового деплоя пользователь сразу получал свежую версию.
+// 3. При активации новой версии старые кэши удаляются.
+
+const CACHE_VERSION = 'kino-druzey-v3';
+const SHELL_ASSETS = [
   '/',
   '/index.html',
-  '/manifest.json'
+  '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-maskable-192.png',
+  '/icons/icon-maskable-512.png',
+  '/icons/apple-touch-icon.png',
+  '/icons/favicon-32.png',
+  '/src/main.js',
+  '/src/config.js',
+  '/src/lib/supabase.js',
+  '/src/lib/tmdb.js',
+  '/src/lib/ratings.js',
+  '/src/lib/date.js',
+  '/src/lib/dom.js',
+  '/src/components/Auth.js',
+  '/src/components/Setup.js',
+  '/src/components/AccessDenied.js',
+  '/src/components/Feed.js',
+  '/src/components/RatingModal.js',
+  '/src/components/Profile.js'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(ASSETS_TO_CACHE))
+    caches.open(CACHE_VERSION)
+      .then((cache) => cache.addAll(SHELL_ASSETS))
+      .then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(
+        keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        if (response) {
+  const request = event.request;
+
+  // Обрабатываем только GET своего домена: API и чужие origin'ы не трогаем
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  // Навигация: сначала сеть (свежий деплой), офлайн — кэш оболочки
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_VERSION).then((cache) => cache.put('/index.html', copy));
           return response;
-        }
-        return fetch(event.request);
-      })
+        })
+        .catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  // Статика: кэш с фоновым обновлением (stale-while-revalidate)
+  event.respondWith(
+    caches.match(request).then((cached) => {
+      const network = fetch(request)
+        .then((response) => {
+          if (response && response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => cached);
+      return cached || network;
+    })
   );
 });

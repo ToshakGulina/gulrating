@@ -1,12 +1,19 @@
--- Схема базы данных для приложения оценки фильмов
--- Запустите этот скрипт в SQL Editor вашего проекта Supabase
+-- ============================================================================
+-- Схема базы данных для приложения «Кино для друзей» (GulRating)
+-- Запустите этот скрипт ЦЕЛИКОМ в SQL Editor вашего проекта Supabase.
+--
+-- Скрипт идемпотентный: его можно запускать повторно, уже созданные объекты
+-- не сломаются (используются IF NOT EXISTS / CREATE OR REPLACE / DROP IF EXISTS).
+-- ============================================================================
 
--- Включаем расширение для генерации UUID
+-- Включаем расширение для генерации UUID (если ещё не включено)
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- ----------------------------------------------------------------------------
 -- 1. Таблица профилей пользователей
-CREATE TABLE profiles (
-  id UUID REFERENCES auth.users(id) PRIMARY KEY,
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
   avatar_url TEXT,
   is_admin BOOLEAN DEFAULT false,
@@ -14,8 +21,9 @@ CREATE TABLE profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
--- Автоматическое создание профиля при регистрации пользователя
-CREATE FUNCTION public.handle_new_user()
+-- Автоматическое создание профиля при регистрации пользователя.
+-- Первый зарегистрированный пользователь становится админом и сразу одобрен.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
   user_count INT;
@@ -27,17 +35,21 @@ BEGIN
     COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1)),
     user_count = 0, -- Первый пользователь становится админом
     user_count = 0  -- Первый пользователь автоматически одобрен
-  );
+  )
+  ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+-- ----------------------------------------------------------------------------
 -- 2. Таблица с тайтлами (фильмы/сериалы)
-CREATE TABLE titles (
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.titles (
   id BIGINT PRIMARY KEY, -- ID из TMDB
   title TEXT NOT NULL,
   original_title TEXT,
@@ -52,35 +64,49 @@ CREATE TABLE titles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+-- ----------------------------------------------------------------------------
 -- 3. Таблица с оценками пользователей
-CREATE TABLE ratings (
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.ratings (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
-  title_id BIGINT REFERENCES titles(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  title_id BIGINT REFERENCES public.titles(id) ON DELETE CASCADE NOT NULL,
   rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 10),
   comment TEXT,
   tags TEXT[] DEFAULT '{}'::text[],
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-  UNIQUE(user_id, title_id) -- Один пользователь может поставить только одну оценку на фильм
+  UNIQUE(user_id, title_id) -- Один пользователь — одна оценка на тайтл
 );
 
--- 4. Таблица со списком "Хочу посмотреть"
-CREATE TABLE watchlist (
+-- ----------------------------------------------------------------------------
+-- 4. Таблица со списком «Хочу посмотреть»
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.watchlist (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
-  title_id BIGINT REFERENCES titles(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  title_id BIGINT REFERENCES public.titles(id) ON DELETE CASCADE NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   UNIQUE(user_id, title_id)
 );
 
--- Включаем Row Level Security (пользователи видят только данные своего круга)
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE titles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ratings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE watchlist ENABLE ROW LEVEL SECURITY;
+-- Индексы для быстрых выборок ленты и карточки фильма
+CREATE INDEX IF NOT EXISTS idx_ratings_created_at ON public.ratings (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ratings_title_id ON public.ratings (title_id);
+CREATE INDEX IF NOT EXISTS idx_ratings_user_id ON public.ratings (user_id);
+CREATE INDEX IF NOT EXISTS idx_watchlist_user_id ON public.watchlist (user_id);
+CREATE INDEX IF NOT EXISTS idx_watchlist_title_id ON public.watchlist (title_id);
 
--- Политики доступа (только одобренные пользователи могут пользоваться приложением)
+-- ----------------------------------------------------------------------------
+-- Row Level Security: посторонние не видят данные вашего круга
+-- ----------------------------------------------------------------------------
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.titles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.watchlist ENABLE ROW LEVEL SECURITY;
+
+-- Проверка «пользователь одобрен админом». SECURITY DEFINER, чтобы функцию
+-- можно было вызывать из политик без рекурсии по RLS.
 CREATE OR REPLACE FUNCTION public.is_approved()
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -89,31 +115,127 @@ BEGIN
     WHERE id = auth.uid() AND is_approved = true
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- Профили: одобренные пользователи видят все профили, редактировать можно только свой, не одобренные видят только свой профиль
-CREATE POLICY "Пользователи видят профиль до одобрения" ON profiles FOR SELECT USING (auth.uid() = id);
-CREATE POLICY "Одобренные пользователи видят все профили" ON profiles FOR SELECT USING (public.is_approved());
-CREATE POLICY "Пользователь может редактировать свой профиль" ON profiles FOR UPDATE USING (auth.uid() = id);
-CREATE POLICY "Админы могут одобрять пользователей" ON profiles FOR UPDATE USING (
-  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_admin = true)
-) WITH CHECK (true);
+-- Профили
+DROP POLICY IF EXISTS "Пользователи видят профиль до одобрения" ON public.profiles;
+CREATE POLICY "Пользователи видят профиль до одобрения" ON public.profiles
+  FOR SELECT USING (auth.uid() = id);
 
--- Тайтлы: все одобренные пользователи могут смотреть и добавлять тайтлы
-CREATE POLICY "Тайтлы видны одобренным" ON titles FOR SELECT USING (public.is_approved());
-CREATE POLICY "Одобренные могут добавлять тайтлы" ON titles FOR INSERT WITH CHECK (public.is_approved());
+DROP POLICY IF EXISTS "Одобренные пользователи видят все профили" ON public.profiles;
+CREATE POLICY "Одобренные пользователи видят все профили" ON public.profiles
+  FOR SELECT USING (public.is_approved());
 
--- Оценки: одобренные видят все оценки, добавлять/редактировать/удалять можно только свои
-CREATE POLICY "Оценки видны одобренным" ON ratings FOR SELECT USING (public.is_approved());
-CREATE POLICY "Одобренные могут добавлять свои оценки" ON ratings FOR INSERT WITH CHECK (auth.uid() = user_id AND public.is_approved());
-CREATE POLICY "Пользователи могут редактировать свои оценки" ON ratings FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Пользователи могут удалять свои оценки" ON ratings FOR DELETE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Пользователь может редактировать свой профиль" ON public.profiles;
+CREATE POLICY "Пользователь может редактировать свой профиль" ON public.profiles
+  FOR UPDATE USING (auth.uid() = id);
 
--- Watchlist: одобренные видят все списки, редактирует только свой
-CREATE POLICY "Списки желаемого видны одобренным" ON watchlist FOR SELECT USING (public.is_approved());
-CREATE POLICY "Одобренные могут добавлять в свой список" ON watchlist FOR INSERT WITH CHECK (auth.uid() = user_id AND public.is_approved());
-CREATE POLICY "Пользователи могут удалять из своего списка" ON watchlist FOR DELETE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Админы могут одобрять пользователей" ON public.profiles;
+CREATE POLICY "Админы могут одобрять пользователей" ON public.profiles
+  FOR UPDATE USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_admin = true)
+  ) WITH CHECK (true);
 
--- Включаем реалтайм синхронизацию оценок
-ALTER PUBLICATION supabase_realtime ADD TABLE ratings;
-ALTER PUBLICATION supabase_realtime ADD TABLE watchlist;
+-- Тайтлы: одобренные пользователи читают и добавляют тайтлы.
+-- UPDATE нужен, потому что приложение сохраняет фильм через upsert
+-- (ON CONFLICT DO UPDATE) — без этой политики повторное добавление
+-- уже существующего фильма упало бы с ошибкой RLS.
+DROP POLICY IF EXISTS "Тайтлы видны одобренным" ON public.titles;
+CREATE POLICY "Тайтлы видны одобренным" ON public.titles
+  FOR SELECT USING (public.is_approved());
+
+DROP POLICY IF EXISTS "Одобренные могут добавлять тайтлы" ON public.titles;
+CREATE POLICY "Одобренные могут добавлять тайтлы" ON public.titles
+  FOR INSERT WITH CHECK (public.is_approved());
+
+DROP POLICY IF EXISTS "Одобренные могут обновлять тайтлы" ON public.titles;
+CREATE POLICY "Одобренные могут обновлять тайтлы" ON public.titles
+  FOR UPDATE USING (public.is_approved()) WITH CHECK (public.is_approved());
+
+-- Оценки: одобренные видят все оценки, изменяют только свои
+DROP POLICY IF EXISTS "Оценки видны одобренным" ON public.ratings;
+CREATE POLICY "Оценки видны одобренным" ON public.ratings
+  FOR SELECT USING (public.is_approved());
+
+DROP POLICY IF EXISTS "Одобренные могут добавлять свои оценки" ON public.ratings;
+CREATE POLICY "Одобренные могут добавлять свои оценки" ON public.ratings
+  FOR INSERT WITH CHECK (auth.uid() = user_id AND public.is_approved());
+
+DROP POLICY IF EXISTS "Пользователи могут редактировать свои оценки" ON public.ratings;
+CREATE POLICY "Пользователи могут редактировать свои оценки" ON public.ratings
+  FOR UPDATE USING (auth.uid() = user_id AND public.is_approved())
+  WITH CHECK (auth.uid() = user_id AND public.is_approved());
+
+DROP POLICY IF EXISTS "Пользователи могут удалять свои оценки" ON public.ratings;
+CREATE POLICY "Пользователи могут удалять свои оценки" ON public.ratings
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- Watchlist: одобренные видят все списки, изменяют только свой.
+-- UPDATE политика обязательна: добавление в watchlist работает через upsert.
+DROP POLICY IF EXISTS "Списки желаемого видны одобренным" ON public.watchlist;
+CREATE POLICY "Списки желаемого видны одобренным" ON public.watchlist
+  FOR SELECT USING (public.is_approved());
+
+DROP POLICY IF EXISTS "Одобренные могут добавлять в свой список" ON public.watchlist;
+CREATE POLICY "Одобренные могут добавлять в свой список" ON public.watchlist
+  FOR INSERT WITH CHECK (auth.uid() = user_id AND public.is_approved());
+
+DROP POLICY IF EXISTS "Пользователи могут обновлять свой watchlist" ON public.watchlist;
+CREATE POLICY "Пользователи могут обновлять свой watchlist" ON public.watchlist
+  FOR UPDATE USING (auth.uid() = user_id AND public.is_approved())
+  WITH CHECK (auth.uid() = user_id AND public.is_approved());
+
+DROP POLICY IF EXISTS "Пользователи могут удалять из своего списка" ON public.watchlist;
+CREATE POLICY "Пользователи могут удалять из своего списка" ON public.watchlist
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- ----------------------------------------------------------------------------
+-- Реалтайм синхронизация оценок и списков
+-- ----------------------------------------------------------------------------
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'ratings'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.ratings;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'watchlist'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.watchlist;
+  END IF;
+END $$;
+
+-- ----------------------------------------------------------------------------
+-- СЛУЖЕБНАЯ ФУНКЦИЯ: чинит профили пользователей, которые зарегистрировались
+-- ДО запуска этой схемы (триггер тогда ещё не существовал и профиль не создался).
+-- Запускать только при необходимости:  SELECT public.repair_missing_profiles();
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.repair_missing_profiles()
+RETURNS INT AS $$
+DECLARE
+  inserted INT;
+BEGIN
+  INSERT INTO public.profiles (id, username, is_admin, is_approved)
+  SELECT
+    u.id,
+    COALESCE(u.raw_user_meta_data->>'username', split_part(u.email, '@', 1)),
+    false,
+    false
+  FROM auth.users u
+  LEFT JOIN public.profiles p ON p.id = u.id
+  WHERE p.id IS NULL
+  ON CONFLICT (id) DO NOTHING;
+
+  GET DIAGNOSTICS inserted = ROW_COUNT;
+
+  -- Если после починки в базе остался ровно один пользователь, делаем его админом
+  UPDATE public.profiles
+  SET is_admin = true, is_approved = true
+  WHERE (SELECT COUNT(*) FROM public.profiles) = 1;
+
+  RETURN inserted;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;

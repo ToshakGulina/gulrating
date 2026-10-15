@@ -1,36 +1,64 @@
 import { supabase, getCurrentUser } from './lib/supabase.js';
+import { configIsComplete } from './config.js';
 import { renderAuthPage } from './components/Auth.js';
-import { renderFeed } from './components/Feed.js';
+import { renderFeed, cleanupFeed } from './components/Feed.js';
 import { renderAccessDenied } from './components/AccessDenied.js';
+import { renderSetupPage, renderFatalError, renderProfileMissing } from './components/Setup.js';
 
 const app = document.getElementById('app');
 
-async function init() {
-  // Проверяем авторизацию
-  let currentUser = await getCurrentUser();
+function hideSplash() {
+  const splash = document.getElementById('boot-splash');
+  if (splash) splash.remove();
+}
 
-  // Если сессия в URL после входа по почте - обрабатываем её
-  supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'SIGNED_IN') {
-      currentUser = await getCurrentUser();
+let rendering = false;
+
+async function renderApp() {
+  // Защита от параллельных перерисовок (события авторизации могут прийти пачкой)
+  if (rendering) return;
+  rendering = true;
+  try {
+    const currentUser = await getCurrentUser();
+
+    if (!currentUser) {
+      cleanupFeed();
+      renderAuthPage(app);
+    } else if (!currentUser.profile) {
+      // Вошли, но профиля в базе нет: не запущен supabase-schema.sql
+      cleanupFeed();
+      renderProfileMissing(app);
+    } else if (!currentUser.profile.is_approved) {
+      cleanupFeed();
+      renderAccessDenied(app);
+    } else {
+      await renderFeed(app, currentUser);
+    }
+  } catch (e) {
+    cleanupFeed();
+    renderFatalError(app, e);
+  } finally {
+    rendering = false;
+    hideSplash();
+  }
+}
+
+async function init() {
+  // Ключи не заполнены — показываем понятную инструкцию вместо падения
+  if (!configIsComplete() || !supabase) {
+    renderSetupPage(app);
+    hideSplash();
+    return;
+  }
+
+  // Реагируем на вход/выход (в том числе на возврат по магической ссылке)
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
       renderApp();
     }
   });
 
-  renderApp();
-
-  async function renderApp() {
-    if (!currentUser) {
-      // Пользователь не авторизован - показываем страницу входа
-      renderAuthPage(app);
-    } else if (!currentUser.profile.is_approved) {
-      // Пользователь авторизован но еще не одобрен админом
-      renderAccessDenied(app);
-    } else {
-      // Пользователь авторизован и одобрен - показываем основной интерфейс
-      await renderFeed(app, currentUser);
-    }
-  }
+  await renderApp();
 }
 
 init();

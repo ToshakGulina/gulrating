@@ -1,21 +1,50 @@
 import { CONFIG } from '../config.js';
 
-const API_BASE = 'https://api.themoviedb.org/3';
+// Если задан прокси (optional/tmdb-proxy-worker.js) — ходим через него,
+// иначе напрямую в TMDb с ключом в параметрах запроса.
+const USE_PROXY = Boolean(CONFIG.TMDB_PROXY_URL);
+const API_BASE = USE_PROXY
+  ? CONFIG.TMDB_PROXY_URL.replace(/\/+$/, '')
+  : 'https://api.themoviedb.org/3';
+
 const API_PARAMS = new URLSearchParams({
-  api_key: CONFIG.TMDB_API_KEY,
   language: 'ru-RU',
   include_adult: 'false'
 });
+if (!USE_PROXY) API_PARAMS.set('api_key', CONFIG.TMDB_API_KEY);
+
+// Запрос к TMDb с таймаутом и понятными сообщениями об ошибках
+async function tmdbFetch(path) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`, {
+      signal: controller.signal
+    });
+  } catch (e) {
+    throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Ключ TMDb не принят сервером (401). Проверьте TMDB_API_KEY в src/config.js');
+    if (res.status === 429) throw new Error('TMDb: слишком много запросов, подождите немного и повторите.');
+    if (res.status === 404) throw new Error('Фильм не найден в базе TMDb.');
+    throw new Error(`Ошибка базы фильмов TMDb (код ${res.status}).`);
+  }
+  return res.json();
+}
 
 // Поиск фильмов и сериалов по запросу с автодополнением
 export async function searchTitles(query) {
   if (!query.trim() || query.length < 2) return [];
-  
-  const res = await fetch(`${API_BASE}/search/multi?${API_PARAMS}&query=${encodeURIComponent(query)}&page=1`);
-  if (!res.ok) throw new Error('Ошибка поиска');
-  const data = await res.json();
-  
-  return data.results
+
+  const data = await tmdbFetch(`/search/multi?query=${encodeURIComponent(query)}&page=1`);
+
+  return (data.results || [])
     .filter(item => item.media_type === 'movie' || item.media_type === 'tv')
     .map(item => ({
       id: item.id,
@@ -32,10 +61,8 @@ export async function searchTitles(query) {
 
 // Получаем полную информацию о тайтле по ID
 export async function getTitleDetails(id, mediaType) {
-  const res = await fetch(`${API_BASE}/${mediaType}/${id}?${API_PARAMS}`);
-  if (!res.ok) throw new Error('Не удалось загрузить информацию о фильме');
-  const data = await res.json();
-  
+  const data = await tmdbFetch(`/${mediaType}/${id}`);
+
   return {
     id: data.id,
     media_type: mediaType,
@@ -46,22 +73,6 @@ export async function getTitleDetails(id, mediaType) {
     poster_path: data.poster_path,
     backdrop_path: data.backdrop_path,
     tmdb_rating: data.vote_average,
-    genres: data.genres.map(g => g.name)
+    genres: (data.genres || []).map(g => g.name)
   };
-}
-
-// Получаем рейтинг IMDb для фильма
-export async function getImdbRating(tmdbId, mediaType) {
-  try {
-    const res = await fetch(`${API_BASE}/${mediaType}/${tmdbId}/external_ids?${API_PARAMS}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.imdb_id) return null;
-    
-    // Можно добавить получение рейтинга с OMDB если нужен точный IMDb рейтинг
-    // Пока возвращаем null для скорости
-    return null;
-  } catch (e) {
-    return null;
-  }
 }

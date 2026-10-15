@@ -1,0 +1,26 @@
+# Заголовки ответов для Cloudflare Pages.
+# Файл поддерживается ТОЛЬКО Cloudflare Pages (не Workers!) — как и _redirects.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Оболочку приложения не кэшируем надолго: после нового деплоя
+# пользователи должны сразу получать свежий index.html и сервис-воркер
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/manifest.json
+  Cache-Control: public, max-age=0, must-revalidate
+
+/src/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Иконки меняются редко — кэшируем надолго
+/icons/*
+  Cache-Control: public, max-age=604800, immutable
