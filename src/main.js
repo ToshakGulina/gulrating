@@ -44,6 +44,7 @@ async function renderApp() {
       renderAccessDenied(app);
     } else {
       await renderFeed(app, currentUser);
+      await handleDeepLink(currentUser);
     }
   } catch (e) {
     cleanupFeed();
@@ -52,6 +53,20 @@ async function renderApp() {
     rendering = false;
     hideSplash();
   }
+}
+
+// Ссылка из Телеграм-бота (?title=movie:123): открываем карточку тайтла
+// поверх ленты. Параметр съедаем сразу, чтобы повторные рендеры не
+// открывали модалку заново.
+async function handleDeepLink(currentUser) {
+  const params = new URLSearchParams(location.search);
+  const ref = params.get('title');
+  if (!ref) return;
+  const m = /^(movie|tv):(\d+)$/.exec(ref);
+  history.replaceState(null, '', location.pathname + location.hash);
+  if (!m) return;
+  const { openRatingModal } = await import('./components/RatingModal.js');
+  openRatingModal(m[2], m[1], currentUser, () => renderApp());
 }
 
 async function init() {

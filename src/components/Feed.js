@@ -53,6 +53,7 @@ const FRIENDS_EMPTY_HINT = 'Появится, когда кто-то из ком
 const WANT_EMPTY_HINT = 'Появится, когда друзья добавят тайтлы в списки «хочу посмотреть».';
 const PERSONAL_EMPTY_HINT = 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших оценок.';
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
+let searchDocClickHandler = null; // document-обработчик клика из поиска
 
 export function cleanupFeed() {
   if (feedChannel) {
@@ -60,11 +61,16 @@ export function cleanupFeed() {
     feedChannel = null;
   }
   clearTimeout(realtimeTimer);
+  if (searchDocClickHandler) {
+    document.removeEventListener('click', searchDocClickHandler);
+    searchDocClickHandler = null;
+  }
 }
 
 export async function renderFeed(app, currentUser) {
   cleanupFeed();
   activeFilter = 'all';
+  activeSort = readSort(); // сортировку могли поменять из профиля
 
   app.innerHTML = `
     <div class="max-w-4xl mx-auto pb-20">
@@ -771,12 +777,16 @@ function initSearch(currentUser) {
     }, 300);
   });
 
-  // Скрываем результаты при клике вне поиска и по Escape
-  document.addEventListener('click', (e) => {
+  // Скрываем результаты при клике вне поиска и по Escape.
+  // Обработчик document-уровня снимаем при cleanupFeed, иначе он копился
+  // при каждом возврате в ленту (утечка слушателей)
+  if (searchDocClickHandler) document.removeEventListener('click', searchDocClickHandler);
+  searchDocClickHandler = (e) => {
     if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
       resultsContainer.classList.add('hidden');
     }
-  });
+  };
+  document.addEventListener('click', searchDocClickHandler);
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') resultsContainer.classList.add('hidden');
     // Enter открывает первый результат — быстрее на телефоне

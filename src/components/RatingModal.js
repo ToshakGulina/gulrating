@@ -376,6 +376,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         await saveRating(currentUser.id, titleId, mediaType, selectedScore, comment);
         closeModal();
         showToast(`Оценка ${formatRating(selectedScore)} сохранена`, 'success');
+        notifyTelegram(currentUser, title, selectedScore);
         if (onSaveCallback) onSaveCallback();
       } catch (e) {
         showToast('Ошибка при сохранении: ' + e.message, 'error', 5000);
@@ -435,6 +436,31 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       </div>
     `;
   }
+}
+
+// Уведомление в Телеграм-чат компании через Pages Function /tg/notify.
+// Авторизация — текущей Supabase-сессией, огонь-и-забудь: бот не должен
+// ломать сохранение оценки при любых сбоях.
+function notifyTelegram(currentUser, title, score) {
+  try {
+    supabase.auth.getSession().then(({ data }) => {
+      const token = data && data.session && data.session.access_token;
+      if (!token) return;
+      fetch('/tg/notify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title_id: title.id,
+          media_type: title.media_type || 'movie',
+          title: title.title || '',
+          rating: score
+        })
+      }).catch(() => {});
+    }).catch(() => {});
+  } catch (e) { /* бот опционален */ }
 }
 
 // Крупный постер поверх всего: закрытие кликом или Esc
