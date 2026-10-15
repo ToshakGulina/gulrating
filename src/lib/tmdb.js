@@ -83,10 +83,40 @@ export async function getTrending({ mediaType = 'all', window = 'week', limit = 
 }
 
 // Получаем полную информацию о тайтле по ID
-export async function getTitleDetails(id, mediaType) {
-  const data = await tmdbFetch(`/${mediaType}/${id}`);
+// Кэш деталей тайтлов: без сети карточки ранее открытых фильмов
+// открываются из него, и оценку можно поставить в очередь
+const TITLE_CACHE_KEY = 'gulrating:title_cache';
+const TITLE_CACHE_MAX = 80;
 
-  return {
+function readTitleCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TITLE_CACHE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function writeTitleCache(cache, key, details) {
+  try {
+    cache[key] = details;
+    const keys = Object.keys(cache);
+    while (keys.length > TITLE_CACHE_MAX) delete cache[keys.shift()];
+    localStorage.setItem(TITLE_CACHE_KEY, JSON.stringify(cache));
+  } catch (e) { /* приватный режим */ }
+}
+
+export async function getTitleDetails(id, mediaType) {
+  let data;
+  try {
+    data = await tmdbFetch(`/${mediaType}/${id}`);
+  } catch (e) {
+    const cached = readTitleCache()[`${mediaType}:${id}`];
+    if (cached) return cached;
+    throw e;
+  }
+
+  const details = {
     id: data.id,
     media_type: mediaType,
     title: mediaType === 'movie' ? data.title : data.name,
@@ -98,6 +128,8 @@ export async function getTitleDetails(id, mediaType) {
     tmdb_rating: data.vote_average,
     genres: (data.genres || []).map(g => g.name)
   };
+  writeTitleCache(readTitleCache(), `${mediaType}:${id}`, details);
+  return details;
 }
 
 // Приводим ответ TMDb к общему виду карточки рекомендации

@@ -14,10 +14,24 @@ android {
         versionName '1.0'
     }
 
+    // Стабильная подпись релизов: keystore лежит в приватном репозитории
+    // (та же политика, что у ключей в src/config.js). Благодаря одному ключу
+    // новые APK ставятся поверх старых без удаления.
+    signingConfigs {
+        release {
+            storeFile file('../keystore/gulrating.p12')
+            storePassword 'gulrating2026'
+            keyAlias 'gulrating'
+            keyPassword 'gulrating2026'
+            storeType 'pkcs12'
+        }
+    }
+
     buildTypes {
         release {
             // Обёртка тонкая, минификация не нужна: меньше риск сломать WebView-логику
             minifyEnabled false
+            signingConfig signingConfigs.release
         }
     }
 

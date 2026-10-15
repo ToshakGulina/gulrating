@@ -26,13 +26,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Build debug APK
-        run: cd android && gradle --no-daemon -q assembleDebug
+      - name: Build signed release APK
+        run: cd android && gradle --no-daemon -q assembleRelease
 
       - uses: actions/upload-artifact@v4
         with:
           name: gulrating-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
 
       - name: Publish GitHub Release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
@@ -40,7 +40,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            android/app/build/outputs/apk/debug/app-debug.apk \
+            android/app/build/outputs/apk/release/app-release.apk \
             --title "ГульРейтинг APK ${GITHUB_REF_NAME}" \
-            --notes "APK для установки вне Google Play: скачайте файл на телефон и откройте его (разрешите установку из неизвестных источников). При обновлении APK сначала удалите старую версию: сборка подписана отладочным ключом раннера." \
+            --notes "APK для установки вне Google Play: скачайте файл на телефон и откройте его (разрешите установку из неизвестных источников). Подписан стабильным ключом проекта: новые версии ставятся поверх старых без удаления." \
             --repo "$GITHUB_REPOSITORY"

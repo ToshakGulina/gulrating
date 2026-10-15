@@ -4,6 +4,7 @@ import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
+import { enqueueRating, networkLikeError } from '../lib/offline.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -90,14 +91,18 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const title = await getTitleDetails(titleId, mediaType);
     const year = releaseYear(title.release_date);
 
+    // Без сети статус и оценки друзей недоступны — карточка всё равно
+    // открывается (детали из кэша), оценку можно поставить в очередь
     const [status, allRatings, kpRatings] = await Promise.all([
-      getUserTitleStatus(currentUser.id, titleId),
+      getUserTitleStatus(currentUser.id, titleId)
+        .catch(() => ({ hasRating: false, rating: null, isInWatchlist: false })),
       supabase
         .from('ratings')
         .select(`*, profiles!inner(*)`)
         .eq('title_id', titleId)
         .order('rating', { ascending: false })
-        .then(({ data }) => data || []),
+        .then(({ data }) => data || [])
+        .catch(() => []),
       getKinopoiskRatings(title.title, title.original_title, year)
     ]);
 
@@ -379,6 +384,21 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         notifyTelegram(currentUser, title, selectedScore);
         if (onSaveCallback) onSaveCallback();
       } catch (e) {
+        if (networkLikeError(e)) {
+          // Офлайн: оценка не теряется, а встаёт в очередь на устройстве
+          enqueueRating({
+            title_id: title.id,
+            media_type: mediaType,
+            rating: selectedScore,
+            comment,
+            title: title.title,
+            poster_path: title.poster_path
+          });
+          closeModal();
+          showToast('Нет сети: оценка сохранена на устройстве и отправится в базу автоматически', 'info', 6000);
+          if (onSaveCallback) onSaveCallback();
+          return;
+        }
         showToast('Ошибка при сохранении: ' + e.message, 'error', 5000);
         btn.disabled = false;
         btn.textContent = status.hasRating ? 'Обновить оценку' : 'Сохранить оценку';
