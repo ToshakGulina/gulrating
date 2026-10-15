@@ -95,6 +95,9 @@ export async function renderProfilePage(app, currentUser) {
             <button id="nick-save-btn" class="px-4 py-2.5 bg-primary hover:bg-primary/90 rounded-xl text-sm font-medium">Сохранить</button>
           </div>
 
+          <h3 class="font-semibold mt-6 mb-3">Приложение на устройстве</h3>
+          <div id="install-box" class="text-sm text-gray-300 space-y-2 mb-2"></div>
+
           <h3 class="font-semibold mt-6 mb-3">Лента</h3>
           <div class="space-y-3 text-sm">
             <label class="flex items-center justify-between gap-3">
@@ -326,6 +329,46 @@ export async function renderProfilePage(app, currentUser) {
     myminVal.textContent = Number(myminRange.value).toFixed(1);
     localStorage.setItem('gulrating:my_min', myminRange.value);
   });
+
+  // Установка на телефон: кнопка системного install-промта либо подсказка
+  const installBox = document.getElementById('install-box');
+  function paintInstallBox() {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+      || window.matchMedia('(display-mode: fullscreen)').matches
+      || Boolean(navigator.standalone);
+    if (standalone) {
+      installBox.innerHTML = '<p class="text-green-400">✓ Установлено: работает как отдельное приложение, оболочка доступна офлайн.</p>';
+      return;
+    }
+    if (window.__gulratingInstallPrompt) {
+      installBox.innerHTML = `
+        <button id="install-app-btn" class="w-full py-2.5 bg-primary hover:bg-primary/90 text-white font-medium rounded-xl">Установить приложение на устройство</button>
+        <p class="text-xs text-gray-500">Иконка появится на домашнем экране, окно будет открываться без браузера.</p>`;
+      document.getElementById('install-app-btn').addEventListener('click', async () => {
+        const promptEvent = window.__gulratingInstallPrompt;
+        if (!promptEvent) { paintInstallBox(); return; }
+        promptEvent.prompt();
+        const choice = await promptEvent.userChoice.catch(() => null);
+        window.__gulratingInstallPrompt = null;
+        if (choice && choice.outcome === 'accepted') {
+          showToast('Устанавливаем приложение…', 'success');
+        } else {
+          showToast('Установка отменена', 'info');
+        }
+        paintInstallBox();
+      });
+      return;
+    }
+    installBox.innerHTML = `
+      <p class="text-xs text-gray-400 leading-relaxed">
+        <b class="text-gray-300">Android (Chrome/Yandex):</b> меню браузера → «Установить приложение» / «Добавить на главный экран».<br>
+        <b class="text-gray-300">iPhone (Safari):</b> «Поделиться» → «На экран «Домой»».<br>
+        После установки ГульРейтинг открывается как обычное приложение, а оболочка работает даже без сети.
+      </p>`;
+  }
+  paintInstallBox();
+  window.addEventListener('gulrating:installable', paintInstallBox);
+  window.addEventListener('gulrating:appinstalled', paintInstallBox);
 
   recsToggle.checked = localStorage.getItem('gulrating:show_recs') !== '0';
   recsToggle.addEventListener('change', () => {

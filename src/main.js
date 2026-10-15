@@ -17,6 +17,27 @@ import { renderSetupPage, renderFatalError, renderProfileMissing } from './compo
 
 const app = document.getElementById('app');
 
+// Установка на устройство (Android/iOS): браузер отдаёт событие установки
+// один раз — сохраняем его и показываем кнопку в профиле
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  window.__gulratingInstallPrompt = e;
+  window.dispatchEvent(new Event('gulrating:installable'));
+});
+window.addEventListener('appinstalled', () => {
+  window.__gulratingInstallPrompt = null;
+  showToast('Приложение установлено на устройство', 'success');
+  window.dispatchEvent(new Event('gulrating:appinstalled'));
+});
+
+// Сеть пропала/вернулась: интерфейс живёт из кэша, объясняем состояние
+window.addEventListener('offline', () => {
+  showToast('Нет сети: интерфейс из кэша, данные обновятся при появлении интернета', 'info', 4000);
+});
+window.addEventListener('online', () => {
+  showToast('Снова в сети', 'success', 2000);
+});
+
 function hideSplash() {
   const splash = document.getElementById('boot-splash');
   if (splash) splash.remove();

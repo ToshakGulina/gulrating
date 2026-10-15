@@ -74,7 +74,7 @@ export async function renderFeed(app, currentUser) {
 
   app.innerHTML = `
     <div class="max-w-4xl mx-auto pb-20">
-      <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
+      <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800 safe-top">
         <div class="flex items-center gap-3 mb-3">
           <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
             class="w-10 h-10 rounded-full bg-slate-700 border border-slate-600">

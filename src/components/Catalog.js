@@ -32,7 +32,7 @@ export async function openCatalog(currentUser, onOpenTitle, presets = {}) {
 overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex flex-col p-0 sm:p-4 sm:justify-center';
   overlay.innerHTML = `
     <div class="bg-card w-full max-w-5xl mx-auto sm:rounded-2xl flex-1 min-h-0 sm:flex-none sm:max-h-[90vh] flex flex-col overflow-hidden">
-      <div class="flex justify-between items-center p-4 border-b border-slate-700 flex-shrink-0 min-h-[52px]">
+      <div class="flex justify-between items-center p-4 border-b border-slate-700 flex-shrink-0 min-h-[52px] safe-top">
         <h3 class="font-bold text-lg">Каталог фильмов и сериалов</h3>
         <button id="catalog-close" class="text-gray-400 hover:text-white px-2 text-xl leading-none" aria-label="Закрыть">×</button>
       </div>
