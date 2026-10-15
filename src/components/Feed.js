@@ -370,7 +370,7 @@ async function loadRecs(currentUser) {
   // Ряд 1: тренды недели
   try {
     if (!recsCache.trending) recsCache.trending = await getTrending(12);
-    fillRecRow(section, 'recs-popular', 'Популярно сейчас', 'неделя · TMDb', recsCache.trending, null);
+    fillRecRow(section, 'recs-popular', 'Популярно сейчас', 'неделя · TMDb', recsCache.trending, null, 'Тренды недоступны — проверьте соединение с TMDb.');
   } catch (e) {
     dropRecRow(section, 'recs-popular');
   }
@@ -410,7 +410,7 @@ async function loadRecs(currentUser) {
       .sort((a, b) => b.friends_avg - a.friends_avg || b.friends_count - a.friends_count)
       .slice(0, 12)
       .map(t => ({ id: t.id, media_type: t.media_type, title: t.title, release_date: t.release_date, poster_path: t.poster_path, badge: t.friends_avg.toFixed(1) }));
-    fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', `средняя ≥ ${friendsThreshold.toFixed(1)} · вы ещё не оценили`, friendsHigh, 'bg-pink-600');
+    fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', `средняя ≥ ${friendsThreshold.toFixed(1)} · вы ещё не оценили`, friendsHigh, 'bg-pink-600', 'Появится, когда кто-то из компании поставит оценки.');
 
     // Ряд без оценок: агрегат списков «хочу посмотреть» всей компании
     const { data: wl } = await supabase
@@ -436,7 +436,7 @@ async function loadRecs(currentUser) {
         poster_path: cur.title.poster_path,
         badge: String(cur.users.size)
       }));
-    fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', `в списках у ${wantMin}+ друзей · на постере число друзей`, wantItems, 'bg-secondary');
+    fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', `в списках у ${wantMin}+ друзей · на постере число друзей`, wantItems, 'bg-secondary', 'Появится, когда друзья добавят тайтлы в списки «хочу посмотреть».');
 
     // Ряд 3: персональный подбор от вашей лучшей оценки
     if (myTop) {
@@ -448,9 +448,9 @@ async function loadRecs(currentUser) {
           .slice(0, 12);
         recsCache.personalKey = key;
       }
-      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', `потому что вы оценили «${escapeHtml(myTopTitle(data, currentUser, myTop) || '')}» на ${myMin.toFixed(1)}+`, recsCache.personal, 'bg-primary');
+      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', `потому что вы оценили «${escapeHtml(myTopTitle(data, currentUser, myTop) || '')}» на ${myMin.toFixed(1)}+`, recsCache.personal, 'bg-primary', 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших высоких оценок.');
     } else {
-      dropRecRow(section, 'recs-personal');
+      fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', '', [], 'bg-primary', 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших высоких оценок.');
     }
   } catch (e) {
     dropRecRow(section, 'recs-friends');
@@ -489,11 +489,15 @@ function dropRecRow(section, id) {
   if (row) row.remove();
 }
 
-function fillRecRow(section, id, titleText, subtitle, items, badgeClass) {
+function fillRecRow(section, id, titleText, subtitle, items, badgeClass, emptyHint) {
   const row = section.querySelector('#' + id);
   if (!row) return;
   if (!items || items.length === 0) {
-    row.remove();
+    // Ряд не исчезает молча: объясняем, при каком условии он наполнится
+    row.innerHTML = `
+      <h3 class="font-semibold mb-1">${escapeHtml(titleText)}</h3>
+      <p class="text-xs text-gray-600">${escapeHtml(emptyHint || 'Пока пусто.')}</p>
+    `;
     return;
   }
   row.innerHTML = `

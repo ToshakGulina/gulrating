@@ -1,15 +1,14 @@
 import { discoverTitles, getGenreMap } from '../lib/tmdb.js';
 import { escapeHtml, releaseYear, posterImg } from '../lib/dom.js';
 
-// Каталог TMDb: полноценный просмотр фильмов и сериалов с жанрами,
-// сортировкой, порогом рейтинга и десятилетиями. Открывается оверлеем,
-// результаты — плиткой постеров, клик открывает карточку тайтла.
+// Каталог TMDb: фильмы и сериалы (можно оба типа сразу), жанры мультивыбором,
+// сортировка с направлением, порог рейтинга и диапазон годов — всё слайдерами
+// и переключателями на полную шкалу. Результаты плиткой, клик открывает тайтл.
 const SORTS = [
-  { id: 'popularity.desc', label: 'По популярности' },
-  { id: 'vote_average.desc', label: 'По рейтингу' },
-  { id: 'release', label: 'Сначала новые' },
+  { id: 'popularity', label: 'Популярность' },
+  { id: 'vote', label: 'Рейтинг' },
+  { id: 'release', label: 'Год выхода' },
 ];
-// Границы годов — полная шкала, без пресетов-десятилетий
 const YEAR_MIN = 1900;
 const YEAR_MAX = 2030;
 
@@ -23,21 +22,24 @@ export async function openCatalog(currentUser, onOpenTitle) {
         <button id="catalog-close" class="text-gray-400 hover:text-white px-2 text-xl leading-none" aria-label="Закрыть">×</button>
       </div>
 
-      <div class="p-4 border-b border-slate-700 space-y-3 overflow-y-auto max-h-56">
+      <div class="p-4 border-b border-slate-700 space-y-3 overflow-y-auto max-h-64">
         <div class="flex flex-wrap items-center gap-2">
           <button class="catalog-type px-3 py-1.5 rounded-full text-sm font-medium" data-type="movie">Фильмы</button>
           <button class="catalog-type px-3 py-1.5 rounded-full text-sm font-medium" data-type="tv">Сериалы</button>
           <select id="catalog-sort" class="ml-auto bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white">
             ${SORTS.map(s => `<option value="${s.id}">${s.label}</option>`).join('')}
           </select>
+          <button id="catalog-dir" class="px-3 py-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-lg text-sm" title="Направление сортировки">↓</button>
           <label class="flex items-center gap-2 text-xs text-gray-400 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5">
             <span class="whitespace-nowrap">TMDb ≥ <b id="catalog-vote-val" class="text-cyan-300">0.0</b></span>
             <input type="range" id="catalog-vote" min="0" max="10" step="0.1" value="0" class="rating-slider w-24" aria-label="Минимальный рейтинг TMDb">
           </label>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
           <label class="flex items-center gap-2 text-xs text-gray-400 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5">
             <span class="whitespace-nowrap">Годы: <b id="catalog-year-from-val" class="text-white">1900</b>–<b id="catalog-year-to-val" class="text-white">2030</b></span>
-            <input type="range" id="catalog-year-from" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="${YEAR_MIN}" class="rating-slider w-20" aria-label="Годы с">
-            <input type="range" id="catalog-year-to" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="${YEAR_MAX}" class="rating-slider w-20" aria-label="Годы по">
+            <input type="range" id="catalog-year-from" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="${YEAR_MIN}" class="rating-slider w-24" aria-label="Годы с">
+            <input type="range" id="catalog-year-to" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="${YEAR_MAX}" class="rating-slider w-24" aria-label="Годы по">
           </label>
         </div>
         <div id="catalog-genres" class="flex flex-wrap gap-1.5 text-xs text-gray-500">Загружаем жанры…</div>
@@ -57,27 +59,48 @@ export async function openCatalog(currentUser, onOpenTitle) {
   overlay.querySelector('#catalog-close').addEventListener('click', close);
   document.body.appendChild(overlay);
 
-  const state = { mediaType: 'movie', genres: new Set(), page: 1, hasMore: false, loading: false };
+  // Типы — мультивыбор: по умолчанию включены оба, мультфильмы входят
+  // и в фильмы, и в сериалы (жанр «мультфильм» / «анимация»)
+  const state = {
+    types: new Set(['movie', 'tv']),
+    genres: new Set(),
+    dir: 'desc',
+    pages: { movie: 1, tv: 1 },
+    hasMore: false,
+    loading: false
+  };
   const grid = overlay.querySelector('#catalog-grid');
   const genresBox = overlay.querySelector('#catalog-genres');
   const moreBtn = overlay.querySelector('#catalog-more');
+  const dirBtn = overlay.querySelector('#catalog-dir');
 
   function paintTypeButtons() {
     overlay.querySelectorAll('.catalog-type').forEach(b => {
-      const active = b.dataset.type === state.mediaType;
+      const active = state.types.has(b.dataset.type);
       b.className = 'catalog-type px-3 py-1.5 rounded-full text-sm font-medium ' + (active ? 'bg-primary text-white' : 'bg-slate-800 text-gray-300 hover:bg-slate-700');
     });
+  }
+
+  async function mergedGenreNames() {
+    const names = new Set();
+    for (const type of state.types) {
+      const map = await getGenreMap(type);
+      Object.keys(map).forEach(n => names.add(n));
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, 'ru'));
   }
 
   async function paintGenres() {
     genresBox.innerHTML = 'Загружаем жанры…';
     try {
-      const map = await getGenreMap(state.mediaType);
-      const names = Object.keys(map).sort((a, b) => a.localeCompare(b, 'ru'));
+      const names = await mergedGenreNames();
       genresBox.innerHTML = names.map(n => `
         <button class="catalog-genre px-2.5 py-1 rounded-full border border-slate-700 bg-slate-800 hover:bg-slate-700 cursor-pointer" data-name="${escapeHtml(n)}">${escapeHtml(n)}</button>
       `).join('');
       genresBox.querySelectorAll('.catalog-genre').forEach(chip => {
+        if (state.genres.has(chip.dataset.name)) {
+          chip.classList.add('bg-primary', 'text-white');
+        }
         chip.addEventListener('click', () => {
           const name = chip.dataset.name;
           if (state.genres.has(name)) state.genres.delete(name);
@@ -88,57 +111,89 @@ export async function openCatalog(currentUser, onOpenTitle) {
         });
       });
     } catch (e) {
-      genresBox.innerHTML = 'Жанры недоступны — поиск по фильтрам всё равно работает.';
+      genresBox.innerHTML = 'Жанры недоступны — остальные фильтры работают.';
     }
+  }
+
+  function sortKeyOf(item, sortRaw) {
+    if (sortRaw === 'vote') return item.vote_average || 0;
+    if (sortRaw === 'release') return item.release_date || '';
+    return item.popularity || 0;
   }
 
   async function load(reset) {
     if (state.loading) return;
     state.loading = true;
     if (reset) {
-      state.page = 1;
+      state.pages = { movie: 1, tv: 1 };
       grid.innerHTML = Array.from({ length: 10 }).map(() => `
         <div class="animate-pulse"><div class="w-full aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-1.5"></div></div>
       `).join('');
     }
 
     try {
-      const genreMap = await getGenreMap(state.mediaType);
-      const genreIds = [...state.genres].map(n => genreMap[n]).filter(Boolean);
+      const sortRaw = overlay.querySelector('#catalog-sort').value;
+      const voteGte = Math.round((Number(overlay.querySelector('#catalog-vote').value) || 0) * 10) / 10;
       let yearFrom = Number(overlay.querySelector('#catalog-year-from').value);
       let yearTo = Number(overlay.querySelector('#catalog-year-to').value);
       if (yearFrom > yearTo) [yearFrom, yearTo] = [yearTo, yearFrom];
-      const sortRaw = overlay.querySelector('#catalog-sort').value;
-      const sortBy = sortRaw === 'release'
-        ? (state.mediaType === 'tv' ? 'first_air_date.desc' : 'primary_release_date.desc')
-        : sortRaw;
+      const yearGte = yearFrom > YEAR_MIN ? String(yearFrom) : '';
+      const yearLte = yearTo < YEAR_MAX ? String(yearTo) : '';
 
-      const { items, hasMore } = await discoverTitles({
-        mediaType: state.mediaType,
-        genreIds,
-        sortBy,
-        voteGte: Math.round((Number(overlay.querySelector('#catalog-vote').value) || 0) * 10) / 10,
-        yearGte: yearFrom > YEAR_MIN ? String(yearFrom) : '',
-        yearLte: yearTo < YEAR_MAX ? String(yearTo) : '',
-        page: state.page
+      // Запрос на каждый выбранный тип параллельно, затем объединяем
+      const results = await Promise.all([...state.types].map(async (type) => {
+        const genreMap = await getGenreMap(type);
+        const genreIds = [...state.genres].map(n => genreMap[n]).filter(Boolean);
+        const sortByBase = sortRaw === 'release'
+          ? (type === 'tv' ? 'first_air_date' : 'primary_release_date')
+          : sortRaw;
+        return discoverTitles({
+          mediaType: type,
+          genreIds,
+          sortBy: `${sortByBase}.${state.dir}`,
+          voteGte,
+          yearGte,
+          yearLte,
+          page: state.pages[type]
+        });
+      }));
+
+      let merged = [];
+      let hasMore = false;
+      for (const r of results) {
+        hasMore = hasMore || r.hasMore;
+        merged.push(...r.items);
+      }
+      const seen = new Set();
+      merged = merged.filter(t => {
+        const k = `${t.media_type}:${t.id}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      merged.sort((a, b) => {
+        const ka = sortKeyOf(a, sortRaw);
+        const kb = sortKeyOf(b, sortRaw);
+        const cmp = ka === kb ? 0 : (ka > kb ? 1 : -1);
+        return state.dir === 'desc' ? -cmp : cmp;
       });
 
       state.hasMore = hasMore;
       moreBtn.classList.toggle('hidden', !hasMore);
 
-      const html = items.map(item => `
+      const html = merged.map(item => `
         <div class="catalog-item cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
           <div class="relative group-hover:opacity-80 transition-opacity">
             ${posterImg(item.poster_path, item.title, 'w-full aspect-[2/3] rounded-lg')}
             ${item.vote_average ? `<span class="absolute top-1 right-1 bg-black/70 text-cyan-300 text-[11px] font-bold px-1.5 py-0.5 rounded-md">${Number(item.vote_average).toFixed(1)}</span>` : ''}
           </div>
           <div class="mt-1.5 text-xs font-medium line-clamp-2 leading-tight">${escapeHtml(item.title)}</div>
-          <div class="text-[11px] text-gray-500">${escapeHtml(releaseYear(item.release_date) || '—')}</div>
+          <div class="text-[11px] text-gray-500">${escapeHtml(releaseYear(item.release_date) || '—')} • ${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
         </div>
       `).join('');
 
       if (reset) grid.innerHTML = html || '<p class="col-span-full text-sm text-gray-500 text-center py-8">Ничего не нашлось — попробуйте смягчить фильтры.</p>';
-      else grid.insertAdjacentHTML('beforeend', html);
+      else if (html) grid.insertAdjacentHTML('beforeend', html);
     } catch (e) {
       if (reset) {
         grid.innerHTML = `
@@ -156,40 +211,51 @@ export async function openCatalog(currentUser, onOpenTitle) {
 
   overlay.querySelectorAll('.catalog-type').forEach(b => {
     b.addEventListener('click', () => {
-      if (state.mediaType === b.dataset.type) return;
-      state.mediaType = b.dataset.type;
-      state.genres.clear();
+      const type = b.dataset.type;
+      if (state.types.has(type)) {
+        // последний включённый тип не выключаем — каталог не бывает пустым
+        if (state.types.size === 1) return;
+        state.types.delete(type);
+      } else {
+        state.types.add(type);
+      }
       paintTypeButtons();
       paintGenres();
       load(true);
     });
   });
   overlay.querySelector('#catalog-sort').addEventListener('change', () => load(true));
-  // Слайдеры годов: подписи сразу, запрос с дебаунсом, порядок границ не важен
+  dirBtn.addEventListener('click', () => {
+    state.dir = state.dir === 'desc' ? 'asc' : 'desc';
+    dirBtn.textContent = state.dir === 'desc' ? '↓' : '↑';
+    load(true);
+  });
+
+  const voteSlider = overlay.querySelector('#catalog-vote');
+  const voteVal = overlay.querySelector('#catalog-vote-val');
   const yearFrom = overlay.querySelector('#catalog-year-from');
   const yearTo = overlay.querySelector('#catalog-year-to');
   const yearFromVal = overlay.querySelector('#catalog-year-from-val');
   const yearToVal = overlay.querySelector('#catalog-year-to-val');
-  let yearTimer = null;
+  let debounceTimer = null;
+  const debouncedLoad = () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => load(true), 400);
+  };
+  voteSlider.addEventListener('input', () => {
+    voteVal.textContent = Number(voteSlider.value).toFixed(1);
+    debouncedLoad();
+  });
   const onYears = () => {
     yearFromVal.textContent = yearFrom.value;
     yearToVal.textContent = yearTo.value;
-    clearTimeout(yearTimer);
-    yearTimer = setTimeout(() => load(true), 400);
+    debouncedLoad();
   };
   yearFrom.addEventListener('input', onYears);
   yearTo.addEventListener('input', onYears);
-  // Слайдер рейтинга: подпись обновляем сразу, запрос — с дебаунсом
-  const voteSlider = overlay.querySelector('#catalog-vote');
-  const voteVal = overlay.querySelector('#catalog-vote-val');
-  let voteTimer = null;
-  voteSlider.addEventListener('input', () => {
-    voteVal.textContent = Number(voteSlider.value).toFixed(1);
-    clearTimeout(voteTimer);
-    voteTimer = setTimeout(() => load(true), 400);
-  });
+
   moreBtn.addEventListener('click', () => {
-    state.page += 1;
+    for (const type of state.types) state.pages[type] += 1;
     load(false);
   });
   grid.addEventListener('click', (e) => {
