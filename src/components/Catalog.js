@@ -9,14 +9,9 @@ const SORTS = [
   { id: 'vote_average.desc', label: 'По рейтингу' },
   { id: 'release', label: 'Сначала новые' },
 ];
-const DECADES = [
-  { id: '', label: 'Любые годы', gte: '', lte: '' },
-  { id: '2020', label: '2020-е', gte: '2020', lte: '2029' },
-  { id: '2010', label: '2010-е', gte: '2010', lte: '2019' },
-  { id: '2000', label: '2000-е', gte: '2000', lte: '2009' },
-  { id: '1990', label: '1990-е', gte: '1990', lte: '1999' },
-  { id: 'old', label: 'До 1990', gte: '', lte: '1989' },
-];
+// Границы годов — полная шкала, без пресетов-десятилетий
+const YEAR_MIN = 1900;
+const YEAR_MAX = 2030;
 
 export async function openCatalog(currentUser, onOpenTitle) {
   const overlay = document.createElement('div');
@@ -39,9 +34,11 @@ export async function openCatalog(currentUser, onOpenTitle) {
             <span class="whitespace-nowrap">TMDb ≥ <b id="catalog-vote-val" class="text-cyan-300">0.0</b></span>
             <input type="range" id="catalog-vote" min="0" max="10" step="0.1" value="0" class="rating-slider w-24" aria-label="Минимальный рейтинг TMDb">
           </label>
-          <select id="catalog-decade" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white">
-            ${DECADES.map(d => `<option value="${d.id}">${d.label}</option>`).join('')}
-          </select>
+          <label class="flex items-center gap-2 text-xs text-gray-400 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5">
+            <span class="whitespace-nowrap">Годы: <b id="catalog-year-from-val" class="text-white">1900</b>–<b id="catalog-year-to-val" class="text-white">2030</b></span>
+            <input type="range" id="catalog-year-from" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="${YEAR_MIN}" class="rating-slider w-20" aria-label="Годы с">
+            <input type="range" id="catalog-year-to" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="${YEAR_MAX}" class="rating-slider w-20" aria-label="Годы по">
+          </label>
         </div>
         <div id="catalog-genres" class="flex flex-wrap gap-1.5 text-xs text-gray-500">Загружаем жанры…</div>
       </div>
@@ -108,7 +105,9 @@ export async function openCatalog(currentUser, onOpenTitle) {
     try {
       const genreMap = await getGenreMap(state.mediaType);
       const genreIds = [...state.genres].map(n => genreMap[n]).filter(Boolean);
-      const decade = DECADES.find(d => d.id === overlay.querySelector('#catalog-decade').value) || DECADES[0];
+      let yearFrom = Number(overlay.querySelector('#catalog-year-from').value);
+      let yearTo = Number(overlay.querySelector('#catalog-year-to').value);
+      if (yearFrom > yearTo) [yearFrom, yearTo] = [yearTo, yearFrom];
       const sortRaw = overlay.querySelector('#catalog-sort').value;
       const sortBy = sortRaw === 'release'
         ? (state.mediaType === 'tv' ? 'first_air_date.desc' : 'primary_release_date.desc')
@@ -119,8 +118,8 @@ export async function openCatalog(currentUser, onOpenTitle) {
         genreIds,
         sortBy,
         voteGte: Math.round((Number(overlay.querySelector('#catalog-vote').value) || 0) * 10) / 10,
-        yearGte: decade.gte,
-        yearLte: decade.lte,
+        yearGte: yearFrom > YEAR_MIN ? String(yearFrom) : '',
+        yearLte: yearTo < YEAR_MAX ? String(yearTo) : '',
         page: state.page
       });
 
@@ -141,7 +140,15 @@ export async function openCatalog(currentUser, onOpenTitle) {
       if (reset) grid.innerHTML = html || '<p class="col-span-full text-sm text-gray-500 text-center py-8">Ничего не нашлось — попробуйте смягчить фильтры.</p>';
       else grid.insertAdjacentHTML('beforeend', html);
     } catch (e) {
-      if (reset) grid.innerHTML = '<p class="col-span-full text-sm text-red-400 text-center py-8">Не удалось загрузить каталог.</p>';
+      if (reset) {
+        grid.innerHTML = `
+          <div class="col-span-full text-center py-8">
+            <p class="text-sm text-red-400 mb-3">${escapeHtml(e && e.message ? e.message : 'Не удалось загрузить каталог.')}</p>
+            <button id="catalog-retry" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm">Повторить</button>
+          </div>`;
+        const retry = grid.querySelector('#catalog-retry');
+        if (retry) retry.addEventListener('click', () => load(true));
+      }
     } finally {
       state.loading = false;
     }
@@ -157,9 +164,21 @@ export async function openCatalog(currentUser, onOpenTitle) {
       load(true);
     });
   });
-  ['#catalog-sort', '#catalog-decade'].forEach(sel => {
-    overlay.querySelector(sel).addEventListener('change', () => load(true));
-  });
+  overlay.querySelector('#catalog-sort').addEventListener('change', () => load(true));
+  // Слайдеры годов: подписи сразу, запрос с дебаунсом, порядок границ не важен
+  const yearFrom = overlay.querySelector('#catalog-year-from');
+  const yearTo = overlay.querySelector('#catalog-year-to');
+  const yearFromVal = overlay.querySelector('#catalog-year-from-val');
+  const yearToVal = overlay.querySelector('#catalog-year-to-val');
+  let yearTimer = null;
+  const onYears = () => {
+    yearFromVal.textContent = yearFrom.value;
+    yearToVal.textContent = yearTo.value;
+    clearTimeout(yearTimer);
+    yearTimer = setTimeout(() => load(true), 400);
+  };
+  yearFrom.addEventListener('input', onYears);
+  yearTo.addEventListener('input', onYears);
   // Слайдер рейтинга: подпись обновляем сразу, запрос — с дебаунсом
   const voteSlider = overlay.querySelector('#catalog-vote');
   const voteVal = overlay.querySelector('#catalog-vote-val');
