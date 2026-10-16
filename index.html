@@ -137,7 +137,7 @@
     .company-ratings-details > summary::-webkit-details-marker { display: none; }
     .company-ratings-details > summary::after { content: '+'; float: right; color: #94a3b8; }
     .company-ratings-details[open] > summary::after { content: '−'; }
-    #watch-overlay:fullscreen {
+    #watch-overlay:fullscreen, #watch-overlay.watch-viewport-fullscreen {
       position: fixed; inset: 0; display: flex; width: 100vw; height: 100vh; height: 100dvh;
       max-width: none; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
       border-radius: 0; background: #020617;

@@ -94,7 +94,7 @@ export function openWatchOverlay(opts) {
   const tabLink = ov.querySelector('#watch-tab');
   const fsBtn = ov.querySelector('#watch-fs');
   function updateFullscreenButton() {
-    const exiting = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+    const exiting = Boolean(document.fullscreenElement || document.webkitFullscreenElement || ov.classList.contains('watch-viewport-fullscreen'));
     fsBtn.title = exiting ? 'Выйти из полного экрана' : 'На весь экран';
     fsBtn.setAttribute('aria-label', fsBtn.title);
   }
@@ -106,30 +106,23 @@ export function openWatchOverlay(opts) {
       if (exit) await Promise.resolve(exit.call(document)).catch(() => {});
       return;
     }
+    if (ov.classList.contains('watch-viewport-fullscreen')) {
+      ov.classList.remove('watch-viewport-fullscreen');
+      updateFullscreenButton();
+      return;
+    }
 
     const requestOverlay = ov.requestFullscreen || ov.webkitRequestFullscreen;
     try {
       if (!requestOverlay) throw new Error('Fullscreen API недоступен для окна плеера');
       await Promise.resolve(requestOverlay.call(ov));
-      return;
-    } catch (overlayError) {
-      // На отдельных браузерах полноэкранный режим запрещён для контейнера,
-      // но разрешён для iframe. В этом случае хотя бы само видео откроется
-      // на весь экран; Esc вернёт пользователя в GulRating.
-      const frame = stage.querySelector('iframe');
-      const requestFrame = frame && (frame.requestFullscreen || frame.webkitRequestFullscreen);
-      if (requestFrame) {
-        try {
-          await Promise.resolve(requestFrame.call(frame));
-          showToast('На весь экран открыт плеер. Нажмите Esc, чтобы вернуться.', 'info');
-          return;
-        } catch (frameError) {
-          console.warn('Fullscreen request failed for overlay and player frame', overlayError, frameError);
-        }
-      } else {
-        console.warn('Fullscreen request failed for overlay', overlayError);
-      }
-      showToast('Полный экран недоступен. Проверьте разрешение браузера для этого сайта.', 'info');
+    } catch (error) {
+      // Если браузер блокирует Fullscreen API, развернём плеер в пределах
+      // окна страницы. Крестик и остальные элементы управления останутся видны.
+      console.warn('Fullscreen request failed for overlay', error);
+      ov.classList.add('watch-viewport-fullscreen');
+      updateFullscreenButton();
+      showToast('Браузер ограничил системный полный экран: плеер развёрнут на весь экран страницы. Закрыть — ×.', 'info');
     }
   }
 
@@ -320,6 +313,11 @@ export function openWatchOverlay(opts) {
   ov._onKey = (e) => {
     if (!ov.isConnected) {
       removeOverlayListeners();
+      return;
+    }
+    if (e.key === 'Escape' && ov.classList.contains('watch-viewport-fullscreen')) {
+      ov.classList.remove('watch-viewport-fullscreen');
+      updateFullscreenButton();
       return;
     }
     if (e.key === 'Escape' && !document.fullscreenElement && !document.webkitFullscreenElement) {
