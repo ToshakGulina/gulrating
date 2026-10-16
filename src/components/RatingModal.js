@@ -21,14 +21,33 @@ const RU_CRITICS_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" 
 const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18-3-3.6-3-14.4 0-18z"/></svg>';
 const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
 
-// Встроенный плеер: оверлей в нашем стиле со СПИСКОМ чистых плееров Kinobox
-// (озвучки), а не со страницей зеркала целиком. Зеркало — лишь обёртка: его
-// скрипт берёт iframe-адреса из api.kinobox.tv; мы делаем то же через свою
-// Function /kinobox и показываем только плеер, без рекламы и счётчиков.
-// В браузере плеер встаёт во фрейм оверлея (⛭ — наш фуллскрин элемента),
-// в APK по кнопке озвучки WebView переходит на чистую страницу плеера:
-// видео оказывается в верхнем документе, и нативные прогресс/продолжение
-// приложения работают без всяких подмен HTML.
+// Встроенный плеер: оверлей в нашем стиле. Источники и озвучки — ДВУМЯ
+// строками (сначала плеер: Alloha/Veoveo/…, затем его озвучки), выбор
+// запоминается. Доступность каждого источника Function /kinobox проверяет
+// заранее (embed: 'any' | 'referer'): то, что не встраивается в браузере,
+// в браузере спрятано за счётчик «ещё N (в приложении)», мёртвые источники
+// не показываются вовсе. Кнопка «не играет» прячет источник в памяти
+// браузера и сразу включает следующий.
+const BAD_DUBS_KEY = 'gulrating:bad_dubs';
+
+function readBadDubs() {
+  try {
+    const v = JSON.parse(localStorage.getItem(BAD_DUBS_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function markBadDub(type, name) {
+  try {
+    const list = readBadDubs();
+    const key = `${type}::${name}`;
+    if (!list.includes(key)) list.push(key);
+    localStorage.setItem(BAD_DUBS_KEY, JSON.stringify(list.slice(-80)));
+  } catch (e) { /* приватный режим */ }
+}
+
 export function openWatchOverlay(opts) {
   const { kpId, imdbId, query, titleText, mirrorUrl } = opts || {};
   const apk = isApk();
@@ -44,16 +63,30 @@ export function openWatchOverlay(opts) {
     <div id="watch-stage" class="flex-1 relative min-h-0 rounded-xl overflow-hidden bg-black/60 flex items-center justify-center">
       <p id="watch-status" class="text-sm text-gray-400 px-4 text-center">Ищем доступные плееры…</p>
     </div>
-    <div id="watch-sources" class="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pb-1 flex-shrink-0 content-start"></div>
-    <p id="watch-hint" class="text-xs text-gray-500 flex-shrink-0"></p>`;
+    <div id="watch-players" class="flex flex-wrap gap-1.5 flex-shrink-0 content-start"></div>
+    <div id="watch-dubs" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pb-1 flex-shrink-0 content-start"></div>
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <button id="watch-bad" class="px-2 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-gray-400 text-xs">не играет</button>
+      <p id="watch-hint" class="text-xs text-gray-500 flex-1"></p>
+    </div>`;
   document.body.appendChild(ov);
 
   const stage = ov.querySelector('#watch-stage');
-  const sources = ov.querySelector('#watch-sources');
+  const playersBox = ov.querySelector('#watch-players');
+  const dubsBox = ov.querySelector('#watch-dubs');
   const hint = ov.querySelector('#watch-hint');
   const tabLink = ov.querySelector('#watch-tab');
   const fsBtn = ov.querySelector('#watch-fs');
   if (apk) fsBtn.style.display = 'none'; // фуллскрин в APK делает сам плеер
+
+  let groups = [];        // [{ type, embed, dubs: [{name, quality, url}] }]
+  let curType = null;
+  let curName = null;
+  let showHidden = false; // показать спрятанные (браузер: только-приложение; плохие)
+
+  const CHIP = 'px-3 py-1.5 rounded-lg text-xs whitespace-nowrap flex-shrink-0 ';
+  const CHIP_IDLE = CHIP + 'bg-slate-800 hover:bg-slate-700 text-gray-200';
+  const CHIP_ON = CHIP + 'bg-primary text-white';
 
   function setTab(u) {
     if (u) tabLink.href = u;
@@ -66,86 +99,139 @@ export function openWatchOverlay(opts) {
     frame.className = 'absolute inset-0 w-full h-full bg-black';
     frame.allow = 'fullscreen; encrypted-media; autoplay';
     frame.setAttribute('allowfullscreen', '');
+    // Плеерные CDN сверяют встраивающую страницу со списком зеркал:
+    // без referer мы выглядим как прямой заход, а не как чужой сайт
     frame.referrerPolicy = 'no-referrer';
     frame.src = url;
     stage.appendChild(frame);
     setTab(url);
   }
 
-  function markSelected(buttons, idx) {
-    buttons.forEach((b, i) => b.classList.toggle('bg-primary', i === idx));
-    buttons.forEach((b, i) => b.classList.toggle('text-white', i === idx));
+  function curGroup() {
+    return groups.find((g) => g.type === curType) || null;
   }
 
-  function selectSource(player, idx, buttons) {
-    markSelected(buttons, idx);
-    try {
-      localStorage.setItem('gulrating:last_dub', JSON.stringify({ type: player.type, name: player.name }));
-    } catch (e) { /* приватный режим — не страшно */ }
+  function curDub() {
+    const g = curGroup();
+    if (!g) return null;
+    return g.dubs.find((d) => d.name === curName) || g.dubs[0] || null;
+  }
+
+  function visibleGroups() {
+    const bad = readBadDubs();
+    return groups
+      .map((g) => ({
+        ...g,
+        dubs: showHidden ? g.dubs : g.dubs.filter((d) => !bad.includes(`${g.type}::${d.name}`)),
+      }))
+      .filter((g) => g.dubs.length)
+      .filter((g) => apk || showHidden || g.embed !== 'referer');
+  }
+
+  function play(dub, group) {
+    if (!dub) return;
+    setTab(dub.url);
     if (apk) {
-      // Чистая страница плеера — верхним документом WebView; Referer
-      // подставляет нативный мост (страница зеркала), иначе плеерные CDN
-      // отвечают «недоступно в регионе» на чужой/пустой referer
+      // Referer зеркала подставляет нативный мост — рабочая схема зеркал
       if (window.GulRatingBridge && window.GulRatingBridge.openPlayer) {
-        window.GulRatingBridge.openPlayer(player.url, mirrorUrl || '');
+        window.GulRatingBridge.openPlayer(dub.url, mirrorUrl || '');
       } else {
-        window.location.href = player.url;
+        window.location.href = dub.url;
       }
       return;
     }
-    showFrame(player.url);
+    showFrame(dub.url);
+    void group;
   }
 
-  function renderSources(list) {
-    sources.innerHTML = '';
-    const buttons = list.map((player, i) => {
-      const b = document.createElement('button');
-      b.className = 'px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-200 text-xs whitespace-nowrap flex-shrink-0';
-      b.textContent = `${i + 1}. ${player.name}${player.quality ? ' (' + player.quality + ')' : ''} [${player.type}]`;
-      b.addEventListener('click', () => selectSource(player, i, buttons));
-      sources.appendChild(b);
-      return b;
-    });
-    // Стартуем с прошлой озвучки, если она ещё в списке, иначе с первой
-    let start = 0;
+  function remember() {
     try {
-      const last = JSON.parse(localStorage.getItem('gulrating:last_dub') || 'null');
-      if (last) start = Math.max(0, list.findIndex((x) => x.type === last.type && x.name === last.name));
-    } catch (e) { /* повреждённая запись — не важна */ }
-    markSelected(buttons, start);
-    if (apk) {
-      stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Нажмите озвучку — плеер откроется внутри приложения.<br>Кнопка ⛶ внутри плеера развернёт видео на весь экран.</p>';
-      setTab(list[start] && list[start].url);
-    } else if (list[start]) {
-      showFrame(list[start].url);
-    }
-    hint.textContent = apk
-      ? 'Нажмите озвучку: плеер откроется в приложении, прогресс и «продолжить» работают. Выбор запомнится.'
-      : '⛭ — на весь экран, Esc — выход. Озвучки — плитками ниже, выбор запомнится. Если плеер пишет «недоступно в регионе» — попробуйте другую озвучку или «вкладка».';
+      localStorage.setItem('gulrating:last_dub', JSON.stringify({ type: curType, name: curName }));
+    } catch (e) { /* приватный режим */ }
   }
 
-  function fallback() {
-    // API не ответил — как раньше, зеркало целиком (последний вариант)
-    sources.innerHTML = '';
-    if (apk) {
-      stage.innerHTML = '';
+  function renderPlayers() {
+    playersBox.innerHTML = '';
+    const vis = visibleGroups();
+    vis.forEach((g) => {
       const b = document.createElement('button');
-      b.className = 'px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-white text-sm';
-      b.textContent = 'Открыть страницу зеркала';
-      b.addEventListener('click', () => { window.location.href = mirrorUrl; });
-      stage.appendChild(b);
-    } else if (mirrorUrl) {
-      showFrame(mirrorUrl);
-    } else {
-      stage.innerHTML = '<p class="text-sm text-gray-400 px-4 text-center">Плееры не найдены</p>';
+      b.className = g.type === curType ? CHIP_ON : CHIP_IDLE;
+      b.textContent = g.type;
+      b.title = g.embed === 'referer' ? 'Работает только в приложении' : '';
+      b.addEventListener('click', () => {
+        curType = g.type;
+        curName = (g.dubs[0] || {}).name || null;
+        renderPlayers();
+        renderDubs();
+        play(curDub(), g);
+        remember();
+      });
+      playersBox.appendChild(b);
+    });
+    const hiddenCount = groups.reduce((n, g) => n + g.dubs.length, 0)
+      - vis.reduce((n, g) => n + g.dubs.length, 0);
+    if (hiddenCount > 0) {
+      const t = document.createElement('button');
+      t.className = CHIP + 'bg-transparent text-gray-500 hover:text-gray-300';
+      t.textContent = showHidden ? 'скрыть лишнее' : `ещё ${hiddenCount} (обычно не играют здесь)`;
+      t.addEventListener('click', () => {
+        showHidden = !showHidden;
+        renderPlayers();
+        renderDubs();
+      });
+      playersBox.appendChild(t);
     }
-    hint.textContent = 'Список плееров получить не удалось — открываем зеркало целиком (там может быть реклама).';
   }
+
+  function renderDubs() {
+    dubsBox.innerHTML = '';
+    const g = curGroup();
+    if (!g) return;
+    const bad = readBadDubs();
+    const dubs = showHidden ? g.dubs : g.dubs.filter((d) => !bad.includes(`${g.type}::${d.name}`));
+    (dubs.length ? dubs : g.dubs).forEach((d) => {
+      const b = document.createElement('button');
+      const isBad = bad.includes(`${g.type}::${d.name}`);
+      b.className = d.name === curName ? CHIP_ON : CHIP_IDLE;
+      if (isBad) b.classList.add('opacity-50', 'line-through');
+      b.textContent = d.quality ? `${d.name} · ${d.quality}` : d.name;
+      b.addEventListener('click', () => {
+        curName = d.name;
+        renderPlayers();
+        renderDubs();
+        play(d, g);
+        remember();
+      });
+      dubsBox.appendChild(b);
+    });
+  }
+
+  // «Не играет»: прячем источник локально и сразу включаем следующий живой
+  ov.querySelector('#watch-bad').addEventListener('click', () => {
+    const g = curGroup();
+    const d = curDub();
+    if (!g || !d) return;
+    markBadDub(g.type, d.name);
+    const pool = visibleGroups();
+    const next = pool.find((x) => x.type === g.type && x.dubs.length)
+      || pool[0] || null;
+    if (next) {
+      curType = next.type;
+      curName = (next.dubs[0] || {}).name || null;
+      renderPlayers();
+      renderDubs();
+      play(curDub(), next);
+      remember();
+    } else {
+      renderPlayers();
+      renderDubs();
+      hint.textContent = 'Живых источников не осталось — попробуйте «вкладка».';
+    }
+  });
 
   fsBtn.addEventListener('click', () => {
     const frame = stage.querySelector('iframe');
     if (!frame) return;
-    // Фуллскрин именно элемента фрейма: не зависит от кнопок чужого плеера
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else if (frame.requestFullscreen) frame.requestFullscreen().catch(() => {});
   });
@@ -168,9 +254,58 @@ export function openWatchOverlay(opts) {
   fetchKinoboxPlayers({ kpId, imdbId, query })
     .then((list) => {
       if (!list.length) return fallback();
-      renderSources(list);
+      // Группируем по источнику, сохраняя порядок ответа
+      for (const item of list) {
+        let g = groups.find((x) => x.type === item.type);
+        if (!g) {
+          g = { type: item.type, embed: item.embed || 'any', dubs: [] };
+          groups.push(g);
+        }
+        if (!g.dubs.find((d) => d.name === item.name)) {
+          g.dubs.push({ name: item.name, quality: item.quality, url: item.url });
+        }
+      }
+      // Старт: прошлый выбор, если жив, иначе первый доступный
+      let last = null;
+      try {
+        last = JSON.parse(localStorage.getItem('gulrating:last_dub') || 'null');
+      } catch (e) { /* не важно */ }
+      const vis = visibleGroups();
+      const startG = (last && vis.find((g) => g.type === last.type && g.dubs.some((d) => d.name === last.name)))
+        || vis[0] || null;
+      if (!startG) return fallback();
+      curType = startG.type;
+      curName = (last && startG.dubs.find((d) => d.name === last.name) ? last.name : (startG.dubs[0] || {}).name) || null;
+      renderPlayers();
+      renderDubs();
+      if (!apk) play(curDub(), startG);
+      else {
+        stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Нажмите озвучку — плеер откроется внутри приложения.<br>Кнопка ⛶ внутри плеера развернёт видео на весь экран.</p>';
+        setTab((curDub() || {}).url);
+      }
+      hint.textContent = apk
+        ? 'Источник и озвучка — двумя строками, выбор запомнится. Нерабочее скрыто автоматически.'
+        : '⛭ — на весь экран, Esc — выход. Источники, которые не встраиваются в браузере, скрыты; «не играет» спрячет и переключит дальше.';
     })
     .catch(() => fallback());
+
+  function fallback() {
+    playersBox.innerHTML = '';
+    dubsBox.innerHTML = '';
+    if (apk) {
+      stage.innerHTML = '';
+      const b = document.createElement('button');
+      b.className = 'px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-white text-sm';
+      b.textContent = 'Открыть страницу зеркала';
+      b.addEventListener('click', () => { window.location.href = mirrorUrl; });
+      stage.appendChild(b);
+    } else if (mirrorUrl) {
+      showFrame(mirrorUrl);
+    } else {
+      stage.innerHTML = '<p class="text-sm text-gray-400 px-4 text-center">Плееры не найдены</p>';
+    }
+    hint.textContent = 'Список плееров получить не удалось — открываем зеркало целиком (там может быть реклама).';
+  }
 }
 
 // «105 936 голосов» с правильным склонением
