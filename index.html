@@ -67,7 +67,9 @@
     #boot-splash .dot { animation: blink 1.2s infinite; }
     #boot-splash .dot:nth-child(2) { animation-delay: .2s; }
     #boot-splash .dot:nth-child(3) { animation-delay: .4s; }
+    #boot-splash.splash-leaving { animation: splash-leave .2s ease-in forwards; }
     @keyframes blink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
+    @keyframes splash-leave { to { opacity: 0; visibility: hidden; } }
 
     /* Живой фон: мягкие цветные свечения вместо плоского тёмного полотна */
     body::before {
@@ -80,6 +82,86 @@
         radial-gradient(640px 420px at 12% -6%, rgba(99, 102, 241, .20), transparent 62%),
         radial-gradient(720px 520px at 88% 8%, rgba(236, 72, 153, .13), transparent 62%),
         radial-gradient(900px 640px at 50% 112%, rgba(56, 189, 248, .10), transparent 64%);
+    }
+
+    /* Лёгкая системная анимация интерфейса. Вступительные эффекты используют
+       transform/opacity без скачков раскладки и безопасны для мобильных/PWA. */
+    html { scroll-behavior: smooth; }
+    #app:not(:empty) { animation: app-enter .32s cubic-bezier(.2,.75,.25,1); }
+    #blocks-wrap > * { animation: section-enter .34s cubic-bezier(.2,.75,.25,1); }
+    #blocks-wrap > :nth-child(2) { animation-delay: 45ms; }
+    #blocks-wrap > :nth-child(3) { animation-delay: 90ms; }
+    #blocks-wrap > :nth-child(2), #blocks-wrap > :nth-child(3) { animation-fill-mode: backwards; }
+    #ratings-list > .title-card:nth-child(2) { animation-delay: 25ms; }
+    #ratings-list > .title-card:nth-child(3) { animation-delay: 50ms; }
+    #ratings-list > .title-card:nth-child(4) { animation-delay: 75ms; }
+    #ratings-list > .title-card:nth-child(5) { animation-delay: 100ms; }
+    #ratings-list > .title-card:nth-child(6) { animation-delay: 125ms; }
+    #ratings-list > .title-card:nth-child(n+7) { animation-delay: 150ms; }
+    #ratings-list > .title-card:nth-child(n+2) { animation-fill-mode: backwards; }
+
+    button:not(:disabled), a { transition: color .18s ease, background-color .18s ease, border-color .18s ease, box-shadow .18s ease, translate .18s ease, opacity .18s ease; }
+    input, select, textarea { transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
+    @media (hover: hover) {
+      button:not(:disabled):hover { translate: 0 -1px; }
+      .title-card:hover, .rec-card:hover, .history-title:hover, .catalog-item:hover { translate: 0 -3px; }
+      .title-card:hover, .catalog-item:hover { box-shadow: 0 14px 34px rgb(0 0 0 / .22); }
+      .rec-card:hover { filter: brightness(1.06); }
+      .history-query:hover, .search-result-item:hover { translate: 3px 0; }
+    }
+    button:not(:disabled):active { translate: 0 1px; scale: .98; }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline: 2px solid rgb(var(--p-rgb) / .8);
+      outline-offset: 2px;
+    }
+
+    .title-card, .rec-card, .history-title, .history-query, .catalog-item, .search-result-item {
+      transition: translate .2s cubic-bezier(.2,.75,.25,1), scale .2s ease, box-shadow .2s ease, border-color .2s ease, background-color .2s ease, filter .2s ease;
+    }
+    .title-card, .rec-card, .history-title, .catalog-item { animation: card-enter .3s cubic-bezier(.2,.75,.25,1); }
+    .search-result-item { animation: item-enter .22s ease-out; }
+    #catalog-grid > .catalog-item { animation-fill-mode: backwards; }
+    #trends-grid > .rec-card { animation-fill-mode: backwards; }
+    #catalog-grid > .catalog-item:nth-child(2) { animation-delay: 25ms; }
+    #catalog-grid > .catalog-item:nth-child(3) { animation-delay: 50ms; }
+    #catalog-grid > .catalog-item:nth-child(4) { animation-delay: 75ms; }
+    #catalog-grid > .catalog-item:nth-child(5) { animation-delay: 100ms; }
+    #catalog-grid > .catalog-item:nth-child(6) { animation-delay: 125ms; }
+    #catalog-grid > .catalog-item:nth-child(n+7) { animation-delay: 150ms; }
+    #trends-grid > .rec-card:nth-child(2) { animation-delay: 25ms; }
+    #trends-grid > .rec-card:nth-child(3) { animation-delay: 50ms; }
+    #trends-grid > .rec-card:nth-child(4) { animation-delay: 75ms; }
+    #trends-grid > .rec-card:nth-child(5) { animation-delay: 100ms; }
+    #trends-grid > .rec-card:nth-child(6) { animation-delay: 125ms; }
+    #trends-grid > .rec-card:nth-child(7) { animation-delay: 150ms; }
+    #trends-grid > .rec-card:nth-child(8) { animation-delay: 175ms; }
+    #trends-grid > .rec-card:nth-child(n+9) { animation-delay: 200ms; }
+
+    .fixed.inset-0 { animation: overlay-enter .2s ease-out; }
+    #search-results:not(.hidden) { animation: dropdown-enter .16s ease-out; transform-origin: top center; }
+    nav.fixed { animation: nav-enter .3s cubic-bezier(.2,.75,.25,1); }
+    #toast-container > * { animation: toast-enter .24s cubic-bezier(.2,.75,.25,1); }
+    #toast-container > *.toast-leaving { animation: toast-leave .18s ease-in both; }
+
+    @keyframes app-enter { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes section-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes card-enter { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes item-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes overlay-enter { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes dropdown-enter { from { opacity: 0; transform: translateY(-4px) scaleY(.98); } to { opacity: 1; transform: translateY(0) scaleY(1); } }
+    @keyframes nav-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-enter { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes toast-leave { to { opacity: 0; transform: translateY(5px); } }
+
+    /* Уважаем системную настройку доступности «Уменьшить движение». */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-delay: 0ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+      }
     }
 
     /* Слайдер оценки «как яркость на телефоне»: градиентная дорожка и крупный бегунок */

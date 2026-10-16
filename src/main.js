@@ -50,7 +50,10 @@ window.addEventListener('online', () => {
 
 function hideSplash() {
   const splash = document.getElementById('boot-splash');
-  if (splash) splash.remove();
+  if (!splash || splash.classList.contains('splash-leaving')) return;
+  splash.classList.add('splash-leaving');
+  // Keep a fallback for browsers that do not dispatch animationend.
+  setTimeout(() => splash.remove(), 220);
 }
 
 let rendering = false;
