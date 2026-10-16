@@ -137,15 +137,12 @@
     .company-ratings-details > summary::-webkit-details-marker { display: none; }
     .company-ratings-details > summary::after { content: '+'; float: right; color: #94a3b8; }
     .company-ratings-details[open] > summary::after { content: '−'; }
-    .grouped-ratings-summary img { transition: translate .18s ease; }
     #watch-overlay:fullscreen {
       position: fixed; inset: 0; display: flex; width: 100vw; height: 100vh; height: 100dvh;
       max-width: none; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
       border-radius: 0; background: #020617;
     }
     #watch-overlay:-webkit-full-screen { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; background: #020617; }
-    #watch-stage.crop-vertical #watch-frame { inset: auto 0; top: -5%; height: 110%; }
-    #watch-crop[aria-pressed="true"] { background: rgb(var(--p-rgb) / .22); color: white; }
     .title-card, .rec-card, .history-title, .catalog-item { animation: card-enter .3s cubic-bezier(.2,.75,.25,1); }
     .search-result-item { animation: item-enter .22s ease-out; }
     #catalog-grid > .catalog-item { animation-fill-mode: backwards; }

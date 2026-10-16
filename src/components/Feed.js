@@ -486,7 +486,7 @@ async function loadRatings(currentUser, filter = 'all') {
     const year = releaseYear(title.release_date);
     const ratingColor = item.rating >= 8 ? 'bg-green-600' : item.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
     const groupRows = item.groupedRatings || [];
-    const visibleGroupRows = groupRows.slice(0, 3);
+    const visibleGroupRows = groupRows.slice(0, 4);
     const hiddenGroupCount = Math.max(0, groupRows.length - visibleGroupRows.length);
 
     return `
@@ -503,6 +503,7 @@ async function loadRatings(currentUser, filter = 'all') {
               </div>
               ${!isWatchlistView ? (item.groupedRatings ? `
                 <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-xl px-2.5 py-1.5 text-white text-center shrink-0">
+                  <span class="text-[8px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
                   <strong class="text-lg leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
                   <span class="text-[9px] opacity-80">${groupRows.length} оценок</span>
                 </div>
@@ -518,14 +519,18 @@ async function loadRatings(currentUser, filter = 'all') {
             </div>
             
             ${item.groupedRatings ? `
-              <div class="grouped-ratings-summary mt-2 flex min-w-0 items-center gap-2 text-[11px] text-gray-400" title="Общая оценка компании">
-                <span class="flex items-center -space-x-2 flex-shrink-0" aria-hidden="true">
-                  ${visibleGroupRows.map(r => `
-                    <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" title="${escapeHtml(r.profiles?.username || 'Участник')}" class="w-5 h-5 rounded-full border-2 border-card bg-slate-700 object-cover">
-                  `).join('')}
-                  ${hiddenGroupCount ? `<span class="w-5 h-5 rounded-full border-2 border-card bg-slate-700 text-[8px] text-gray-300 flex items-center justify-center">+${hiddenGroupCount}</span>` : ''}
-                </span>
-                <span class="truncate">Средняя оценка компании</span>
+              <div class="grouped-ratings-list mt-2 grid grid-cols-1 gap-1" aria-label="Оценки участников компании">
+                ${visibleGroupRows.map(r => {
+                  const score = Number(r.rating || 0);
+                  const scoreColor = score >= 8 ? 'text-green-300' : score >= 5 ? 'text-yellow-300' : 'text-red-300';
+                  return `<div class="flex min-w-0 items-center gap-2 rounded-lg bg-slate-900/40 px-2 py-1">
+                    <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="h-5 w-5 flex-shrink-0 rounded-full bg-slate-700 object-cover">
+                    <span class="max-w-[140px] truncate text-[11px] text-gray-300">${escapeHtml(r.profiles?.username || 'Участник')}</span>
+                    <b class="flex-shrink-0 text-[11px] ${scoreColor}">${escapeHtml(formatRating(score))}</b>
+                    ${r.comment ? `<span class="min-w-0 flex-1 line-clamp-2 whitespace-normal break-words text-[10px] leading-snug text-gray-500" title="${escapeHtml(r.comment)}">${escapeHtml(r.comment)}</span>` : '<span class="flex-1"></span>'}
+                  </div>`;
+                }).join('')}
+                ${hiddenGroupCount ? `<span class="pl-2 text-[10px] text-gray-500">и ещё ${hiddenGroupCount} оценок</span>` : ''}
               </div>
             ` : `
               <div class="mt-2 flex items-center gap-2">

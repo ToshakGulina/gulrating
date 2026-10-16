@@ -72,7 +72,6 @@ export function openWatchOverlay(opts) {
   ov.innerHTML = `
     <div class="flex items-center gap-2">
       <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
-      <button id="watch-crop" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-xs text-gray-300 hover:bg-slate-700 disabled:opacity-40" title="Обрезать верх и низ окна сайта-плеера; могут скрыться его кнопки" aria-label="Обрезать верх и низ окна сайта-плеера" aria-pressed="false" disabled>Кадр</button>
       <button id="watch-fs" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-lg leading-none text-gray-200 hover:bg-slate-700" title="На весь экран" aria-label="На весь экран">⛶</button>
       <a id="watch-tab" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-slate-700" href="${escapeHtml(mirrorUrl || '#')}" target="_blank" rel="noopener noreferrer" title="Открыть в новой вкладке">вкладка</a>
       <button id="watch-close" class="rounded-xl px-2 py-1 text-2xl leading-none text-gray-300 hover:bg-slate-800 hover:text-white" aria-label="Закрыть плеер">&times;</button>
@@ -94,7 +93,6 @@ export function openWatchOverlay(opts) {
   const hint = ov.querySelector('#watch-hint');
   const tabLink = ov.querySelector('#watch-tab');
   const fsBtn = ov.querySelector('#watch-fs');
-  const cropBtn = ov.querySelector('#watch-crop');
   function updateFullscreenButton() {
     const exiting = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
     fsBtn.title = exiting ? 'Выйти из полного экрана' : 'На весь экран';
@@ -108,15 +106,30 @@ export function openWatchOverlay(opts) {
       if (exit) await Promise.resolve(exit.call(document)).catch(() => {});
       return;
     }
-    const request = ov.requestFullscreen || ov.webkitRequestFullscreen;
-    if (!request) {
-      showToast('Полноэкранный режим не поддерживается этим браузером', 'info');
-      return;
-    }
+
+    const requestOverlay = ov.requestFullscreen || ov.webkitRequestFullscreen;
     try {
-      await Promise.resolve(request.call(ov));
-    } catch (error) {
-      showToast('Не удалось открыть плеер на весь экран', 'info');
+      if (!requestOverlay) throw new Error('Fullscreen API недоступен для окна плеера');
+      await Promise.resolve(requestOverlay.call(ov));
+      return;
+    } catch (overlayError) {
+      // На отдельных браузерах полноэкранный режим запрещён для контейнера,
+      // но разрешён для iframe. В этом случае хотя бы само видео откроется
+      // на весь экран; Esc вернёт пользователя в GulRating.
+      const frame = stage.querySelector('iframe');
+      const requestFrame = frame && (frame.requestFullscreen || frame.webkitRequestFullscreen);
+      if (requestFrame) {
+        try {
+          await Promise.resolve(requestFrame.call(frame));
+          showToast('На весь экран открыт плеер. Нажмите Esc, чтобы вернуться.', 'info');
+          return;
+        } catch (frameError) {
+          console.warn('Fullscreen request failed for overlay and player frame', overlayError, frameError);
+        }
+      } else {
+        console.warn('Fullscreen request failed for overlay', overlayError);
+      }
+      showToast('Полный экран недоступен. Проверьте разрешение браузера для этого сайта.', 'info');
     }
   }
 
@@ -154,7 +167,6 @@ export function openWatchOverlay(opts) {
     // без referer мы выглядим как прямой заход, а не как чужой сайт
     frame.src = url;
     stage.appendChild(frame);
-    cropBtn.disabled = false;
     setTab(url);
   }
 
@@ -296,13 +308,6 @@ export function openWatchOverlay(opts) {
     }
   });
 
-  cropBtn.addEventListener('click', () => {
-    if (!stage.querySelector('iframe')) return;
-    const cropped = stage.classList.toggle('crop-vertical');
-    cropBtn.setAttribute('aria-pressed', String(cropped));
-    cropBtn.textContent = cropped ? 'Целиком' : 'Кадр';
-    cropBtn.title = cropped ? 'Показать всё окно сайта-плеера' : 'Обрезать верх/низ окна сайта-плеера; могут скрыться его кнопки';
-  });
   fsBtn.addEventListener('click', toggleFullscreen);
   ov.querySelector('#watch-close').addEventListener('click', () => {
     if (document.fullscreenElement || document.webkitFullscreenElement) {
@@ -328,7 +333,6 @@ export function openWatchOverlay(opts) {
     stage.innerHTML = '<p id="watch-status" class="text-sm text-gray-400 px-4 text-center">Ищем доступные плееры…</p>';
     playersBox.innerHTML = '';
     dubsBox.innerHTML = '';
-    cropBtn.disabled = true;
     fetchKinoboxPlayers({ kpId, imdbId, query })
       .then((list) => {
         if (!list.length) return fallback('пустой список от API');
@@ -373,7 +377,6 @@ export function openWatchOverlay(opts) {
     groups = [];
     playersBox.innerHTML = '';
     dubsBox.innerHTML = '';
-    cropBtn.disabled = true;
     stage.innerHTML = '';
     const box = document.createElement('div');
     box.className = 'flex flex-col items-center gap-3 px-4 text-center';
