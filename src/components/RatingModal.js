@@ -5,7 +5,7 @@ import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { enqueueRating, networkLikeError } from '../lib/offline.js';
-import { addWatchEntry, reportWatchNative } from '../lib/watchHistory.js';
+import { addWatchEntry, reportWatchNative, isApk } from '../lib/watchHistory.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -19,23 +19,6 @@ const IMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-h
 const RU_CRITICS_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><clipPath id="ru-flag-clip"><rect x="3" y="8" width="26" height="16" rx="3"/></clipPath><g clip-path="url(#ru-flag-clip)"><rect x="3" y="8" width="26" height="16" fill="#ffffff"/><rect x="3" y="13.3" width="26" height="5.4" fill="#0039a6"/><rect x="3" y="18.7" width="26" height="5.3" fill="#d52b1e"/></g></svg>';
 const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18-3-3.6-3-14.4 0-18z"/></svg>';
 const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
-
-// Оверлей с плеером: если сторонний сайт запрещает встраивание во фрейм,
-// браузер сам покажет пусто — тогда рядом ссылка «открыть в новой вкладке»
-export function openWatchOverlay(url, titleText) {
-  const ov = document.createElement('div');
-  ov.className = 'fixed inset-0 z-50 bg-black/90 flex flex-col p-3 gap-2';
-  ov.innerHTML = `
-    <div class="flex items-center gap-2">
-      <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
-      <button class="text-gray-300 hover:text-white text-2xl leading-none px-2" aria-label="Закрыть плеер">&times;</button>
-    </div>
-    <iframe class="flex-1 w-full rounded-xl bg-black" src="${escapeHtml(url)}" allow="fullscreen; encrypted-media; autoplay" allowfullscreen></iframe>
-    <p class="text-xs text-gray-500">Если плеер не показался — сайт запрещает встраивание:
-      <a class="text-primary underline" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">открыть в новой вкладке</a></p>`;
-  ov.querySelector('button').addEventListener('click', () => ov.remove());
-  document.body.appendChild(ov);
-}
 
 // «105 936 голосов» с правильным склонением
 function criticsLabel(value) {
@@ -216,13 +199,22 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Открыть каталог с фильтром по жанру «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
           </div>
           ${(() => {
-            const parts = [];
-            const budget = title.budget || (kpRatings && kpRatings.kpBudget) || null;
-            if (budget) parts.push(`Бюджет: ${formatMoney(budget)}`);
-            if (title.revenue) parts.push(`Сборы: ${formatMoney(title.revenue)}`);
-            if (kpRatings && kpRatings.kpFeesRussia) parts.push(`сборы в РФ: ${formatMoney(kpRatings.kpFeesRussia)} (КП)`);
-            if (kpRatings && kpRatings.kpFeesWorld) parts.push(`в мире: ${formatMoney(kpRatings.kpFeesWorld)} (КП)`);
-            return parts.length ? `<p class="text-xs text-gray-500 mb-2">💵 ${parts.join(' • ')}</p>` : '';
+            // TMDb и КП не дублируем: по каждой метрике одна строка;
+            // если источники расходятся — берём большую сумму
+            const pick = (...vals) => {
+              const nums = vals.map(v => Number(v)).filter(v => Number.isFinite(v) && v > 0);
+              return nums.length ? Math.max(...nums) : null;
+            };
+            const rows = [];
+            const budget = pick(title.budget, kpRatings && kpRatings.kpBudget);
+            const world = pick(title.revenue, kpRatings && kpRatings.kpFeesWorld);
+            const ru = pick(kpRatings && kpRatings.kpFeesRussia);
+            if (budget) rows.push(`Бюджет: ${formatMoney(budget)}`);
+            if (world) rows.push(`Сборы в мире: ${formatMoney(world)}`);
+            if (ru) rows.push(`Сборы в России: ${formatMoney(ru)}`);
+            return rows.length
+              ? `<div class="text-xs text-gray-500 mb-2 space-y-0.5">${rows.map((r, i) => `<div>${i === 0 ? '💵 ' : ''}${r}</div>`).join('')}</div>`
+              : '';
           })()}
           ${kpPageUrl ? '<button id="watch-btn" class="text-xs text-primary hover:underline mb-2 self-start">▶ Смотреть</button>' : ''}
           <div class="flex flex-col items-start gap-1.5 text-sm">
@@ -419,11 +411,14 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           kp_url: kpPageUrl
         });
         reportWatchNative(titleId, mediaType);
-        if (/GulRatingApp/.test(navigator.userAgent)) {
+        if (isApk()) {
+          // Внутри APK: нативная навигация WebView (плеер в приложении)
           window.location.href = kpPageUrl;
           return;
         }
-        openWatchOverlay(kpPageUrl, title.title);
+        // В браузере: своя вкладка — на чужом сайте фуллскрин и плеер
+        // работают как задумано их авторами
+        window.open(kpPageUrl, '_blank', 'noopener');
       });
     }
 

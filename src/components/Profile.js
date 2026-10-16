@@ -6,9 +6,8 @@ import { cleanupFeed } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
-import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, reportWatchNative } from '../lib/watchHistory.js';
+import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
-import { openWatchOverlay } from './RatingModal.js';
 
 // Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
 const ACCENTS = [
@@ -489,8 +488,8 @@ export async function renderProfilePage(app, currentUser) {
       const item = getWatchHistory().find(x => x.key === b.closest('[data-key]').dataset.key);
       if (!item || !item.kp_url) return;
       reportWatchNative(item.id, item.media_type);
-      if (/GulRatingApp/.test(navigator.userAgent)) window.location.href = item.kp_url;
-      else openWatchOverlay(item.kp_url, item.title);
+      if (isApk()) window.location.href = item.kp_url;
+      else window.open(item.kp_url, '_blank', 'noopener');
     }));
     whBox.querySelectorAll('.wh-done').forEach(b => b.addEventListener('click', async () => {
       b.disabled = true;

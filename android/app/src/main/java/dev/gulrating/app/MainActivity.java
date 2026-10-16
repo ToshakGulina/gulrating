@@ -12,6 +12,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
+import android.widget.FrameLayout;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -43,6 +45,13 @@ public class MainActivity extends Activity {
     private NotificationManager notifManager;
     // Ключ тайтла, который сейчас смотрят: "tv:123" / "movie:456"
     private volatile String currentWatchKey = "";
+    // Идёт сеанс плеера: после входа на хост плеера держим внутри WebView
+    // любые редиректы и смежные домены, пока пользователь не вернётся на сайт
+    private volatile boolean inPlayerSession = false;
+    // Нативный фуллскрин видео (кнопка полноэкранного режима в плеере)
+    private FrameLayout root;
+    private View customView;
+    private android.webkit.WebChromeClient.CustomViewCallback customViewCallback;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -54,8 +63,11 @@ public class MainActivity extends Activity {
         notifManager.createNotificationChannel(ch);
         handler = new Handler(Looper.getMainLooper());
 
+        root = new FrameLayout(this);
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor("#0f172a"));
+        root.addView(web, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
@@ -69,24 +81,49 @@ public class MainActivity extends Activity {
         // открытие плеера внутри WebView)
         web.getSettings().setUserAgentString(web.getSettings().getUserAgentString() + " GulRatingApp/1");
 
-        web.setWebChromeClient(new WebChromeClient());
+        // Фуллскрин плеера: WebView отдаёт кастомную вью сюда, без этого
+        // кнопка полноэкранного режима в плеере молча не работает
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onShowCustomView(View view, CustomViewCallback callback) {
+                if (customView != null) {
+                    callback.onCustomViewHidden();
+                    return;
+                }
+                customView = view;
+                customViewCallback = callback;
+                web.setVisibility(View.GONE);
+                root.addView(customView, new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            }
+
+            @Override
+            public void onHideCustomView() {
+                exitFullscreen();
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String host = uri.getHost();
                 // Уход с плеера: снять позицию сразу, не дожидаясь тика опроса
-                if (isPlayerHost(web.getUrl()) && !isPlayerHost(uri.toString())) {
+                if (onPlayer() && !isPlayerHost(uri.toString()) && !isPlayerSessionUrl(uri.toString())) {
                     probePlayer();
                 }
                 // Всё своё открываем внутри приложения, внешние ссылки
                 // (Кинопоиск, Телеграм) — в браузере телефона
-                if (host != null && host.equals(HOME_HOST)) return false;
-                if (host != null) {
-                    for (String playerHost : PLAYER_HOSTS) {
-                        if (host.equals(playerHost)) return false;
-                    }
+                if (host != null && host.equals(HOME_HOST)) {
+                    inPlayerSession = false;
+                    return false;
                 }
+                if (isPlayerHost(uri.toString())) {
+                    inPlayerSession = true;
+                    return false;
+                }
+                // Сеанс плеера: редиректы и смежные домены плеера остаются
+                // внутри приложения, иначе «Смотреть» открывал бы браузер
+                if (inPlayerSession) return false;
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 } catch (Exception e) {
@@ -132,7 +169,7 @@ public class MainActivity extends Activity {
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                probePlayer();
+                if (onPlayer()) probePlayer();
                 handler.postDelayed(this, 5000);
             }
         }, 8000);
@@ -140,11 +177,31 @@ public class MainActivity extends Activity {
         if (savedInstanceState == null) {
             web.loadUrl(HOME);
         }
-        setContentView(web);
+        setContentView(root);
     }
 
     private SharedPreferences prefs() {
         return getSharedPreferences("gulrating", MODE_PRIVATE);
+    }
+
+    private boolean isPlayerSessionUrl(String url) {
+        // Смежные домены сеанса плеера (зеркала любят скакать по хостам)
+        return inPlayerSession && url != null && !url.startsWith(HOME);
+    }
+
+    private boolean onPlayer() {
+        return isPlayerHost(web.getUrl()) || inPlayerSession;
+    }
+
+    private void exitFullscreen() {
+        if (customView == null) return;
+        root.removeView(customView);
+        customView = null;
+        web.setVisibility(View.VISIBLE);
+        if (customViewCallback != null) {
+            customViewCallback.onCustomViewHidden();
+            customViewCallback = null;
+        }
     }
 
     private boolean isPlayerHost(String url) {
@@ -160,7 +217,7 @@ public class MainActivity extends Activity {
     private void probePlayer() {
         final String key = currentWatchKey;
         if (key == null || key.isEmpty()) return;
-        if (!isPlayerHost(web.getUrl())) return;
+        if (!onPlayer()) return;
         web.evaluateJavascript(
                 "(function(){var v=document.querySelector('video');if(!v||!v.duration)return '';return JSON.stringify({t:v.currentTime,d:v.duration});})()",
                 value -> {
@@ -238,6 +295,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (customView != null) {
+            exitFullscreen();
+            return;
+        }
         if (web.canGoBack()) {
             web.goBack();
         } else {
