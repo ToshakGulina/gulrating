@@ -60,6 +60,7 @@ let lastNewToastAt = 0;     // троттлинг тоста «новое в л�
 let searchDocClickHandler = null; // document-обработчик клика из поиска
 let onlineFlushHandler = null;    // автосинк отложенных оценок при появлении сети
 let filtersResizeHandler = null;  // пересчёт отступа липких фильтров
+let notifChangedHandler = null;   // обновление бейджа колокольчика
 
 // Офлайн-копия ленты: последний успешный срез по каждому фильтру
 const FEED_CACHE_KEY = 'gulrating:feed_cache';
@@ -111,6 +112,10 @@ export function cleanupFeed() {
   if (filtersResizeHandler) {
     window.removeEventListener('resize', filtersResizeHandler);
     filtersResizeHandler = null;
+  }
+  if (notifChangedHandler) {
+    window.removeEventListener('gulrating:notifications-changed', notifChangedHandler);
+    notifChangedHandler = null;
   }
 }
 
@@ -242,6 +247,8 @@ export async function renderFeed(app, currentUser) {
     badge.textContent = n ? String(n) : '';
     badge.classList.toggle('hidden', !n);
   }
+  notifChangedHandler = paintNotifBadge;
+  window.addEventListener('gulrating:notifications-changed', notifChangedHandler);
   document.getElementById('notif-btn').addEventListener('click', () => {
     const list = getNotifications();
     const ov = document.createElement('div');
@@ -259,7 +266,7 @@ export async function renderFeed(app, currentUser) {
               ${escapeHtml(n.text)}
               <div class="text-[10px] text-gray-500 mt-0.5">${new Date(n.at).toLocaleString('ru-RU')}</div>
             </div>`).join('')
-            : '<p class="text-xs text-gray-600">Пока тихо. Сюда придут уведомления о новых сезонах и сериях досмотренных сериалов.</p>'}
+            : '<p class="text-xs text-gray-600">Пока тихо. Сюда придут уведомления о новых сезонах и сериях сериалов, а также новых частях просмотренных фильмов.</p>'}
         </div>
       </div>`;
     ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
@@ -405,9 +412,14 @@ async function loadRatings(currentUser, filter = 'all') {
       data = cached;
       offlineCopy = true;
     } else {
-      data = applySort(ratings);
+      data = ratings;
       writeFeedCache(filter, ratings);
     }
+  }
+
+  if (filter !== 'watchlist') {
+    if (localStorage.getItem('gulrating:merge_title_ratings') === '1') data = groupRatingsByTitle(data);
+    data = applySort(data);
   }
 
   if (!data || data.length === 0) {
@@ -475,13 +487,28 @@ async function loadRatings(currentUser, filter = 'all') {
               `}
             </div>
             
-            <div class="mt-2 flex items-center gap-2">
-              <img src="${escapeHtml(safeAvatarUrl(user.avatar_url, user.username))}" alt="" class="w-6 h-6 rounded-full bg-slate-700">
-              <span class="text-sm text-gray-300">${escapeHtml(user.username)}</span>
-              <span class="text-xs text-gray-500">${formatDistanceToNow(new Date(item.created_at))}</span>
-            </div>
-            
-            ${!isWatchlistView && item.comment ? `<p class="mt-2 text-gray-300 text-sm line-clamp-2">${escapeHtml(item.comment)}</p>` : ''}
+            ${item.groupedRatings ? `
+              <div class="mt-2 text-xs text-gray-300">
+                <span class="font-medium">Средняя ${escapeHtml(formatRating(item.rating))} · ${item.groupedRatings.length} оценок</span>
+                <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  ${item.groupedRatings.map(r => `
+                    <span class="inline-flex items-center gap-1">
+                      <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="w-5 h-5 rounded-full bg-slate-700">
+                      ${escapeHtml(r.profiles?.username || 'Участник')}: ${escapeHtml(formatRating(r.rating))}
+                    </span>`).join('')}
+                </div>
+              </div>
+              ${item.groupedRatings.filter(r => r.comment).slice(0, 3).map(r => `
+                <p class="mt-1 text-gray-400 text-xs line-clamp-2"><b>${escapeHtml(r.profiles?.username || 'Участник')}:</b> ${escapeHtml(r.comment)}</p>
+              `).join('')}
+            ` : `
+              <div class="mt-2 flex items-center gap-2">
+                <img src="${escapeHtml(safeAvatarUrl(user.avatar_url, user.username))}" alt="" class="w-6 h-6 rounded-full bg-slate-700">
+                <span class="text-sm text-gray-300">${escapeHtml(user.username)}</span>
+                <span class="text-xs text-gray-500">${formatDistanceToNow(new Date(item.created_at))}</span>
+              </div>
+              ${!isWatchlistView && item.comment ? `<p class="mt-2 text-gray-300 text-sm line-clamp-2">${escapeHtml(item.comment)}</p>` : ''}
+            `}
           </div>
         </div>
       </div>
@@ -542,6 +569,22 @@ function paintPending() {
   if (!pending.length) return;
   const textEl = document.getElementById('pending-text');
   if (textEl) textEl.textContent = `📴 Отложенных оценок: ${pending.length} — отправятся в базу при появлении сети`;
+}
+
+// Объединяем несколько пользовательских оценок одного тайтла в одну карточку.
+function groupRatingsByTitle(list) {
+  const groups = new Map();
+  for (const row of list || []) {
+    if (!row || !row.titles) continue;
+    const key = `${row.titles.media_type}:${row.title_id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()].map(rows => {
+    const latest = rows.reduce((a, b) => new Date(b.created_at) > new Date(a.created_at) ? b : a, rows[0]);
+    const average = rows.reduce((sum, row) => sum + Number(row.rating || 0), 0) / rows.length;
+    return { ...latest, rating: average, groupedRatings: rows };
+  });
 }
 
 // Сортировка оценок ленты (выбор пользователя хранится локально)
