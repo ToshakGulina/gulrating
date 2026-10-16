@@ -16,44 +16,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ГульРейтинг">
 
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind собран в статический CSS (assets/tw.css): сайту не нужен
+       внешний CDN, чтобы стартовать (CDN блокировался — приложение не
+       загружалось вовсе). Пересборка: ./scripts/build-css.sh -->
+  <link rel="stylesheet" href="/assets/tw.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            primary: 'rgb(var(--p-rgb) / <alpha-value>)',
-            secondary: '#ec4899',
-            dark: '#0f172a',
-            card: '#1e293b',
-          },
-          fontFamily: {
-            inter: ['Inter', 'sans-serif'],
-          },
-        }
-      }
-    }
-  </script>
-  <style type="text/tailwindcss">
-    @layer utilities {
-      .content-auto {
-        content-visibility: auto;
-      }
-      .scrollbar-hide {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-      }
-      .scrollbar-hide::-webkit-scrollbar {
-        display: none;
-      }
-      .backdrop-blur-card {
-        backdrop-filter: blur(12px);
-      }
-    }
-  </style>
   <style>
     :root { --p-rgb: 99 102 241; }
 
@@ -142,6 +111,9 @@
   <div id="app"></div>
   <div id="boot-splash">Загружаем<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
 
+  <!-- Supabase вендорен локально (vendor/supabase.js): esm.sh больше не
+       нужен на старте, глобал supabase даёт createClient -->
+  <script src="/vendor/supabase.js"></script>
   <script type="module" src="/src/main.js"></script>
   <script>
     // Регистрируем сервис-воркер для PWA
@@ -158,8 +130,8 @@
       const app = document.getElementById('app');
       if (splash && app && !app.firstChild) {
         splash.innerHTML =
-          'Не удалось загрузить приложение.<br>' +
-          'Проверьте интернет: для работы нужны CDN Tailwind и esm.sh.<br>' +
+          'Не удалось загрузить модули приложения.<br>' +
+          'Проверьте интернет и откройте снова: все файлы сайта локальные,<br>внешние CDN для старта больше не нужны.<br>' +
           '<button onclick="location.reload()" style="margin-top:12px;padding:8px 20px;border-radius:12px;background:#6366f1;color:#fff;border:0;font:inherit;cursor:pointer">Повторить</button>';
       }
     }, 12000);

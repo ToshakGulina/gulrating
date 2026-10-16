@@ -13,6 +13,8 @@ const CACHE_VERSION = 'gulrating-v3';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
+  '/assets/tw.css',
+  '/vendor/supabase.js',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',

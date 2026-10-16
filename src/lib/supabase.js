@@ -1,4 +1,5 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// Supabase загружен локально (vendor/supabase.js, UMD-глобал)
+const { createClient } = window.supabase || {};
 import { CONFIG, configIsComplete } from '../config.js';
 
 // Клиент создаём только если конфиг заполнен, иначе createClient бросит
