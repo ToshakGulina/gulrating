@@ -80,6 +80,20 @@ function readFeedCache(filter) {
   }
 }
 
+async function feedRequest(promise) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve({ data: null, error: new Error('Сервер не ответил за 5 секунд') }), 5000);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function cleanupFeed() {
   if (feedChannel) {
     supabase.removeChannel(feedChannel);
@@ -131,6 +145,11 @@ export async function renderFeed(app, currentUser) {
         <div id="search-results" class="absolute left-4 right-4 mt-2 bg-card rounded-xl border border-slate-700 shadow-xl z-30 max-h-96 overflow-y-auto hidden"></div>
       </div>
 
+      ${currentUser.offlineOnly ? `
+        <div class="mx-4 mt-3 rounded-xl border border-amber-700/50 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
+          Офлайн-режим: показаны сохранённые данные. Серверная синхронизация продолжится при появлении сети.
+        </div>
+      ` : ''}
       <div class="p-4">
         <!-- Фильтры и сортировка: прилипают под шапкой и не исчезают при прокрутке -->
         <div id="feed-filters" class="sticky z-10 -mx-4 px-4 pt-2 pb-3 bg-dark/95 backdrop-blur-card">
@@ -341,10 +360,10 @@ async function loadRatings(currentUser, filter = 'all') {
   let offlineCopy = false;
 
   if (filter === 'watchlist') {
-    const { data: watchlist, error } = await supabase
+    const { data: watchlist, error } = await feedRequest(supabase
       .from('watchlist')
       .select(`*, titles!inner(*), profiles!inner(*)`)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false }));
 
     if (error) {
       const cached = readFeedCache(filter);
@@ -375,7 +394,7 @@ async function loadRatings(currentUser, filter = 'all') {
       query = query.eq('user_id', currentUser.id);
     }
 
-    const { data: ratings, error } = await query;
+    const { data: ratings, error } = await feedRequest(query);
 
     if (error) {
       const cached = readFeedCache(filter);

@@ -2,6 +2,17 @@ plugins {
     id 'com.android.application'
 }
 
+// Кладём веб-оболочку в APK, чтобы APK мог открыть последний собранный
+// интерфейс даже при первом запуске без доступа к pages.dev.
+def webAppSource = rootProject.projectDir.parentFile
+def generatedWebAssets = file("$buildDir/generated/webAssets")
+tasks.register('copyWebAppAssets', Copy) {
+    from(webAppSource)
+    include 'index.html', 'manifest.json', 'sw.js'
+    include 'assets/**', 'vendor/**', 'src/**', 'icons/**', 'data/offline-catalog.json'
+    into "$generatedWebAssets/web"
+}
+
 android {
     namespace 'dev.gulrating.app'
     compileSdk 34
@@ -35,10 +46,18 @@ android {
         }
     }
 
+    sourceSets {
+        main.assets.srcDir generatedWebAssets
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('copyWebAppAssets')
 }
 
 dependencies {

@@ -7,6 +7,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.AssetManager;
 import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.net.Uri;
@@ -21,6 +22,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebResourceResponse;
 
 /**
  * ГульРейтинг на Android без Google Play: тонкая WebView-обёртка поверх
@@ -58,6 +60,11 @@ public class MainActivity extends Activity {
     // Идёт сеанс плеера: после входа на хост плеера держим внутри WebView
     // любые редиректы и смежные домены, пока пользователь не вернётся на сайт
     private volatile boolean inPlayerSession = false;
+    // При сетевом сбое главной страницы переключаем запросы pages.dev
+    // на копию веб-приложения, встроенную в APK. URL/ origin остаётся тем же,
+    // поэтому localStorage, Supabase-сессия и кэш не теряются.
+    private volatile boolean useBundledWebApp = false;
+    private volatile boolean triedBundledFallback = false;
     // Автофуллскрин с тапа по озвучке: ландшафт + иммерсив сразу;
     // выход — Back или возврат домой
     private boolean cinema = false;
@@ -142,6 +149,31 @@ public class MainActivity extends Activity {
         });
         web.setWebViewClient(new WebViewClient() {
             @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if (useBundledWebApp && HOME_HOST.equals(uri.getHost())
+                        && "https".equalsIgnoreCase(uri.getScheme())) {
+                    WebResourceResponse bundled = bundledWebResponse(uri.getPath());
+                    if (bundled != null) return bundled;
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request,
+                                        android.webkit.WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                tryBundledFallback(request);
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request,
+                                            android.webkit.WebResourceResponse errorResponse) {
+                super.onReceivedHttpError(view, request, errorResponse);
+                if (errorResponse.getStatusCode() >= 400) tryBundledFallback(request);
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String host = uri.getHost();
@@ -196,6 +228,25 @@ public class MainActivity extends Activity {
                 return prefs().getString("positions", "{}");
             }
 
+            @JavascriptInterface
+            public void mergePositions(String json) {
+                try {
+                    org.json.JSONObject local = new org.json.JSONObject(prefs().getString("positions", "{}"));
+                    org.json.JSONObject incoming = new org.json.JSONObject(json == null ? "{}" : json);
+                    java.util.Iterator<String> keys = incoming.keys();
+                    while (keys.hasNext()) {
+                        String key = keys.next();
+                        org.json.JSONObject remote = incoming.optJSONObject(key);
+                        org.json.JSONObject current = local.optJSONObject(key);
+                        if (remote != null && (current == null
+                                || remote.optLong("at", 0) >= current.optLong("at", 0))) {
+                            local.put(key, remote);
+                        }
+                    }
+                    prefs().edit().putString("positions", local.toString()).apply();
+                } catch (Exception ignored) {
+                }
+            }
 
             // Переход на чистую страницу плеера БЕЗ Referer: проверено
             // пользователем — в браузере (фрейм no-referrer) играют все
@@ -246,6 +297,51 @@ public class MainActivity extends Activity {
             web.loadUrl(HOME);
         }
         setContentView(root);
+    }
+
+    private void tryBundledFallback(WebResourceRequest request) {
+        if (request.isForMainFrame() && HOME_HOST.equals(request.getUrl().getHost())
+                && !triedBundledFallback) {
+            triedBundledFallback = true;
+            useBundledWebApp = true;
+            handler.post(() -> web.loadUrl(HOME));
+        }
+    }
+
+    private WebResourceResponse bundledWebResponse(String requestPath) {
+        String path = requestPath == null || requestPath.isEmpty() || "/".equals(requestPath)
+                ? "index.html" : requestPath.replaceFirst("^/", "");
+        // Не даём URL-кодированным сегментам выйти из папки локальных ассетов.
+        if (path.contains("..") || path.contains("\\")) return null;
+        String assetPath = "web/" + path;
+        try {
+            AssetManager assets = getAssets();
+            String mime = mimeType(path);
+            return new WebResourceResponse(mime, mime.startsWith("text/") || mime.contains("javascript")
+                    || mime.contains("json") || mime.contains("xml") ? "UTF-8" : null,
+                    200, "OK", java.util.Collections.singletonMap("Cache-Control", "no-cache"),
+                    assets.open(assetPath));
+        } catch (Exception ignored) {
+            // API routes (например /tmdb) и неизвестные ресурсы должны идти
+            // в сеть, а не подменяться пустым ответом.
+            return null;
+        }
+    }
+
+    private String mimeType(String path) {
+        String p = path.toLowerCase(java.util.Locale.ROOT);
+        if (p.endsWith(".html")) return "text/html";
+        if (p.endsWith(".js")) return "text/javascript";
+        if (p.endsWith(".css")) return "text/css";
+        if (p.endsWith(".json")) return "application/json";
+        if (p.endsWith(".svg")) return "image/svg+xml";
+        if (p.endsWith(".png")) return "image/png";
+        if (p.endsWith(".jpg") || p.endsWith(".jpeg")) return "image/jpeg";
+        if (p.endsWith(".webp")) return "image/webp";
+        if (p.endsWith(".ico")) return "image/x-icon";
+        if (p.endsWith(".woff2")) return "font/woff2";
+        if (p.endsWith(".woff")) return "font/woff";
+        return "application/octet-stream";
     }
 
     private SharedPreferences prefs() {

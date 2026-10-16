@@ -46,6 +46,11 @@ export function addWatchEntry(entry) {
     last_at: new Date().toISOString(),
     opens: (prev.opens || 0) + 1
   });
+  try {
+    const deleted = read('gulrating:watch_history_tombstones', {});
+    delete deleted[key];
+    write('gulrating:watch_history_tombstones', deleted);
+  } catch (e) { /* optional sync metadata */ }
   write(HIST_KEY, next.slice(0, 60));
 }
 
@@ -54,6 +59,9 @@ export function getWatchHistory() {
 }
 
 export function removeWatchEntry(key) {
+  const deleted = read('gulrating:watch_history_tombstones', {});
+  deleted[key] = Date.now();
+  write('gulrating:watch_history_tombstones', deleted);
   write(HIST_KEY, read(HIST_KEY, []).filter(i => i.key !== key));
 }
 
