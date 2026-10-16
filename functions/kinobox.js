@@ -1,16 +1,7 @@
-// Прокси Kinobox для Cloudflare Pages (Pages Functions).
-// Kinobox — сервис, которым зеркала (kinokino.vip и др.) пользуются для
-// встраивания плееров: по ID Кинопоиска он выдаёт список чистых плееров
-// (озвучки + iframe-адреса) без рекламы и обвязки зеркала.
-//
-// Запрос: GET /kinobox?kp=14029326  (или ?imdb=tt1234567, или ?title=Название)
-// Ответ: JSON api.kinobox.tv как есть: { data: [{ type, iframeUrl, translations: [...] }] }
-//
-// Зачем прокси: напрямую из браузера api.kinobox.tv блокируется CORS,
-// а кэш Cloudflare экономит запросы к API и не светит его с клиентских IP.
+// Kinobox: API плееров по ID Кинопоиска, IMDb или названию.
+// Зеркала используют playcdnfb.top; api.kinobox.tv оставлен запасным upstream.
+// Запрос с сайта: GET /kinobox?kinopoisk=... (или ?imdb=... / ?title=...)
 
-// Зеркала пользуют playcdnfb.top (их baseUrl в опциях виджета);
-// api.kinobox.tv — дефолт из исходников виджета, держим запасным
 const UPSTREAMS = [
   'https://playcdnfb.top/api/players',
   'https://api.kinobox.tv/api/players',
@@ -29,37 +20,41 @@ function json(obj, status) {
 }
 
 export async function onRequestGet(context) {
-  const { request } = context;
-  const u = new URL(request.url);
-  const target = new URL(UPSTREAM);
-  if (u.searchParams.get('kp')) target.searchParams.set('kinopoisk', u.searchParams.get('kp'));
-  if (u.searchParams.get('imdb')) target.searchParams.set('imdb', u.searchParams.get('imdb'));
-  if (u.searchParams.get('title')) target.searchParams.set('title', u.searchParams.get('title'));
-  if (!target.search) return json({ error: 'нужен kp, imdb или title' }, 400);
+  const requestUrl = new URL(context.request.url);
+  const params = new URLSearchParams();
+  const kpId = requestUrl.searchParams.get('kinopoisk') || requestUrl.searchParams.get('kp');
+  const imdbId = requestUrl.searchParams.get('imdb');
+  const title = requestUrl.searchParams.get('title');
+
+  // У Kinobox API параметр называется kinopoisk; принимаем также короткий kp
+  // для совместимости со старыми ссылками.
+  if (kpId) params.set('kinopoisk', kpId);
+  if (imdbId) params.set('imdb', imdbId);
+  if (title) params.set('title', title);
+  if (!params.toString()) return json({ error: 'нужен kinopoisk, imdb или title' }, 400);
 
   let lastErr = '';
-  for (const up of UPSTREAMS) {
-    const dest = new URL(up);
-    target.searchParams.forEach((v, k) => dest.searchParams.set(k, v));
+  for (const upstream of UPSTREAMS) {
+    const dest = new URL(upstream);
+    dest.search = params.toString();
     try {
-      const r = await fetch(dest.toString(), {
+      const response = await fetch(dest.toString(), {
         headers: { Accept: 'application/json', 'User-Agent': BROWSER_UA },
       });
-      if (!r.ok) {
-        lastErr = up + ' -> http ' + r.status;
+      if (!response.ok) {
+        lastErr = `${upstream} -> http ${response.status}`;
         continue;
       }
-      const body = await r.text();
-      return new Response(body, {
+      return new Response(await response.text(), {
         status: 200,
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'no-store', // токены короткоживущие: список всегда свежий
+          'Cache-Control': 'no-store',
           'Access-Control-Allow-Origin': '*',
         },
       });
-    } catch (e) {
-      lastErr = up + ' -> ' + String((e && e.message) || e);
+    } catch (error) {
+      lastErr = `${upstream} -> ${(error && error.message) || error}`;
     }
   }
   return json({ error: lastErr || 'upstream unavailable' }, 502);
