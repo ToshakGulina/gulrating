@@ -4,7 +4,7 @@
 // Позиция воспроизведения приходит из APK: нативный мост GulRatingBridge
 // опрашивает <video> плеера и отдаёт позиции через getPositions().
 
-import { getTitleDetails } from './tmdb.js';
+import { getTitleDetails, getMovieCollection } from './tmdb.js';
 
 const HIST_KEY = 'gulrating:watch_history';
 const NOTIF_KEY = 'gulrating:notifications';
@@ -92,19 +92,47 @@ export function notifyNative(text) {
   }
 }
 
-// «Досмотрено»: снимаем число сезонов/серий с TMDb — от него будем следить за новинками
+// Отметка «Просмотрено»: для сериалов фиксируем сезоны/серии,
+// для фильмов — франшизу TMDb и дату, после которой ищем новые части.
 export async function markWatchDone(key) {
   const list = read(HIST_KEY, []);
   const entry = list.find(i => i.key === key);
   if (!entry) return null;
   const d = await getTitleDetails(entry.id, entry.media_type);
-  entry.done = {
-    seasons: d.seasons || 0,
-    episodes: d.episodes || 0,
-    at: Date.now()
-  };
+  const at = Date.now();
+  if (entry.media_type === 'movie') {
+    let collection = null;
+    if (d.collection_id) {
+      try { collection = await getMovieCollection(d.collection_id); } catch (e) { /* пометку просмотра не блокируем */ }
+    }
+    entry.done = {
+      kind: 'movie',
+      collectionId: d.collection_id || null,
+      collectionName: (collection && collection.name) || d.collection_name || '',
+      notifiedPartIds: [],
+      at,
+      updatedAt: at
+    };
+  } else {
+    entry.done = {
+      kind: 'tv',
+      seasons: d.seasons || 0,
+      episodes: d.episodes || 0,
+      at,
+      updatedAt: at
+    };
+  }
   write(HIST_KEY, list.map(i => (i.key === key ? entry : i)));
   return entry;
+}
+
+export function unmarkWatchDone(key) {
+  const list = read(HIST_KEY, []).map(entry => {
+    if (entry.key !== key) return entry;
+    const { done, ...rest } = entry;
+    return rest;
+  });
+  write(HIST_KEY, list);
 }
 
 // --- Уведомления ---
@@ -123,12 +151,14 @@ export function markNotificationsRead() {
 
 function pushNotification(n) {
   const list = read(NOTIF_KEY, []);
+  if (n.partId != null && list.some(old => old.kind === n.kind && String(old.partId) === String(n.partId))) return;
   list.unshift({ ...n, at: new Date().toISOString(), read: false });
   write(NOTIF_KEY, list.slice(0, 50));
 }
 
-// У досмотренных сериалов сравниваем сезоны/серии с TMDb:
-// вышло новое — уведомление в раздел уведомлений + нативное/системное
+// У досмотренных сериалов проверяем новые сезоны/серии, у просмотренных
+// фильмов — новые релизы в коллекции TMDb после отметки «Просмотрено».
+// Уведомления появляются в колокольчике и, если можно, в системе.
 export async function checkNewSeasons() {
   const last = Number(localStorage.getItem(CHECK_KEY) || 0);
   if (Date.now() - last < CHECK_EVERY) return [];
@@ -137,37 +167,72 @@ export async function checkNewSeasons() {
   const fresh = [];
   const list = read(HIST_KEY, []);
   for (const entry of list) {
-    if (!entry.done || entry.media_type !== 'tv') continue;
-    let d = null;
-    try {
-      d = await getTitleDetails(entry.id, 'tv');
-    } catch (e) {
-      continue; // офлайн — проверим в следующий раз
+    if (!entry.done) continue;
+    if (entry.media_type === 'tv') {
+      let d;
+      try { d = await getTitleDetails(entry.id, 'tv'); }
+      catch (e) { continue; } // офлайн — проверим в следующий раз
+      const seasons = d.seasons || 0;
+      const episodes = d.episodes || 0;
+      const moreSeasons = seasons > entry.done.seasons;
+      const moreEpisodes = seasons === entry.done.seasons && episodes > entry.done.episodes;
+      if (moreSeasons || moreEpisodes) {
+        const text = moreSeasons
+          ? `«${entry.title}»: вышел новый сезон (теперь ${seasons})`
+          : `«${entry.title}»: новые серии (теперь ${episodes})`;
+        pushNotification({ kind: 'new_season', titleId: entry.id, media_type: 'tv', title: entry.title, text });
+        fresh.push(text);
+        entry.done = { ...entry.done, seasons, episodes, at: Date.now(), updatedAt: Date.now() };
+      }
+      continue;
     }
-    const seasons = d.seasons || 0;
-    const episodes = d.episodes || 0;
-    const moreSeasons = seasons > entry.done.seasons;
-    const moreEpisodes = seasons === entry.done.seasons && episodes > entry.done.episodes;
-    if (moreSeasons || moreEpisodes) {
-      const text = moreSeasons
-        ? `«${entry.title}»: вышел новый сезон (теперь ${seasons})`
-        : `«${entry.title}»: новые серии (теперь ${episodes})`;
-      pushNotification({ kind: 'new_season', titleId: entry.id, media_type: 'tv', title: entry.title, text });
+
+    if (entry.media_type !== 'movie') continue;
+    let details;
+    try { details = await getTitleDetails(entry.id, 'movie'); }
+    catch (e) { continue; }
+    const collectionId = entry.done.collectionId || details.collection_id;
+    if (!collectionId) continue;
+    let collection;
+    try { collection = await getMovieCollection(collectionId); }
+    catch (e) { continue; }
+    if (!collection) continue;
+
+    const markedAt = Number(entry.done.at) || Date.now();
+    const markedDate = new Date(markedAt).toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+    const notified = new Set((entry.done.notifiedPartIds || []).map(String));
+    entry.done.collectionId = collection.id;
+    entry.done.collectionName = collection.name || entry.done.collectionName || details.collection_name || '';
+
+    for (const part of collection.parts || []) {
+      const partId = String(part.id);
+      const releaseDate = part.release_date;
+      if (partId === String(entry.id) || notified.has(partId) || !releaseDate || releaseDate < markedDate || releaseDate > today) continue;
+      const text = `«${entry.title}»: вышла новая часть — «${part.title || entry.done.collectionName || 'фильм'}»`;
+      pushNotification({
+        kind: 'new_movie_part',
+        titleId: entry.id,
+        partId: part.id,
+        media_type: 'movie',
+        title: entry.title,
+        text
+      });
       fresh.push(text);
-      entry.done = { seasons, episodes, at: Date.now() };
-    } else {
-      entry.done.at = Date.now();
+      notified.add(partId);
     }
+    entry.done.notifiedPartIds = [...notified].slice(-100);
+    entry.done.updatedAt = Date.now();
   }
   write(HIST_KEY, list);
 
   if (fresh.length) {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('gulrating:notifications-changed'));
     const text = fresh[0] + (fresh.length > 1 ? ` и ещё ${fresh.length - 1}` : '');
     const sent = notifyNative(text);
     if (!sent && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      try {
-        new Notification('ГульРейтинг', { body: text });
-      } catch (e) { /* браузер запретил */ }
+      try { new Notification('ГульРейтинг', { body: text }); }
+      catch (e) { /* браузер запретил */ }
     }
   }
   return fresh;

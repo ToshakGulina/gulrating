@@ -140,6 +140,8 @@ export function primeTitleCache(mediaType, id, partial) {
     tmdb_rating: partial.tmdb_rating != null
       ? partial.tmdb_rating
       : (partial.vote_average != null ? partial.vote_average : null),
+    collection_id: partial.collection_id || (partial.belongs_to_collection && partial.belongs_to_collection.id) || null,
+    collection_name: partial.collection_name || (partial.belongs_to_collection && partial.belongs_to_collection.name) || null,
     genres: Array.isArray(partial.genres)
       ? partial.genres.map(g => (typeof g === 'string' ? g : g && g.name)).filter(Boolean)
       : []
@@ -183,10 +185,27 @@ export async function getTitleDetails(id, mediaType) {
     budget: data.budget || null,
     revenue: data.revenue || null,
     seasons: data.number_of_seasons != null ? data.number_of_seasons : null,
-    episodes: data.number_of_episodes != null ? data.number_of_episodes : null
+    episodes: data.number_of_episodes != null ? data.number_of_episodes : null,
+    collection_id: data.belongs_to_collection ? data.belongs_to_collection.id : null,
+    collection_name: data.belongs_to_collection ? data.belongs_to_collection.name : null
   };
   writeTitleCache(readTitleCache(), `${mediaType}:${id}`, details);
   return details;
+}
+
+// Список фильмов франшизы/коллекции TMDb для слежения за новыми частями.
+export async function getMovieCollection(collectionId) {
+  if (!collectionId) return null;
+  const data = await tmdbFetch(`/collection/${encodeURIComponent(collectionId)}`);
+  return {
+    id: data.id,
+    name: data.name || '',
+    parts: (data.parts || []).map(part => ({
+      id: part.id,
+      title: part.title || '',
+      release_date: part.release_date || null
+    }))
+  };
 }
 
 // Приводим ответ TMDb к общему виду карточки рекомендации

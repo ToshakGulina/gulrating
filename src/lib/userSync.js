@@ -6,7 +6,8 @@ import { supabase } from './supabase.js';
 const SETTING_KEYS = [
   'gulrating:accent', 'gulrating:feed_sort', 'gulrating:feed_order',
   'gulrating:friends_threshold', 'gulrating:want_min', 'gulrating:my_min',
-  'gulrating:kp_cache_days', 'gulrating:show_recs', 'gulrating:last_dub',
+  'gulrating:merge_title_ratings',
+  'gulrating:kp_cache_days', 'gulrating:show_recs', 'gulrating:feed_visible', 'gulrating:last_dub',
   'gulrating:offline_catalog_size'
 ];
 const HISTORY_KEY = 'gulrating:watch_history';
@@ -103,7 +104,7 @@ function mergeHistory(localRows, remoteRows, localDeletes, remoteDeletes) {
     }
     const newer = asMillis(row.last_at) >= asMillis(old.last_at) ? row : old;
     const older = newer === row ? old : row;
-    const done = asMillis(row.done && row.done.at) >= asMillis(old.done && old.done.at) ? row.done : old.done;
+    const done = asMillis(row.done && (row.done.updatedAt || row.done.at)) >= asMillis(old.done && (old.done.updatedAt || old.done.at)) ? row.done : old.done;
     rows.set(row.key, { ...older, ...newer,
       opens: Math.max(Number(old.opens) || 0, Number(row.opens) || 0),
       ...(done ? { done } : {}) });
@@ -154,7 +155,7 @@ function mergeData(local, remote) {
       && all.findIndex(other => String(other.id) === String(item.id) && other.media_type === item.media_type) === index).slice(0, 8);
   const searchQueries = [...(Array.isArray(remote && remote.searchQueries) ? remote.searchQueries : []),
     ...(Array.isArray(localSearchQueries) ? localSearchQueries : [])].filter((item, index, all) => typeof item === 'string'
-      && all.findIndex(other => other.toLowerCase() === item.toLowerCase()) === index).slice(0, 8);
+      && all.findIndex(other => other.toLowerCase() === item.toLowerCase()) === index).slice(0, 3);
 
   const localPositions = (() => {
     try { return JSON.parse(window.GulRatingBridge?.getPositions?.() || '{}'); } catch (e) { return {}; }

@@ -3,7 +3,8 @@
 
 const QUERIES_KEY = 'gulrating:search_queries';
 const TITLES_KEY = 'gulrating:recent_titles';
-const MAX_ITEMS = 8;
+const MAX_RECENT_TITLES = 8;
+const MAX_SEARCH_QUERIES = 3;
 
 function read(key) {
   try {
@@ -15,9 +16,9 @@ function read(key) {
   }
 }
 
-function write(key, value) {
+function write(key, value, limit) {
   try {
-    localStorage.setItem(key, JSON.stringify(value.slice(0, MAX_ITEMS)));
+    localStorage.setItem(key, JSON.stringify(value.slice(0, limit)));
   } catch (e) {
     // приватный режим — просто не сохраняем
   }
@@ -26,7 +27,10 @@ function write(key, value) {
 // --- Недавние поисковые запросы ---
 
 export function getSearchQueries() {
-  return read(QUERIES_KEY);
+  const queries = read(QUERIES_KEY).slice(0, MAX_SEARCH_QUERIES);
+  // Сразу подчищаем старый список, чтобы недавние поиски не вытесняли плитки.
+  write(QUERIES_KEY, queries, MAX_SEARCH_QUERIES);
+  return queries;
 }
 
 export function addSearchQuery(query) {
@@ -34,7 +38,7 @@ export function addSearchQuery(query) {
   if (q.length < 2) return;
   const list = read(QUERIES_KEY).filter(item => item.toLowerCase() !== q.toLowerCase());
   list.unshift(q);
-  write(QUERIES_KEY, list);
+  write(QUERIES_KEY, list, MAX_SEARCH_QUERIES);
 }
 
 // --- Недавно открытые тайтлы ---
@@ -54,7 +58,7 @@ export function addRecentTitle(item) {
     poster_path: item.poster_path || null,
     year: item.year || ''
   });
-  write(TITLES_KEY, list);
+  write(TITLES_KEY, list, MAX_RECENT_TITLES);
 }
 
 export function clearHistory() {

@@ -2,11 +2,11 @@ import { supabase } from '../lib/supabase.js';
 import { APP_BUILD } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { openRatingModal } from './RatingModal.js';
-import { cleanupFeed } from './Feed.js';
+import { cleanupFeed, FEED_SECTIONS, getFeedOrder, getVisibleFeedSections, saveFeedOrder, saveVisibleFeedSections } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
-import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
+import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, unmarkWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
 import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
 
@@ -77,10 +77,15 @@ export async function renderProfilePage(app, currentUser) {
           </div>
         </div>
 
-        <!-- История просмотров: продолжить с места, прогресс, «досмотрено» -->
+        <!-- История просмотров и отслеживание новых выпусков -->
         <div class="bg-card rounded-2xl border border-slate-700 p-4 mb-4">
           <h3 class="font-semibold mb-3">История просмотров</h3>
           <div id="watch-history" class="space-y-2"></div>
+        </div>
+        <div class="bg-card rounded-2xl border border-slate-700 p-4 mb-4">
+          <h3 class="font-semibold mb-1">Просмотрено</h3>
+          <p class="text-xs text-gray-500 mb-3">Здесь тайтлы, за которыми следим: уведомим о новых сезонах и сериях сериалов или частях фильма из коллекции TMDb.</p>
+          <div id="watched-history" class="space-y-2"></div>
         </div>
 
         <!-- Настройки: ник, аватар, поведение ленты -->
@@ -165,9 +170,14 @@ export async function renderProfilePage(app, currentUser) {
               <p class="text-xs text-gray-600 mt-1">Повторные карточки не обращаются к API вовсе: запрос идёт только при первом открытии тайтла за срок кэша.</p>
             </div>
             <label class="flex items-center justify-between gap-3">
-              <span class="text-gray-300">Блок рекомендаций в ленте</span>
-              <input id="recs-toggle" type="checkbox" class="w-4 h-4">
+              <span class="text-gray-300">Объединить оценки одного фильма разными людьми в ленте</span>
+              <input id="merge-ratings-toggle" type="checkbox" class="w-4 h-4">
             </label>
+            <div class="mt-5 border-t border-slate-700 pt-4">
+              <h4 class="font-medium text-gray-200">Состав и порядок ленты</h4>
+              <p class="text-xs text-gray-500 mt-1 mb-3">Отметьте нужные разделы и задайте их порядок. Управление находится только здесь.</p>
+              <div id="feed-layout-editor" class="space-y-2"></div>
+            </div>
             <div class="flex items-center justify-between gap-3">
               <span class="text-gray-300">Акцент интерфейса</span>
               <div id="accent-swatches" class="flex gap-2">
@@ -186,11 +196,15 @@ export async function renderProfilePage(app, currentUser) {
               <p class="text-sm text-yellow-400 mb-2">Ожидают подтверждения доступа:</p>
               <div class="space-y-2 mb-4">
                 ${pendingUsers.map(p => `
-                  <div class="flex items-center justify-between p-2 bg-slate-800 rounded-lg">
-                    <div class="flex items-center gap-2">
+                  <div class="flex flex-wrap items-center gap-3 p-2 bg-slate-800 rounded-lg">
+                    <div class="flex items-center gap-2 flex-1 min-w-[120px]">
                       <img src="${escapeHtml(safeAvatarUrl(p.avatar_url, p.username))}" alt="" class="w-8 h-8 rounded-full bg-slate-700">
                       <div class="font-medium text-sm">${escapeHtml(p.username)}</div>
                     </div>
+                    <label class="inline-flex items-center gap-1.5 text-xs text-gray-300">
+                      <input type="checkbox" class="user-admin-toggle w-4 h-4" data-user-id="${escapeHtml(p.id)}" data-original="${p.is_admin ? '1' : '0'}" ${p.is_admin ? 'checked' : ''}>
+                      Администратор
+                    </label>
                     <button class="approve-user-btn px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm" data-user-id="${escapeHtml(p.id)}">Одобрить</button>
                   </div>
                 `).join('')}
@@ -200,14 +214,16 @@ export async function renderProfilePage(app, currentUser) {
             <p class="text-sm font-medium mb-2">Участники:</p>
             <div class="space-y-2">
               ${approvedUsers.map(p => `
-                <div class="flex items-center justify-between p-2 hover:bg-slate-800 rounded-lg">
-                  <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-3 p-2 hover:bg-slate-800 rounded-lg">
+                  <div class="flex items-center gap-2 flex-1 min-w-[120px]">
                     <img src="${escapeHtml(safeAvatarUrl(p.avatar_url, p.username))}" alt="" class="w-8 h-8 rounded-full bg-slate-700">
-                    <div>
-                      <div class="font-medium text-sm">${escapeHtml(p.username)}</div>
-                      ${p.is_admin ? '<span class="text-xs text-primary">админ</span>' : ''}
-                    </div>
+                    <div class="font-medium text-sm">${escapeHtml(p.username)}${String(p.id) === String(currentUser.id) ? ' (вы)' : ''}</div>
                   </div>
+                  <label class="inline-flex items-center gap-1.5 text-xs text-gray-300">
+                    <input type="checkbox" class="user-admin-toggle w-4 h-4" data-user-id="${escapeHtml(p.id)}" data-original="${p.is_admin ? '1' : '0'}" ${p.is_admin ? 'checked' : ''} ${String(p.id) === String(currentUser.id) ? 'disabled' : ''}>
+                    Администратор
+                  </label>
+                  ${String(p.id) !== String(currentUser.id) ? `<button class="revoke-user-btn px-2 py-1 text-xs rounded-lg bg-slate-700 hover:bg-red-900/70 text-gray-200" data-user-id="${escapeHtml(p.id)}">Отозвать доступ</button>` : ''}
                 </div>
               `).join('')}
             </div>
@@ -257,7 +273,6 @@ export async function renderProfilePage(app, currentUser) {
   const presetsBox = document.getElementById('avatar-presets');
   const nickInput = document.getElementById('nick-input');
   const sortSelect = document.getElementById('sort-select');
-  const recsToggle = document.getElementById('recs-toggle');
 
   async function saveProfileFields(fields) {
     const { error } = await supabase.from('profiles').update(fields).eq('id', currentUser.id);
@@ -456,66 +471,82 @@ export async function renderProfilePage(app, currentUser) {
     paintCatStatus();
   });
 
-  // История просмотров: продолжение, прогресс-бар (позиция из APK), «досмотрено»
+  // Историю просмотра разделяем на непросмотренное и отмеченное «Просмотрено».
   const whBox = document.getElementById('watch-history');
+  const watchedBox = document.getElementById('watched-history');
   function paintWatchHistory() {
-    const items = getWatchHistory();
+    const allItems = getWatchHistory();
+    const historyItems = allItems.filter(item => !item.done);
+    const watchedItems = allItems.filter(item => item.done);
     const positions = getPositions();
-    if (!items.length) {
-      whBox.innerHTML = '<p class="text-xs text-gray-600">Пока пусто: нажмите «Смотреть» в карточке фильма или сериала.</p>';
-      return;
+
+    function rowsHtml(items, watched) {
+      if (!items.length) return `<p class="text-xs text-gray-600">${watched ? 'Пока ничего не отмечено.' : 'Пока пусто: нажмите «Смотреть» в карточке фильма или сериала.'}</p>`;
+      return items.map(i => {
+        const pos = positions[i.key];
+        const pct = pos && pos.d ? Math.min(100, Math.round(pos.t / pos.d * 100)) : null;
+        const status = watched
+          ? (i.media_type === 'movie'
+            ? (i.done.collectionId ? `Следим за новыми частями: ${escapeHtml(i.done.collectionName || 'коллекция TMDb')}` : 'Отмечено просмотренным; коллекция-продолжение в TMDb не указана')
+            : 'Следим за новыми сезонами и сериями')
+          : `${i.media_type === 'movie' ? 'фильм' : 'сериал'} • ${new Date(i.last_at).toLocaleDateString('ru-RU')}`;
+        return `
+          <div class="flex items-center gap-3 bg-slate-800/50 rounded-xl p-2" data-key="${escapeHtml(i.key)}">
+            ${posterImg(i.poster_path, i.title, 'w-10 aspect-[2/3] rounded-md')}
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium truncate">${escapeHtml(i.title)}</div>
+              <div class="text-[11px] text-gray-500">${status}</div>
+              ${watched ? `<div class="text-[10px] text-gray-600">Отмечено ${new Date(i.done.at).toLocaleDateString('ru-RU')}</div>` : ''}
+              ${pct !== null ? `<div class="h-1 mt-1 rounded bg-slate-700 overflow-hidden"><div class="h-full bg-red-500" style="width:${pct}%"></div></div><div class="text-[10px] text-gray-500">просмотрено ${pct}%</div>` : ''}
+            </div>
+            <div class="flex flex-col gap-1 flex-shrink-0 items-stretch">
+              ${(i.kp_url || i.kpId || i.query) ? '<button class="wh-continue px-2 py-1 text-[11px] bg-primary hover:bg-primary/90 text-white rounded-lg">Продолжить</button>' : ''}
+              ${watched ? '<button class="wh-unmark px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 text-gray-200 rounded-lg">Снять отметку</button>' : '<button class="wh-done px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 text-gray-200 rounded-lg">Просмотрено</button>'}
+              <button class="wh-del px-2 py-1 text-[11px] text-gray-500 hover:text-red-400" aria-label="Убрать из истории">&times;</button>
+            </div>
+          </div>`;
+      }).join('');
     }
-    whBox.innerHTML = items.map(i => {
-      const pos = positions[i.key];
-      const pct = pos && pos.d ? Math.min(100, Math.round(pos.t / pos.d * 100)) : null;
-      return `
-      <div class="flex items-center gap-3 bg-slate-800/50 rounded-xl p-2" data-key="${escapeHtml(i.key)}">
-        ${posterImg(i.poster_path, i.title, 'w-10 aspect-[2/3] rounded-md')}
-        <div class="min-w-0 flex-1">
-          <div class="text-sm font-medium truncate">${escapeHtml(i.title)}</div>
-          <div class="text-[11px] text-gray-500">${i.media_type === 'movie' ? 'фильм' : 'сериал'} • ${new Date(i.last_at).toLocaleDateString('ru-RU')}${i.done ? ' • досмотрено' : ''}</div>
-          ${pct !== null ? `
-            <div class="h-1 mt-1 rounded bg-slate-700 overflow-hidden"><div class="h-full bg-red-500" style="width:${pct}%"></div></div>
-            <div class="text-[10px] text-gray-500">просмотрено ${pct}%</div>` : ''}
-        </div>
-        <div class="flex flex-col gap-1 flex-shrink-0 items-stretch">
-          ${(i.kp_url || i.kpId || i.query) ? '<button class="wh-continue px-2 py-1 text-[11px] bg-primary hover:bg-primary/90 text-white rounded-lg">Продолжить</button>' : ''}
-          ${i.media_type === 'tv' && !i.done ? '<button class="wh-done px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded-lg">Досмотрено</button>' : ''}
-          <button class="wh-del px-2 py-1 text-[11px] text-gray-500 hover:text-red-400" aria-label="Убрать из истории">&times;</button>
-        </div>
-      </div>`;
-    }).join('');
-    whBox.querySelectorAll('.wh-continue').forEach(b => b.addEventListener('click', () => {
-      const item = getWatchHistory().find(x => x.key === b.closest('[data-key]').dataset.key);
-      if (!item || !(item.kp_url || item.kpId || item.query)) return;
-      reportWatchNative(item.id, item.media_type);
-      if (isApk() && item.kp_url) {
-        // В APK зеркало верхним документом сохраняет совместимость плееров.
-        window.location.href = item.kp_url;
-        return;
-      }
-      // В браузере зеркало будет внутри оверлея с крестиком; если ссылки нет,
-      // используем список Kinobox.
-      openWatchOverlay({
-        kpId: item.kpId,
-        query: item.query || item.title,
-        titleText: item.title,
-        mirrorUrl: item.kp_url
-      });
-    }));
-    whBox.querySelectorAll('.wh-done').forEach(b => b.addEventListener('click', async () => {
-      b.disabled = true;
-      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
-      }
-      await markWatchDone(b.closest('[data-key]').dataset.key).catch(() => null);
-      showToast('Слежение включено: о новом сезоне придёт уведомление', 'info', 4000);
-      paintWatchHistory();
-    }));
-    whBox.querySelectorAll('.wh-del').forEach(b => b.addEventListener('click', () => {
-      removeWatchEntry(b.closest('[data-key]').dataset.key);
-      paintWatchHistory();
-    }));
+
+    whBox.innerHTML = rowsHtml(historyItems, false);
+    watchedBox.innerHTML = rowsHtml(watchedItems, true);
+
+    [whBox, watchedBox].forEach(box => {
+      box.querySelectorAll('.wh-continue').forEach(button => button.addEventListener('click', () => {
+        const item = getWatchHistory().find(x => x.key === button.closest('[data-key]').dataset.key);
+        if (!item || !(item.kp_url || item.kpId || item.query)) return;
+        reportWatchNative(item.id, item.media_type);
+        if (isApk() && item.kp_url) {
+          window.location.href = item.kp_url;
+          return;
+        }
+        openWatchOverlay({ kpId: item.kpId, query: item.query || item.title, titleText: item.title, mirrorUrl: item.kp_url });
+      }));
+      box.querySelectorAll('.wh-done').forEach(button => button.addEventListener('click', async () => {
+        const key = button.closest('[data-key]').dataset.key;
+        button.disabled = true;
+        if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+        try {
+          const item = await markWatchDone(key);
+          if (!item) throw new Error('Запись истории не найдена');
+          showToast(item.media_type === 'movie'
+            ? (item.done.collectionId ? 'Отмечено. Проверим новые части этой коллекции' : 'Отмечено. Для уведомлений о продолжении нужна коллекция TMDb')
+            : 'Отмечено. Проверим новые сезоны и серии', 'success', 5000);
+          paintWatchHistory();
+        } catch (error) {
+          button.disabled = false;
+          showToast('Не удалось отметить просмотренным: ' + error.message, 'error', 5000);
+        }
+      }));
+      box.querySelectorAll('.wh-unmark').forEach(button => button.addEventListener('click', () => {
+        unmarkWatchDone(button.closest('[data-key]').dataset.key);
+        paintWatchHistory();
+      }));
+      box.querySelectorAll('.wh-del').forEach(button => button.addEventListener('click', () => {
+        removeWatchEntry(button.closest('[data-key]').dataset.key);
+        paintWatchHistory();
+      }));
+    });
   }
   paintWatchHistory();
 
@@ -559,11 +590,55 @@ export async function renderProfilePage(app, currentUser) {
   window.addEventListener('gulrating:installable', paintInstallBox);
   window.addEventListener('gulrating:appinstalled', paintInstallBox);
 
-  recsToggle.checked = localStorage.getItem('gulrating:show_recs') !== '0';
-  recsToggle.addEventListener('change', () => {
-    localStorage.setItem('gulrating:show_recs', recsToggle.checked ? '1' : '0');
-    showToast('В ленте обновится блок рекомендаций', 'success');
+  const mergeRatingsToggle = document.getElementById('merge-ratings-toggle');
+  mergeRatingsToggle.checked = localStorage.getItem('gulrating:merge_title_ratings') === '1';
+  mergeRatingsToggle.addEventListener('change', () => {
+    localStorage.setItem('gulrating:merge_title_ratings', mergeRatingsToggle.checked ? '1' : '0');
+    showToast('Настройка объединения оценок сохранена', 'success');
   });
+
+  // Состав и порядок ленты настраиваются только здесь, в профиле.
+  const feedLayoutEditor = document.getElementById('feed-layout-editor');
+  let feedOrder = getFeedOrder();
+  let visibleFeedSections = new Set(getVisibleFeedSections());
+  function paintFeedLayoutEditor() {
+    feedLayoutEditor.innerHTML = feedOrder.map((id, index) => {
+      const section = FEED_SECTIONS.find(item => item.id === id);
+      if (!section) return '';
+      return `
+        <div class="flex items-center gap-2 rounded-lg bg-slate-800/70 p-2">
+          <span class="w-6 text-center text-xs text-gray-500">${index + 1}</span>
+          <label class="flex flex-1 items-center gap-2 text-sm text-gray-200">
+            <input type="checkbox" class="feed-section-visible h-4 w-4" data-section="${id}" ${visibleFeedSections.has(id) ? 'checked' : ''}>
+            <span>${section.label}</span>
+          </label>
+          <button class="feed-section-move w-8 h-8 rounded-lg bg-slate-700 text-gray-200 hover:bg-slate-600 disabled:opacity-30" data-section="${id}" data-direction="up" ${index === 0 ? 'disabled' : ''} aria-label="Переместить ${section.label} выше" title="Выше">↑</button>
+          <button class="feed-section-move w-8 h-8 rounded-lg bg-slate-700 text-gray-200 hover:bg-slate-600 disabled:opacity-30" data-section="${id}" data-direction="down" ${index === feedOrder.length - 1 ? 'disabled' : ''} aria-label="Переместить ${section.label} ниже" title="Ниже">↓</button>
+        </div>`;
+    }).join('');
+
+    feedLayoutEditor.querySelectorAll('.feed-section-visible').forEach(input => {
+      input.addEventListener('change', () => {
+        if (input.checked) visibleFeedSections.add(input.dataset.section);
+        else visibleFeedSections.delete(input.dataset.section);
+        visibleFeedSections = new Set(saveVisibleFeedSections([...visibleFeedSections]));
+        paintFeedLayoutEditor();
+        showToast('Состав ленты сохранён', 'success');
+      });
+    });
+    feedLayoutEditor.querySelectorAll('.feed-section-move').forEach(button => {
+      button.addEventListener('click', () => {
+        const from = feedOrder.indexOf(button.dataset.section);
+        const to = from + (button.dataset.direction === 'up' ? -1 : 1);
+        if (from < 0 || to < 0 || to >= feedOrder.length) return;
+        [feedOrder[from], feedOrder[to]] = [feedOrder[to], feedOrder[from]];
+        feedOrder = saveFeedOrder(feedOrder);
+        paintFeedLayoutEditor();
+        showToast('Порядок ленты сохранён', 'success');
+      });
+    });
+  }
+  paintFeedLayoutEditor();
 
   // Акцент: сохраняем RGB-тройку и сразу применяем к CSS-переменной
   const currentAccent = localStorage.getItem('gulrating:accent') || '99 102 241';
@@ -637,6 +712,40 @@ export async function renderProfilePage(app, currentUser) {
 
         showToast('Доступ одобрен', 'success');
         // Перерисовываем профиль вместо полной перезагрузки страницы
+        renderProfilePage(app, currentUser);
+      });
+    });
+
+    document.querySelectorAll('.user-admin-toggle').forEach(input => {
+      input.addEventListener('change', async () => {
+        const userId = input.dataset.userId;
+        const isAdmin = input.checked;
+        input.disabled = true;
+        const { error } = await supabase.from('profiles')
+          .update({ is_admin: isAdmin }).eq('id', userId);
+        if (error) {
+          input.checked = input.dataset.original === '1';
+          input.disabled = false;
+          showToast('Не удалось изменить права: ' + error.message, 'error', 5000);
+          return;
+        }
+        showToast(isAdmin ? 'Права администратора выданы' : 'Права администратора сняты', 'success');
+        renderProfilePage(app, currentUser);
+      });
+    });
+
+    document.querySelectorAll('.revoke-user-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const userId = btn.dataset.userId;
+        btn.disabled = true;
+        const { error } = await supabase.from('profiles')
+          .update({ is_approved: false }).eq('id', userId);
+        if (error) {
+          btn.disabled = false;
+          showToast('Не удалось отозвать доступ: ' + error.message, 'error', 5000);
+          return;
+        }
+        showToast('Доступ пользователя отозван', 'success');
         renderProfilePage(app, currentUser);
       });
     });

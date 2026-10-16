@@ -60,6 +60,7 @@ let lastNewToastAt = 0;     // троттлинг тоста «новое в л�
 let searchDocClickHandler = null; // document-обработчик клика из поиска
 let onlineFlushHandler = null;    // автосинк отложенных оценок при появлении сети
 let filtersResizeHandler = null;  // пересчёт отступа липких фильтров
+let notifChangedHandler = null;   // обновление бейджа колокольчика
 
 // Офлайн-копия ленты: последний успешный срез по каждому фильтру
 const FEED_CACHE_KEY = 'gulrating:feed_cache';
@@ -111,6 +112,10 @@ export function cleanupFeed() {
   if (filtersResizeHandler) {
     window.removeEventListener('resize', filtersResizeHandler);
     filtersResizeHandler = null;
+  }
+  if (notifChangedHandler) {
+    window.removeEventListener('gulrating:notifications-changed', notifChangedHandler);
+    notifChangedHandler = null;
   }
 }
 
@@ -175,10 +180,9 @@ export async function renderFeed(app, currentUser) {
 
         <div id="blocks-wrap" class="mt-4 space-y-6">
 
-          <div id="blk-feed" class="space-y-3">
+          <div id="blk-feed" class="space-y-3 ${getVisibleFeedSections().includes('feed') ? '' : 'hidden'}">
             <div class="flex items-center gap-2">
               <h3 class="font-semibold">Оценки</h3>
-              ${moveControls('feed')}
             </div>
 
             <!-- Отложенные (офлайн) оценки: видно очередь и можно отправить вручную -->
@@ -219,19 +223,8 @@ export async function renderFeed(app, currentUser) {
   initNav(currentUser);
   initSort(currentUser);
 
-  // Кнопки ↑↓ переставляют секции ленты (порядок запоминается)
-  const blocksWrap = document.getElementById('blocks-wrap');
-  blocksWrap.addEventListener('click', (e) => {
-    const btn = e.target.closest('.blk-move');
-    if (!btn) return;
-    const order = readFeedOrder();
-    const idx = order.indexOf(btn.dataset.blk);
-    const to = idx + (btn.dataset.dir === 'up' ? -1 : 1);
-    if (idx < 0 || to < 0 || to >= order.length) return;
-    [order[idx], order[to]] = [order[to], order[idx]];
-    localStorage.setItem(FEED_ORDER_KEY, JSON.stringify(order));
-    applyFeedOrder();
-  });
+  // Порядок секций применяется из настроек профиля; в самой ленте нет
+  // элементов управления её составом и порядком.
   applyFeedOrder();
 
   // Уведомления: колокол с бейджем и список в оверлее
@@ -242,6 +235,8 @@ export async function renderFeed(app, currentUser) {
     badge.textContent = n ? String(n) : '';
     badge.classList.toggle('hidden', !n);
   }
+  notifChangedHandler = paintNotifBadge;
+  window.addEventListener('gulrating:notifications-changed', notifChangedHandler);
   document.getElementById('notif-btn').addEventListener('click', () => {
     const list = getNotifications();
     const ov = document.createElement('div');
@@ -259,7 +254,7 @@ export async function renderFeed(app, currentUser) {
               ${escapeHtml(n.text)}
               <div class="text-[10px] text-gray-500 mt-0.5">${new Date(n.at).toLocaleString('ru-RU')}</div>
             </div>`).join('')
-            : '<p class="text-xs text-gray-600">Пока тихо. Сюда придут уведомления о новых сезонах и сериях досмотренных сериалов.</p>'}
+            : '<p class="text-xs text-gray-600">Пока тихо. Сюда придут уведомления о новых сезонах и сериях сериалов, а также новых частях просмотренных фильмов.</p>'}
         </div>
       </div>`;
     ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
@@ -280,7 +275,10 @@ export async function renderFeed(app, currentUser) {
     if (filtersBar && feedHeader) filtersBar.style.top = `${feedHeader.offsetHeight}px`;
   };
   setFiltersTop();
-  filtersResizeHandler = () => setFiltersTop();
+  filtersResizeHandler = () => {
+    setFiltersTop();
+    if (document.getElementById('trends-grid')) renderTrendsGrid(currentUser);
+  };
   window.addEventListener('resize', filtersResizeHandler);
 
   // Очередь офлайн-оценок: баннер, ручная отправка
@@ -405,9 +403,14 @@ async function loadRatings(currentUser, filter = 'all') {
       data = cached;
       offlineCopy = true;
     } else {
-      data = applySort(ratings);
+      data = ratings;
       writeFeedCache(filter, ratings);
     }
+  }
+
+  if (filter !== 'watchlist') {
+    if (localStorage.getItem('gulrating:merge_title_ratings') === '1') data = groupRatingsByTitle(data);
+    data = applySort(data);
   }
 
   if (!data || data.length === 0) {
@@ -475,13 +478,28 @@ async function loadRatings(currentUser, filter = 'all') {
               `}
             </div>
             
-            <div class="mt-2 flex items-center gap-2">
-              <img src="${escapeHtml(safeAvatarUrl(user.avatar_url, user.username))}" alt="" class="w-6 h-6 rounded-full bg-slate-700">
-              <span class="text-sm text-gray-300">${escapeHtml(user.username)}</span>
-              <span class="text-xs text-gray-500">${formatDistanceToNow(new Date(item.created_at))}</span>
-            </div>
-            
-            ${!isWatchlistView && item.comment ? `<p class="mt-2 text-gray-300 text-sm line-clamp-2">${escapeHtml(item.comment)}</p>` : ''}
+            ${item.groupedRatings ? `
+              <div class="mt-2 text-xs text-gray-300">
+                <span class="font-medium">Средняя ${escapeHtml(formatRating(item.rating))} · ${item.groupedRatings.length} оценок</span>
+                <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  ${item.groupedRatings.map(r => `
+                    <span class="inline-flex items-center gap-1">
+                      <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="w-5 h-5 rounded-full bg-slate-700">
+                      ${escapeHtml(r.profiles?.username || 'Участник')}: ${escapeHtml(formatRating(r.rating))}
+                    </span>`).join('')}
+                </div>
+              </div>
+              ${item.groupedRatings.filter(r => r.comment).slice(0, 3).map(r => `
+                <p class="mt-1 text-gray-400 text-xs line-clamp-2"><b>${escapeHtml(r.profiles?.username || 'Участник')}:</b> ${escapeHtml(r.comment)}</p>
+              `).join('')}
+            ` : `
+              <div class="mt-2 flex items-center gap-2">
+                <img src="${escapeHtml(safeAvatarUrl(user.avatar_url, user.username))}" alt="" class="w-6 h-6 rounded-full bg-slate-700">
+                <span class="text-sm text-gray-300">${escapeHtml(user.username)}</span>
+                <span class="text-xs text-gray-500">${formatDistanceToNow(new Date(item.created_at))}</span>
+              </div>
+              ${!isWatchlistView && item.comment ? `<p class="mt-2 text-gray-300 text-sm line-clamp-2">${escapeHtml(item.comment)}</p>` : ''}
+            `}
           </div>
         </div>
       </div>
@@ -508,26 +526,59 @@ async function loadRatings(currentUser, filter = 'all') {
   });
 }
 
-// Порядок секций ленты: пользователь двигает блоки кнопками ↑ ↓
+// Состав и порядок ленты редактируются только в настройках профиля.
 const FEED_ORDER_KEY = 'gulrating:feed_order';
+const FEED_VISIBLE_KEY = 'gulrating:feed_visible';
 const FEED_ORDER_DEFAULT = ['trends', 'recs', 'feed'];
-function readFeedOrder() {
+export const FEED_SECTIONS = [
+  { id: 'trends', label: 'Тренды' },
+  { id: 'recs', label: 'Подборки по вкусам компании' },
+  { id: 'feed', label: 'Оценки' }
+];
+
+export function getFeedOrder() {
   try {
     const parsed = JSON.parse(localStorage.getItem(FEED_ORDER_KEY) || 'null');
-    if (Array.isArray(parsed) && parsed.length === 3 && FEED_ORDER_DEFAULT.every(id => parsed.includes(id))) return parsed;
+    if (Array.isArray(parsed) && parsed.length === FEED_ORDER_DEFAULT.length
+      && FEED_ORDER_DEFAULT.every(id => parsed.includes(id))) return parsed;
   } catch (e) { /* повреждено */ }
   return [...FEED_ORDER_DEFAULT];
 }
-function moveControls(id) {
-  return `<span class="ml-auto flex gap-1 flex-shrink-0">
-      <button class="blk-move w-7 h-7 rounded-lg bg-card hover:bg-slate-700 text-gray-400 text-sm" data-blk="${id}" data-dir="up" title="Секцию выше" aria-label="Секцию выше">↑</button>
-      <button class="blk-move w-7 h-7 rounded-lg bg-card hover:bg-slate-700 text-gray-400 text-sm" data-blk="${id}" data-dir="down" title="Секцию ниже" aria-label="Секцию ниже">↓</button>
-    </span>`;
+
+export function saveFeedOrder(order) {
+  const normalized = [...new Set((Array.isArray(order) ? order : []).filter(id => FEED_ORDER_DEFAULT.includes(id)))];
+  for (const id of FEED_ORDER_DEFAULT) if (!normalized.includes(id)) normalized.push(id);
+  localStorage.setItem(FEED_ORDER_KEY, JSON.stringify(normalized));
+  return normalized;
 }
+
+export function getVisibleFeedSections() {
+  try {
+    const raw = localStorage.getItem(FEED_VISIBLE_KEY);
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const visible = FEED_ORDER_DEFAULT.filter(id => parsed.includes(id));
+        return visible.length ? visible : ['feed'];
+      }
+    }
+  } catch (e) { /* повреждено */ }
+  return localStorage.getItem('gulrating:show_recs') === '0' ? ['feed'] : [...FEED_ORDER_DEFAULT];
+}
+
+export function saveVisibleFeedSections(sections) {
+  const visible = FEED_ORDER_DEFAULT.filter(id => Array.isArray(sections) && sections.includes(id));
+  const result = visible.length ? visible : ['feed'];
+  localStorage.setItem(FEED_VISIBLE_KEY, JSON.stringify(result));
+  // Поддерживаем старую настройку для уже установленных версий приложения.
+  localStorage.setItem('gulrating:show_recs', result.some(id => id === 'trends' || id === 'recs') ? '1' : '0');
+  return result;
+}
+
 function applyFeedOrder() {
   const wrap = document.getElementById('blocks-wrap');
   if (!wrap) return;
-  for (const id of readFeedOrder()) {
+  for (const id of getFeedOrder()) {
     const el = document.getElementById('blk-' + id);
     if (el) wrap.appendChild(el);
   }
@@ -542,6 +593,22 @@ function paintPending() {
   if (!pending.length) return;
   const textEl = document.getElementById('pending-text');
   if (textEl) textEl.textContent = `📴 Отложенных оценок: ${pending.length} — отправятся в базу при появлении сети`;
+}
+
+// Объединяем несколько пользовательских оценок одного тайтла в одну карточку.
+function groupRatingsByTitle(list) {
+  const groups = new Map();
+  for (const row of list || []) {
+    if (!row || !row.titles) continue;
+    const key = `${row.titles.media_type}:${row.title_id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()].map(rows => {
+    const latest = rows.reduce((a, b) => new Date(b.created_at) > new Date(a.created_at) ? b : a, rows[0]);
+    const average = rows.reduce((sum, row) => sum + Number(row.rating || 0), 0) / rows.length;
+    return { ...latest, rating: average, groupedRatings: rows };
+  });
 }
 
 // Сортировка оценок ленты (выбор пользователя хранится локально)
@@ -601,24 +668,23 @@ async function loadRecs(currentUser) {
   const section = document.getElementById('blocks-wrap');
   if (!section) return;
   section.querySelectorAll('#blk-trends, #blk-recs').forEach(n => n.remove());
-  if (localStorage.getItem('gulrating:show_recs') === '0') return;
+  const visibleSections = getVisibleFeedSections();
+  const showTrends = visibleSections.includes('trends');
+  const showRecs = visibleSections.includes('recs');
+  if (!showTrends && !showRecs) return;
 
   section.insertAdjacentHTML('afterbegin', `
-    <div id="blk-trends" class="space-y-3">
+    <div id="blk-trends" class="${showTrends ? 'space-y-3' : 'hidden'}">
     <div id="recs-trends">
       <div class="flex items-center gap-2 mb-3 overflow-x-auto scrollbar-hide">
         <h3 class="font-semibold mr-1">Тренды</h3>
         ${TREND_TABS.map(t => `<button class="trend-tab px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap ${t.key === trendsActive ? 'bg-primary text-white' : 'bg-card hover:bg-slate-700 text-gray-300'}" data-key="${t.key}">${t.label}</button>`).join('')}
-        ${moveControls('trends')}
       </div>
-      <div id="trends-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3"></div>
+      <div id="trends-grid" class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2 sm:gap-3"></div>
     </div>
     </div>
-    <div id="blk-recs" class="space-y-4">
-      <div class="flex items-center gap-2">
-        <h3 class="font-semibold">Подборки по вкусам компании</h3>
-        ${moveControls('recs')}
-      </div>
+    <div id="blk-recs" class="${showRecs ? 'space-y-4' : 'hidden'}">
+      <h3 class="font-semibold">Подборки по вкусам компании</h3>
       ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
       ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
       ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
@@ -652,20 +718,28 @@ async function loadRecs(currentUser) {
   }
 
   // 1) Мгновенная отрисовка из кэша: повторный заход не показывает скелетоны
-  if (recsCache.trends[trendsActive]) {
-    renderTrendsGrid(currentUser);
-  } else {
-    paintTrendsSkeleton();
+  if (showTrends) {
+    if (recsCache.trends[trendsActive]) renderTrendsGrid(currentUser);
+    else paintTrendsSkeleton();
   }
-  if (recsCache.db) {
+  if (showRecs && recsCache.db) {
     fillRecRow(section, 'recs-friends', 'Друзья оценили высоко', recsCache.db.friendsSub, recsCache.db.friendsHigh, 'bg-pink-600', FRIENDS_EMPTY_HINT);
     fillRecRow(section, 'recs-want', 'Друзья хотят посмотреть', recsCache.db.wantSub, recsCache.db.wantItems, 'bg-secondary', WANT_EMPTY_HINT);
     fillRecRow(section, 'recs-personal', 'Похоже на то, что вам понравилось', recsCache.personalSub || '', recsCache.personal || [], 'bg-primary', PERSONAL_EMPTY_HINT);
   }
 
-  // 2) Фоновое тихое обновление: кэш освежается, интерфейс не мигает
-  refreshTrends(currentUser);
-  refreshDbRecs(currentUser, section);
+  // 2) Фоновое тихое обновление только включённых секций.
+  if (showTrends) refreshTrends(currentUser);
+  if (showRecs) refreshDbRecs(currentUser, section);
+}
+
+function trendColumnCount(grid) {
+  try {
+    const count = getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(Boolean).length;
+    return count || 4;
+  } catch (e) {
+    return 4;
+  }
 }
 
 function renderTrendsGrid(currentUser) {
@@ -675,7 +749,7 @@ function renderTrendsGrid(currentUser) {
   let offlineTrends = false;
   if (!items) {
     // Офлайн: вместо трендов — популярные тайтлы из базы на устройстве
-    const local = getPopularOffline(18);
+    const local = getPopularOffline(20);
     if (local.length) {
       items = local;
       offlineTrends = true;
@@ -697,6 +771,10 @@ function renderTrendsGrid(currentUser) {
     grid.innerHTML = '<p class="col-span-full text-sm text-gray-500 py-6">В этой выборке пусто.</p>';
     return;
   }
+  // Оставляем только полные ряды карточек: число столбцов адаптируется к экрану.
+  const columns = trendColumnCount(grid);
+  const completeCount = Math.floor(items.length / columns) * columns;
+  if (completeCount > 0) items = items.slice(0, completeCount);
   grid.innerHTML = (offlineTrends
     ? `<p class="col-span-full text-xs text-gray-500 pb-1">📴 Офлайн: популярные тайтлы из базы на устройстве (${getOfflineCatalogStats().count})</p>`
     : '') + items.map(item => {
@@ -720,7 +798,9 @@ function renderTrendsGrid(currentUser) {
 function paintTrendsSkeleton() {
   const grid = document.getElementById('trends-grid');
   if (!grid) return;
-  grid.innerHTML = Array.from({ length: 12 }).map(() => `
+  const columns = trendColumnCount(grid);
+  const count = Math.max(columns, Math.floor(20 / columns) * columns);
+  grid.innerHTML = Array.from({ length: count }).map(() => `
     <div class="animate-pulse"><div class="w-full aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-1.5"></div></div>
   `).join('');
 }
@@ -729,7 +809,7 @@ async function refreshTrends(currentUser) {
   await Promise.all(TREND_TABS.map(async (t) => {
     if (recsCache.trends[t.key]) return;
     try {
-      recsCache.trends[t.key] = await getTrending({ mediaType: t.mediaType, window: t.window, limit: 18 });
+      recsCache.trends[t.key] = await getTrending({ mediaType: t.mediaType, window: t.window, limit: 20 });
     } catch (e) {
       recsCache.trends[t.key] = null;
     }
@@ -844,7 +924,7 @@ function recRowSkeleton(id, titleText) {
     <div id="${id}" class="rec-row">
       <h3 class="font-semibold mb-3">${escapeHtml(titleText)}</h3>
       <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
-        ${Array.from({ length: 6 }).map(() => `<div class="flex-shrink-0 w-28 animate-pulse"><div class="w-28 aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-2"></div></div>`).join('')}
+        ${Array.from({ length: 6 }).map(() => `<div class="flex-shrink-0 w-24 animate-pulse"><div class="w-24 aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-2"></div></div>`).join('')}
       </div>
     </div>
   `;
@@ -874,9 +954,9 @@ function fillRecRow(section, id, titleText, subtitle, items, badgeClass, emptyHi
         const year = releaseYear(item.release_date);
         primeTitleCache(item.media_type, item.id, item);
         return `
-          <div class="rec-card flex-shrink-0 w-28 cursor-pointer group relative" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
+          <div class="rec-card flex-shrink-0 w-24 cursor-pointer group relative" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
             <div class="group-hover:opacity-80 transition-opacity">
-              ${posterImg(item.poster_path, item.title, 'w-28 aspect-[2/3] rounded-lg shadow-lg')}
+              ${posterImg(item.poster_path, item.title, 'w-24 aspect-[2/3] rounded-lg shadow-lg')}
             </div>
             ${item.badge ? `<span class="absolute top-1 right-1 ${badgeClass || 'bg-primary'} text-white text-[11px] font-bold px-1.5 py-0.5 rounded-md">${escapeHtml(item.badge)}</span>` : ''}
             <div class="mt-1.5 text-xs font-medium truncate">${escapeHtml(item.title)}</div>
