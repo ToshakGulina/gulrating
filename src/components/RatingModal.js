@@ -143,7 +143,7 @@ export function openWatchOverlay(opts) {
       .filter((g) => apk || showHidden || g.embed !== 'referer');
   }
 
-  function play(dub, group, autoFs) {
+  function play(dub, group) {
     if (!dub) return;
     setTab(dub.url);
     if (apk) {
@@ -152,10 +152,6 @@ export function openWatchOverlay(opts) {
       // документом через мост: так нативно пишутся прогресс и продолжение
       if (isEmbedOnly(dub.url)) {
         showFrame(dub.url);
-        // Кинорежим: ландшафт и иммерсив сразу, не дожидаясь ⛶ плеера
-        if (window.GulRatingBridge && window.GulRatingBridge.enterCinema) {
-          window.GulRatingBridge.enterCinema();
-        }
         return;
       }
       if (window.GulRatingBridge && window.GulRatingBridge.openPlayer) {
@@ -166,12 +162,6 @@ export function openWatchOverlay(opts) {
       return;
     }
     showFrame(dub.url);
-    if (autoFs) {
-      // Тап по озвучке — пользовательский жест: браузер разрешает
-      // развернуть фрейм на весь экран сразу
-      const f = stage.querySelector('iframe');
-      if (f && f.requestFullscreen) f.requestFullscreen().catch(() => {});
-    }
     void group;
   }
 
@@ -231,7 +221,7 @@ export function openWatchOverlay(opts) {
         curName = d.name;
         renderPlayers();
         renderDubs();
-        play(d, g, true); // жест пользователя → сразу во весь экран
+        play(d, g);
         remember();
       });
       dubsBox.appendChild(b);
@@ -316,8 +306,8 @@ export function openWatchOverlay(opts) {
         setTab((curDub() || {}).url);
       }
       hint.textContent = apk
-        ? 'Тап по источнику — только выбор; тап по озвучке — запуск сразу во весь экран (ландшафт). Back или возврат домой — обычный вид. У источников с одной кнопкой озвучки переключает меню самого плеера.'
-        : 'Тап по источнику — только выбор; тап по озвучке — запуск сразу во весь экран, Esc — выход. У источников с одной кнопкой озвучки переключает меню самого плеера. «Не играет» спрячет источник и включит следующий.';
+        ? 'Тап по источнику — только выбор, тап по озвучке — запуск. Полный экран — кнопкой ⛶ внутри плеера. У источников с одной кнопкой озвучки переключает меню самого плеера.'
+        : 'Тап по источнику — только выбор, тап по озвучке — запуск. Полный экран — кнопкой ⛭, выход — Esc. У источников с одной кнопкой озвучки переключает меню самого плеера. «Не играет» спрячет источник и включит следующий.';
     })
     .catch(() => fallback());
 

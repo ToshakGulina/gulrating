@@ -58,9 +58,6 @@ public class MainActivity extends Activity {
     // Идёт сеанс плеера: после входа на хост плеера держим внутри WebView
     // любые редиректы и смежные домены, пока пользователь не вернётся на сайт
     private volatile boolean inPlayerSession = false;
-    // «Кино»: ландшафт + иммерсив с тапа по озвучке, не дожидаясь
-    // кнопки фуллскрина самого плеера
-    private boolean cinema = false;
     // Нативный фуллскрин видео (кнопка полноэкранного режима в плеере)
     private FrameLayout root;
     private View customView;
@@ -149,7 +146,6 @@ public class MainActivity extends Activity {
                 // (Кинопоиск, Телеграм) — в браузере телефона
                 if (host != null && host.equals(HOME_HOST)) {
                     inPlayerSession = false;
-                    exitCinema();
                     return false;
                 }
                 if (isPlayerHost(uri.toString())) {
@@ -202,16 +198,8 @@ public class MainActivity extends Activity {
                 if (url == null || url.isEmpty()) return;
                 handler.post(() -> {
                     inPlayerSession = true;
-                    enterCinema();
                     web.loadUrl(url);
                 });
-            }
-
-            // Кинорежим из веб-части: запуск озвучки во фрейме (embed-only
-            // плееры) тоже должен сразу давать ландшафт и иммерсив
-            @JavascriptInterface
-            public void enterCinema() {
-                handler.post(() -> enterCinema());
             }
 
             @JavascriptInterface
@@ -272,27 +260,10 @@ public class MainActivity extends Activity {
         if (hasFocus && customView != null) applyImmersive(customView);
     }
 
-    private void enterCinema() {
-        cinema = true;
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        applyImmersive(null);
-    }
-
-    private void exitCinema() {
-        if (!cinema) return;
-        cinema = false;
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
-    }
-
     private void exitFullscreen() {
         if (customView == null) return;
-        if (!cinema) {
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-        }
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         root.removeView(customView);
         customView = null;
         web.setVisibility(View.VISIBLE);
@@ -396,10 +367,6 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (customView != null) {
             exitFullscreen();
-            return;
-        }
-        if (cinema) {
-            exitCinema();
             return;
         }
         if (web.canGoBack()) {
