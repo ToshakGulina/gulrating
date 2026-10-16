@@ -6,7 +6,7 @@ import { cleanupFeed } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
-import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
+import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, reportWatchNative } from '../lib/watchHistory.js';
 import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
 
@@ -489,12 +489,13 @@ export async function renderProfilePage(app, currentUser) {
       const item = getWatchHistory().find(x => x.key === b.closest('[data-key]').dataset.key);
       if (!item || !(item.kp_url || item.kpId || item.query)) return;
       reportWatchNative(item.id, item.media_type);
-      if (isApk() && item.kp_url) {
-        // Рабочая схема приложения: страница зеркала верхним документом
+      if (item.kp_url) {
+        // Открываем страницу зеркала в текущей вкладке: на ней доступен
+        // полный список источников (включая Alloha и Turbo).
         window.location.href = item.kp_url;
         return;
       }
-      // Оверлей со списком чистых плееров Kinobox; зеркало — только фолбэк
+      // Если у записи нет ссылки зеркала, используем список Kinobox.
       openWatchOverlay({
         kpId: item.kpId,
         query: item.query || item.title,
