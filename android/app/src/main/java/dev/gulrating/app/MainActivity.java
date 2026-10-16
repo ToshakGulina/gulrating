@@ -61,6 +61,9 @@ public class MainActivity extends Activity {
     // Автофуллскрин с тапа по озвучке: ландшафт + иммерсив сразу;
     // выход — Back или возврат домой
     private boolean cinema = false;
+    private static final String DESKTOP_UA =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+    private String homeUA;
     // Нативный фуллскрин видео (кнопка полноэкранного режима в плеере)
     private FrameLayout root;
     private View customView;
@@ -105,7 +108,8 @@ public class MainActivity extends Activity {
         cookieManager.setAcceptThirdPartyCookies(web, true);
         // Маркер для сайта: включает поведение «приложение» (офлайн-база,
         // открытие плеера внутри WebView)
-        web.getSettings().setUserAgentString(web.getSettings().getUserAgentString() + " GulRatingApp/1");
+        homeUA = web.getSettings().getUserAgentString() + " GulRatingApp/1";
+        web.getSettings().setUserAgentString(homeUA);
 
         // Фуллскрин плеера: WebView отдаёт кастомную вью сюда, без этого
         // кнопка полноэкранного режима в плеере молча не работает
@@ -150,6 +154,7 @@ public class MainActivity extends Activity {
                 if (host != null && host.equals(HOME_HOST)) {
                     inPlayerSession = false;
                     exitCinema();
+                    web.getSettings().setUserAgentString(homeUA);
                     return false;
                 }
                 if (isPlayerHost(uri.toString())) {
@@ -202,6 +207,7 @@ public class MainActivity extends Activity {
                 if (url == null || url.isEmpty()) return;
                 handler.post(() -> {
                     inPlayerSession = true;
+                    setPlayerUA();
                     enterCinema();
                     web.loadUrl(url);
                 });
@@ -211,7 +217,11 @@ public class MainActivity extends Activity {
             // плееров (фрейм) тоже даёт ландшафт и иммерсив сразу
             @JavascriptInterface
             public void enterCinema() {
-                handler.post(() -> enterCinema());
+                handler.post(() -> {
+                    // Фреймовый режим (embed-only плееры): тоже десктопный UA
+                    setPlayerUA();
+                    enterCinema();
+                });
             }
 
             @JavascriptInterface
@@ -270,6 +280,10 @@ public class MainActivity extends Activity {
         super.onWindowFocusChanged(hasFocus);
         // Вернули фокус в фуллскрине — восстанавливаем иммерсивность
         if (hasFocus && customView != null) applyImmersive(customView);
+    }
+
+    private void setPlayerUA() {
+        web.getSettings().setUserAgentString(DESKTOP_UA);
     }
 
     private void enterCinema() {
