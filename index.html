@@ -48,8 +48,8 @@
     /* Размеры постеров задаём явно: одинаковый макет в браузере, PWA и APK. */
     .poster-frame { position: relative; aspect-ratio: 2 / 3; overflow: hidden; }
     .poster-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-    .feed-card-poster { width: 96px; flex: 0 0 96px; }
-    .profile-card-poster { width: 80px; flex: 0 0 80px; }
+    .feed-card-poster { width: clamp(68px, 18vw, 96px); flex: 0 0 clamp(68px, 18vw, 96px); }
+    .profile-card-poster { width: clamp(64px, 16vw, 80px); flex: 0 0 clamp(64px, 16vw, 80px); }
     #poster-box { width: clamp(84px, 25vw, 112px); flex: 0 0 clamp(84px, 25vw, 112px); }
     #poster-box > .poster-frame { width: 100%; aspect-ratio: 2 / 3; }
     .history-title { width: 56px; flex: 0 0 56px; }

@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase.js';
 import { APP_BUILD } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { openRatingModal } from './RatingModal.js';
-import { cleanupFeed } from './Feed.js';
+import { cleanupFeed, FEED_SECTIONS, getFeedOrder, getVisibleFeedSections, saveFeedOrder, saveVisibleFeedSections } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
@@ -170,13 +170,14 @@ export async function renderProfilePage(app, currentUser) {
               <p class="text-xs text-gray-600 mt-1">Повторные карточки не обращаются к API вовсе: запрос идёт только при первом открытии тайтла за срок кэша.</p>
             </div>
             <label class="flex items-center justify-between gap-3">
-              <span class="text-gray-300">Блок рекомендаций в ленте</span>
-              <input id="recs-toggle" type="checkbox" class="w-4 h-4">
-            </label>
-            <label class="flex items-center justify-between gap-3">
               <span class="text-gray-300">Объединить оценки одного фильма разными людьми в ленте</span>
               <input id="merge-ratings-toggle" type="checkbox" class="w-4 h-4">
             </label>
+            <div class="mt-5 border-t border-slate-700 pt-4">
+              <h4 class="font-medium text-gray-200">Состав и порядок ленты</h4>
+              <p class="text-xs text-gray-500 mt-1 mb-3">Отметьте нужные разделы и задайте их порядок. Управление находится только здесь.</p>
+              <div id="feed-layout-editor" class="space-y-2"></div>
+            </div>
             <div class="flex items-center justify-between gap-3">
               <span class="text-gray-300">Акцент интерфейса</span>
               <div id="accent-swatches" class="flex gap-2">
@@ -272,7 +273,6 @@ export async function renderProfilePage(app, currentUser) {
   const presetsBox = document.getElementById('avatar-presets');
   const nickInput = document.getElementById('nick-input');
   const sortSelect = document.getElementById('sort-select');
-  const recsToggle = document.getElementById('recs-toggle');
 
   async function saveProfileFields(fields) {
     const { error } = await supabase.from('profiles').update(fields).eq('id', currentUser.id);
@@ -590,18 +590,55 @@ export async function renderProfilePage(app, currentUser) {
   window.addEventListener('gulrating:installable', paintInstallBox);
   window.addEventListener('gulrating:appinstalled', paintInstallBox);
 
-  recsToggle.checked = localStorage.getItem('gulrating:show_recs') !== '0';
-  recsToggle.addEventListener('change', () => {
-    localStorage.setItem('gulrating:show_recs', recsToggle.checked ? '1' : '0');
-    showToast('В ленте обновится блок рекомендаций', 'success');
-  });
-
   const mergeRatingsToggle = document.getElementById('merge-ratings-toggle');
   mergeRatingsToggle.checked = localStorage.getItem('gulrating:merge_title_ratings') === '1';
   mergeRatingsToggle.addEventListener('change', () => {
     localStorage.setItem('gulrating:merge_title_ratings', mergeRatingsToggle.checked ? '1' : '0');
     showToast('Настройка объединения оценок сохранена', 'success');
   });
+
+  // Состав и порядок ленты настраиваются только здесь, в профиле.
+  const feedLayoutEditor = document.getElementById('feed-layout-editor');
+  let feedOrder = getFeedOrder();
+  let visibleFeedSections = new Set(getVisibleFeedSections());
+  function paintFeedLayoutEditor() {
+    feedLayoutEditor.innerHTML = feedOrder.map((id, index) => {
+      const section = FEED_SECTIONS.find(item => item.id === id);
+      if (!section) return '';
+      return `
+        <div class="flex items-center gap-2 rounded-lg bg-slate-800/70 p-2">
+          <span class="w-6 text-center text-xs text-gray-500">${index + 1}</span>
+          <label class="flex flex-1 items-center gap-2 text-sm text-gray-200">
+            <input type="checkbox" class="feed-section-visible h-4 w-4" data-section="${id}" ${visibleFeedSections.has(id) ? 'checked' : ''}>
+            <span>${section.label}</span>
+          </label>
+          <button class="feed-section-move w-8 h-8 rounded-lg bg-slate-700 text-gray-200 hover:bg-slate-600 disabled:opacity-30" data-section="${id}" data-direction="up" ${index === 0 ? 'disabled' : ''} aria-label="Переместить ${section.label} выше" title="Выше">↑</button>
+          <button class="feed-section-move w-8 h-8 rounded-lg bg-slate-700 text-gray-200 hover:bg-slate-600 disabled:opacity-30" data-section="${id}" data-direction="down" ${index === feedOrder.length - 1 ? 'disabled' : ''} aria-label="Переместить ${section.label} ниже" title="Ниже">↓</button>
+        </div>`;
+    }).join('');
+
+    feedLayoutEditor.querySelectorAll('.feed-section-visible').forEach(input => {
+      input.addEventListener('change', () => {
+        if (input.checked) visibleFeedSections.add(input.dataset.section);
+        else visibleFeedSections.delete(input.dataset.section);
+        visibleFeedSections = new Set(saveVisibleFeedSections([...visibleFeedSections]));
+        paintFeedLayoutEditor();
+        showToast('Состав ленты сохранён', 'success');
+      });
+    });
+    feedLayoutEditor.querySelectorAll('.feed-section-move').forEach(button => {
+      button.addEventListener('click', () => {
+        const from = feedOrder.indexOf(button.dataset.section);
+        const to = from + (button.dataset.direction === 'up' ? -1 : 1);
+        if (from < 0 || to < 0 || to >= feedOrder.length) return;
+        [feedOrder[from], feedOrder[to]] = [feedOrder[to], feedOrder[from]];
+        feedOrder = saveFeedOrder(feedOrder);
+        paintFeedLayoutEditor();
+        showToast('Порядок ленты сохранён', 'success');
+      });
+    });
+  }
+  paintFeedLayoutEditor();
 
   // Акцент: сохраняем RGB-тройку и сразу применяем к CSS-переменной
   const currentAccent = localStorage.getItem('gulrating:accent') || '99 102 241';
