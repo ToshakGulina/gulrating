@@ -159,12 +159,13 @@ export function openWatchOverlay(opts) {
       b.textContent = g.type;
       b.title = g.embed === 'referer' ? 'Работает только в приложении' : '';
       b.addEventListener('click', () => {
+        // Смена источника НЕ запускает playback: лишь подставляет список
+        // его озвучек (ту же озвучку, если она есть и здесь). Запуск —
+        // отдельным тапом по озвучке, как просил пользователь
         curType = g.type;
-        curName = (g.dubs[0] || {}).name || null;
+        curName = (g.dubs.find((d) => d.name === curName) || g.dubs[0] || {}).name || null;
         renderPlayers();
         renderDubs();
-        play(curDub(), g);
-        remember();
       });
       playersBox.appendChild(b);
     });
@@ -280,12 +281,12 @@ export function openWatchOverlay(opts) {
       renderDubs();
       if (!apk) play(curDub(), startG);
       else {
-        stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Нажмите озвучку — плеер откроется внутри приложения.<br>Кнопка ⛶ внутри плеера развернёт видео на весь экран.</p>';
+        stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Выберите источник и озвучку — плеер откроется внутри приложения.<br>Кнопка ⛶ внутри плеера развернёт видео на весь экран.</p>';
         setTab((curDub() || {}).url);
       }
       hint.textContent = apk
-        ? 'Источник и озвучка — двумя строками, выбор запомнится. Нерабочее скрыто автоматически.'
-        : '⛭ — на весь экран, Esc — выход. Источники, которые не встраиваются в браузере, скрыты; «не играет» спрячет и переключит дальше.';
+        ? 'Источник — верхняя строка, озвучка — нижняя. Запуск — тапом по озвучке; выбор запомнится.'
+        : '⛭ — на весь экран, Esc — выход. Запуск — тапом по озвучке; источник лишь меняет список. «Не играет» спрячет источник и включит следующий.';
     })
     .catch(() => fallback());
 
