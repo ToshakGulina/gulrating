@@ -182,17 +182,17 @@ public class MainActivity extends Activity {
             }
 
 
-            // Переход на чистую страницу плеера с Referer зеркала:
-            // плеерные CDN сверяют встраивающую страницу со своим списком,
-            // без знакомого referer пишут «недоступно в регионе»
+            // Переход на чистую страницу плеера БЕЗ Referer: проверено
+            // пользователем — в браузере (фрейм no-referrer) играют все
+            // источники, а с подставленным referer зеркала Alloha и Turbo
+            // режут «недоступно в регионе» (kinokino.vip не в их белом
+            // списке). loadUrl без заголовков = прямой заход, referer пуст.
             @JavascriptInterface
             public void openPlayer(final String url, final String referer) {
                 if (url == null || url.isEmpty()) return;
                 handler.post(() -> {
                     inPlayerSession = true;
-                    java.util.Map<String, String> headers = new java.util.HashMap<>();
-                    if (referer != null && !referer.isEmpty()) headers.put("Referer", referer);
-                    web.loadUrl(url, headers);
+                    web.loadUrl(url);
                 });
             }
 
