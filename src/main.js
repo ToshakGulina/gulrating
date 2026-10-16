@@ -3,6 +3,7 @@ import { syncOfflineCatalog, isAppContext } from './lib/offlineCatalog.js';
 import { checkNewSeasons } from './lib/watchHistory.js';
 import { configIsComplete, APP_BUILD } from './config.js';
 import { setSyncUser, syncUserData } from './lib/userSync.js';
+import { activePageKey, clearPageState } from './lib/pageState.js';
 
 // Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
 // Акцент интерфейса из настроек профиля применяем до первой отрисовки
@@ -73,21 +74,30 @@ async function renderApp() {
 
     if (!currentUser) {
       cleanupFeed();
+      clearPageState(app);
       renderAuthPage(app);
     } else if (!currentUser.profile) {
       // Вошли, но профиля в базе нет: не запущен supabase-schema.sql
       // или аккаунт создан до запуска схемы
       cleanupFeed();
+      clearPageState(app);
       renderProfileMissing(app, currentUser);
     } else if (!currentUser.profile.is_approved) {
       cleanupFeed();
+      clearPageState(app);
       renderAccessDenied(app);
     } else {
-      await renderFeed(app, currentUser);
+      if (activePageKey(app) === 'profile') {
+        const { renderProfilePage } = await import('./components/Profile.js');
+        await renderProfilePage(app, currentUser);
+      } else {
+        await renderFeed(app, currentUser, { refresh: activePageKey(app) === 'feed' });
+      }
       await handleDeepLink(currentUser);
     }
   } catch (e) {
     cleanupFeed();
+    clearPageState(app);
     renderFatalError(app, e);
   } finally {
     rendering = false;

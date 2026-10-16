@@ -106,6 +106,7 @@
       button:not(:disabled):hover { translate: 0 -1px; }
       .title-card:hover, .rec-card:hover, .history-title:hover, .catalog-item:hover { translate: 0 -3px; }
       .title-card:hover, .catalog-item:hover { box-shadow: 0 14px 34px rgb(0 0 0 / .22); }
+      .title-card:hover .poster-frame img, .catalog-item:hover .poster-frame img { transform: scale(1.045); }
       .rec-card:hover { filter: brightness(1.06); }
       .history-query:hover, .search-result-item:hover { translate: 3px 0; }
     }
@@ -118,6 +119,15 @@
     .title-card, .rec-card, .history-title, .history-query, .catalog-item, .search-result-item {
       transition: translate .2s cubic-bezier(.2,.75,.25,1), scale .2s ease, box-shadow .2s ease, border-color .2s ease, background-color .2s ease, filter .2s ease;
     }
+    .poster-frame img { transition: transform .4s cubic-bezier(.2,.75,.25,1); }
+    .grouped-ratings-panel { background-image: linear-gradient(135deg, rgb(99 102 241 / .08), transparent 58%); }
+    .group-average-badge { box-shadow: 0 5px 16px rgb(0 0 0 / .18), inset 0 1px rgb(255 255 255 / .14); }
+    .group-rating-chip { animation: grouped-chip-enter .24s cubic-bezier(.2,.75,.25,1) var(--chip-delay, 0ms) backwards; }
+    .profile-section-switch { box-shadow: inset 0 1px rgb(255 255 255 / .04); }
+    .profile-section-tab { transition: color .2s ease, background-color .2s ease, box-shadow .2s ease, translate .2s ease; }
+    .profile-section-tab[aria-selected="true"] { box-shadow: 0 4px 14px rgb(var(--p-rgb) / .22); }
+    .profile-section-tab:active { translate: 0 1px; }
+    .profile-section-panel:not(.hidden) { animation: profile-panel-enter .24s cubic-bezier(.2,.75,.25,1); }
     .title-card, .rec-card, .history-title, .catalog-item { animation: card-enter .3s cubic-bezier(.2,.75,.25,1); }
     .search-result-item { animation: item-enter .22s ease-out; }
     #catalog-grid > .catalog-item { animation-fill-mode: backwards; }
@@ -152,6 +162,8 @@
     @keyframes nav-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes toast-enter { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
     @keyframes toast-leave { to { opacity: 0; transform: translateY(5px); } }
+    @keyframes grouped-chip-enter { from { opacity: 0; transform: translateY(4px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes profile-panel-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
     /* Уважаем системную настройку доступности «Уменьшить движение». */
     @media (prefers-reduced-motion: reduce) {

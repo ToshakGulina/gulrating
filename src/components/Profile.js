@@ -1,8 +1,9 @@
 import { supabase } from '../lib/supabase.js';
+import { mountPage } from '../lib/pageState.js';
 import { APP_BUILD } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { openRatingModal } from './RatingModal.js';
-import { cleanupFeed, FEED_SECTIONS, getFeedOrder, getVisibleFeedSections, saveFeedOrder, saveVisibleFeedSections } from './Feed.js';
+import { FEED_SECTIONS, getFeedOrder, getVisibleFeedSections, saveFeedOrder, saveVisibleFeedSections } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
@@ -11,6 +12,14 @@ import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
 
 // Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
+let installBoxUpdateHandler = null;
+window.addEventListener('gulrating:pages-cleared', () => {
+  if (!installBoxUpdateHandler) return;
+  window.removeEventListener('gulrating:installable', installBoxUpdateHandler);
+  window.removeEventListener('gulrating:appinstalled', installBoxUpdateHandler);
+  installBoxUpdateHandler = null;
+});
+
 const ACCENTS = [
   { name: 'Индиго', rgb: '99 102 241' },
   { name: 'Малиновый', rgb: '225 29 72' },
@@ -19,8 +28,13 @@ const ACCENTS = [
   { name: 'Оранжевый', rgb: '249 115 22' },
 ];
 
-export async function renderProfilePage(app, currentUser) {
-  cleanupFeed();
+export async function renderProfilePage(app, currentUser, { force = false } = {}) {
+  const page = mountPage(app, 'profile');
+  const pageRoot = page.root;
+  if (!page.isNew && !force) return;
+  const previousProfileSection = pageRoot.querySelector('.profile-section-tab[aria-selected="true"]')?.dataset.profileSection || 'overview';
+  const previousActivityTab = pageRoot.querySelector('.tab-btn.bg-primary')?.dataset.tab || 'ratings';
+  if (page.isNew) pageRoot.innerHTML = '<div class="p-8 text-center text-sm text-gray-400">Загружаем профиль…</div>';
 
   // Загружаем статистику пользователя
   const [{ data: myRatings, count: ratingsCount }, { data: watchlist }, { data: profiles }] = await Promise.all([
@@ -40,7 +54,7 @@ export async function renderProfilePage(app, currentUser) {
   const pendingUsers = profileList.filter(p => !p.is_approved);
   const approvedUsers = profileList.filter(p => p.is_approved);
 
-  app.innerHTML = `
+  pageRoot.innerHTML = `
     <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
       <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
         <div class="flex items-center justify-between">
@@ -50,12 +64,17 @@ export async function renderProfilePage(app, currentUser) {
       </div>
 
       <div class="p-4">
+        <div class="profile-section-switch flex gap-2 p-1 mb-5 rounded-xl bg-slate-900/70" role="tablist" aria-label="Раздел профиля">
+          <button class="profile-section-tab flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-white" data-profile-section="overview" role="tab" aria-controls="profile-overview-panel" aria-selected="true">Профиль</button>
+          <button class="profile-section-tab flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-400 hover:text-white" data-profile-section="settings" role="tab" aria-controls="profile-settings-panel" aria-selected="false">Настройки</button>
+        </div>
+        <section id="profile-overview-panel" class="profile-section-panel space-y-4" role="tabpanel" aria-label="Профиль">
         <!-- Карточка профиля -->
         <div class="bg-card rounded-2xl p-5 mb-6">
           <div class="flex items-center gap-4 mb-4">
             <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt="" class="w-20 h-20 rounded-full bg-slate-700">
             <div>
-              <h2 class="text-xl font-bold">${escapeHtml(currentUser.profile.username)}</h2>
+              <h2 id="profile-name" class="text-xl font-bold">${escapeHtml(currentUser.profile.username)}</h2>
               <p class="text-gray-400 text-sm">${escapeHtml(currentUser.email)}</p>
               ${currentUser.profile.is_admin ? '<span class="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded-full mt-1 inline-block">Администратор</span>' : ''}
             </div>
@@ -88,7 +107,19 @@ export async function renderProfilePage(app, currentUser) {
           <div id="watched-history" class="space-y-2"></div>
         </div>
 
-        <!-- Настройки: ник, аватар, поведение ленты -->
+        <!-- Оценки и список просмотра -->
+        <div class="flex gap-2 mb-4 overflow-x-auto scrollbar-hide">
+          <button class="tab-btn px-4 py-2 bg-primary text-white rounded-full text-sm font-medium whitespace-nowrap" data-tab="ratings">Мои оценки</button>
+          <button class="tab-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-tab="watchlist">Хочу посмотреть</button>
+        </div>
+
+        <div id="profile-content" class="space-y-3">
+          ${renderMyRatings(myRatingsList)}
+        </div>
+        </section>
+        <section id="profile-settings-panel" class="profile-section-panel hidden space-y-4" role="tabpanel" aria-label="Настройки">
+        <h2 class="text-xl font-bold mb-2">Настройки</h2>
+        <!-- Настройки аккаунта и приложения -->
         <div class="bg-card rounded-2xl p-5 mb-6">
           <h3 class="font-semibold mb-4">Ник и аватар</h3>
           <div class="flex items-center gap-4 mb-4">
@@ -232,16 +263,7 @@ export async function renderProfilePage(app, currentUser) {
           </div>
         ` : ''}
 
-        <!-- Табы -->
-        <div class="flex gap-2 mb-4 overflow-x-auto scrollbar-hide">
-          <button class="tab-btn px-4 py-2 bg-primary text-white rounded-full text-sm font-medium whitespace-nowrap" data-tab="ratings">Мои оценки</button>
-          <button class="tab-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-tab="watchlist">Хочу посмотреть</button>
-        </div>
-
-        <div id="profile-content" class="space-y-3">
-          ${renderMyRatings(myRatingsList)}
-        </div>
-
+        </section>
         <p class="text-[10px] text-gray-600 text-center mt-8">ГульРейтинг · сборка ${escapeHtml(APP_BUILD)}</p>
       </div>
 
@@ -261,18 +283,35 @@ export async function renderProfilePage(app, currentUser) {
     </div>
   `;
 
+  function setProfileSection(section) {
+    pageRoot.querySelectorAll('.profile-section-tab').forEach(button => {
+      const selected = button.dataset.profileSection === section;
+      button.setAttribute('aria-selected', String(selected));
+      button.classList.toggle('bg-primary', selected);
+      button.classList.toggle('text-white', selected);
+      button.classList.toggle('text-gray-400', !selected);
+    });
+    pageRoot.querySelectorAll('.profile-section-panel').forEach(panel => {
+      panel.classList.toggle('hidden', panel.id !== `profile-${section}-panel`);
+    });
+  }
+  pageRoot.querySelectorAll('.profile-section-tab').forEach(button => {
+    button.addEventListener('click', () => setProfileSection(button.dataset.profileSection));
+  });
+  setProfileSection(previousProfileSection);
+
   // Обработчик выхода
-  document.getElementById('logout-btn').addEventListener('click', async () => {
+  pageRoot.querySelector('#logout-btn').addEventListener('click', async () => {
     await supabase.auth.signOut();
     location.reload();
   });
 
   // --- Настройки: аватар, ник, лента ---
-  const avatarPreview = document.getElementById('avatar-preview');
-  const avatarInput = document.getElementById('avatar-input');
-  const presetsBox = document.getElementById('avatar-presets');
-  const nickInput = document.getElementById('nick-input');
-  const sortSelect = document.getElementById('sort-select');
+  const avatarPreview = pageRoot.querySelector('#avatar-preview');
+  const avatarInput = pageRoot.querySelector('#avatar-input');
+  const presetsBox = pageRoot.querySelector('#avatar-presets');
+  const nickInput = pageRoot.querySelector('#nick-input');
+  const sortSelect = pageRoot.querySelector('#sort-select');
 
   async function saveProfileFields(fields) {
     const { error } = await supabase.from('profiles').update(fields).eq('id', currentUser.id);
@@ -326,14 +365,14 @@ export async function renderProfilePage(app, currentUser) {
     }
   });
 
-  document.getElementById('avatar-remove-btn').addEventListener('click', async () => {
+  pageRoot.querySelector('#avatar-remove-btn').addEventListener('click', async () => {
     if (await saveProfileFields({ avatar_url: null })) {
       avatarPreview.src = safeAvatarUrl(null, currentUser.profile.username);
       showToast('Аватар убран', 'success');
     }
   });
 
-  document.getElementById('nick-save-btn').addEventListener('click', async () => {
+  pageRoot.querySelector('#nick-save-btn').addEventListener('click', async () => {
     const value = nickInput.value.trim();
     if (!value) {
       showToast('Ник не может быть пустым', 'error');
@@ -342,7 +381,7 @@ export async function renderProfilePage(app, currentUser) {
     if (value === currentUser.profile.username) return;
     if (await saveProfileFields({ username: value })) {
       showToast('Ник сохранён', 'success');
-      renderProfilePage(app, currentUser);
+      pageRoot.querySelector('#profile-name').textContent = value;
     }
   });
 
@@ -353,8 +392,8 @@ export async function renderProfilePage(app, currentUser) {
   });
 
   // Слайдеры порогов рекомендаций: полная шкала, значение видно сразу
-  const thresholdRange = document.getElementById('threshold-range');
-  const thresholdVal = document.getElementById('threshold-val');
+  const thresholdRange = pageRoot.querySelector('#threshold-range');
+  const thresholdVal = pageRoot.querySelector('#threshold-val');
   thresholdRange.value = localStorage.getItem('gulrating:friends_threshold') ?? '7.5';
   thresholdVal.textContent = Number(thresholdRange.value).toFixed(1);
   thresholdRange.addEventListener('input', () => {
@@ -362,8 +401,8 @@ export async function renderProfilePage(app, currentUser) {
     localStorage.setItem('gulrating:friends_threshold', thresholdRange.value);
   });
 
-  const wantminRange = document.getElementById('wantmin-range');
-  const wantminVal = document.getElementById('wantmin-val');
+  const wantminRange = pageRoot.querySelector('#wantmin-range');
+  const wantminVal = pageRoot.querySelector('#wantmin-val');
   wantminRange.value = localStorage.getItem('gulrating:want_min') || '1';
   wantminVal.textContent = wantminRange.value;
   wantminRange.addEventListener('input', () => {
@@ -371,8 +410,8 @@ export async function renderProfilePage(app, currentUser) {
     localStorage.setItem('gulrating:want_min', wantminRange.value);
   });
 
-  const myminRange = document.getElementById('mymin-range');
-  const myminVal = document.getElementById('mymin-val');
+  const myminRange = pageRoot.querySelector('#mymin-range');
+  const myminVal = pageRoot.querySelector('#mymin-val');
   myminRange.value = localStorage.getItem('gulrating:my_min') ?? '8';
   myminVal.textContent = Number(myminRange.value).toFixed(1);
   myminRange.addEventListener('input', () => {
@@ -381,8 +420,8 @@ export async function renderProfilePage(app, currentUser) {
   });
 
   // Срок локального кэша Кинопоиска
-  const kpTtlRange = document.getElementById('kp-ttl-range');
-  const kpTtlVal = document.getElementById('kp-ttl-val');
+  const kpTtlRange = pageRoot.querySelector('#kp-ttl-range');
+  const kpTtlVal = pageRoot.querySelector('#kp-ttl-val');
   kpTtlRange.value = String(getKpCacheTtlDays());
   kpTtlVal.textContent = kpTtlRange.value;
   kpTtlRange.addEventListener('input', () => {
@@ -391,9 +430,9 @@ export async function renderProfilePage(app, currentUser) {
   });
 
   // Офлайн-база фильмов: размер (полная шкала) и статус закачки
-  const catSizeRange = document.getElementById('cat-size-range');
-  const catSizeVal = document.getElementById('cat-size-val');
-  const catSizeStatus = document.getElementById('cat-size-status');
+  const catSizeRange = pageRoot.querySelector('#cat-size-range');
+  const catSizeVal = pageRoot.querySelector('#cat-size-val');
+  const catSizeStatus = pageRoot.querySelector('#cat-size-status');
   function paintCatStatus() {
     if (!catSizeStatus) return;
     const stats = getOfflineCatalogStats();
@@ -415,8 +454,8 @@ export async function renderProfilePage(app, currentUser) {
     catSizeVal.textContent = catSizeRange.value;
   });
   // Полная база: статус, скачивание с прогрессом, удаление
-  const fullDbBtn = document.getElementById('full-db-btn');
-  const fullDbStatus = document.getElementById('full-db-status');
+  const fullDbBtn = pageRoot.querySelector('#full-db-btn');
+  const fullDbStatus = pageRoot.querySelector('#full-db-status');
   function paintFullDb() {
     const meta = getFullCatalogMeta();
     if (meta) {
@@ -434,8 +473,8 @@ export async function renderProfilePage(app, currentUser) {
   // Офлайн-база — только для приложения (APK / установленное PWA):
   // десктоп-сайту она не нужна, ничего не скачиваем и не показываем
   if (!isAppContext()) {
-    document.getElementById('cat-size-box').style.display = 'none';
-    document.getElementById('full-db-box').style.display = 'none';
+    pageRoot.querySelector('#cat-size-box').style.display = 'none';
+    pageRoot.querySelector('#full-db-box').style.display = 'none';
   }
   // Показываем реальный размер из манифеста, чтобы решение было осознанным
   fetchFullManifest().then(got => {
@@ -472,8 +511,8 @@ export async function renderProfilePage(app, currentUser) {
   });
 
   // Историю просмотра разделяем на непросмотренное и отмеченное «Просмотрено».
-  const whBox = document.getElementById('watch-history');
-  const watchedBox = document.getElementById('watched-history');
+  const whBox = pageRoot.querySelector('#watch-history');
+  const watchedBox = pageRoot.querySelector('#watched-history');
   function paintWatchHistory() {
     const allItems = getWatchHistory();
     const historyItems = allItems.filter(item => !item.done);
@@ -551,7 +590,7 @@ export async function renderProfilePage(app, currentUser) {
   paintWatchHistory();
 
   // Установка на телефон: кнопка системного install-промта либо подсказка
-  const installBox = document.getElementById('install-box');
+  const installBox = pageRoot.querySelector('#install-box');
   function paintInstallBox() {
     const standalone = window.matchMedia('(display-mode: standalone)').matches
       || window.matchMedia('(display-mode: fullscreen)').matches
@@ -564,7 +603,7 @@ export async function renderProfilePage(app, currentUser) {
       installBox.innerHTML = `
         <button id="install-app-btn" class="w-full py-2.5 bg-primary hover:bg-primary/90 text-white font-medium rounded-xl">Установить приложение на устройство</button>
         <p class="text-xs text-gray-500">Иконка появится на домашнем экране, окно будет открываться без браузера.</p>`;
-      document.getElementById('install-app-btn').addEventListener('click', async () => {
+      pageRoot.querySelector('#install-app-btn').addEventListener('click', async () => {
         const promptEvent = window.__gulratingInstallPrompt;
         if (!promptEvent) { paintInstallBox(); return; }
         promptEvent.prompt();
@@ -587,18 +626,24 @@ export async function renderProfilePage(app, currentUser) {
       </p>`;
   }
   paintInstallBox();
-  window.addEventListener('gulrating:installable', paintInstallBox);
-  window.addEventListener('gulrating:appinstalled', paintInstallBox);
+  if (installBoxUpdateHandler) {
+    window.removeEventListener('gulrating:installable', installBoxUpdateHandler);
+    window.removeEventListener('gulrating:appinstalled', installBoxUpdateHandler);
+  }
+  installBoxUpdateHandler = paintInstallBox;
+  window.addEventListener('gulrating:installable', installBoxUpdateHandler);
+  window.addEventListener('gulrating:appinstalled', installBoxUpdateHandler);
 
-  const mergeRatingsToggle = document.getElementById('merge-ratings-toggle');
+  const mergeRatingsToggle = pageRoot.querySelector('#merge-ratings-toggle');
   mergeRatingsToggle.checked = localStorage.getItem('gulrating:merge_title_ratings') === '1';
   mergeRatingsToggle.addEventListener('change', () => {
     localStorage.setItem('gulrating:merge_title_ratings', mergeRatingsToggle.checked ? '1' : '0');
+    window.dispatchEvent(new Event('gulrating:merge-ratings-changed'));
     showToast('Настройка объединения оценок сохранена', 'success');
   });
 
   // Состав и порядок ленты настраиваются только здесь, в профиле.
-  const feedLayoutEditor = document.getElementById('feed-layout-editor');
+  const feedLayoutEditor = pageRoot.querySelector('#feed-layout-editor');
   let feedOrder = getFeedOrder();
   let visibleFeedSections = new Set(getVisibleFeedSections());
   function paintFeedLayoutEditor() {
@@ -622,6 +667,7 @@ export async function renderProfilePage(app, currentUser) {
         if (input.checked) visibleFeedSections.add(input.dataset.section);
         else visibleFeedSections.delete(input.dataset.section);
         visibleFeedSections = new Set(saveVisibleFeedSections([...visibleFeedSections]));
+        window.dispatchEvent(new Event('gulrating:feed-layout-changed'));
         paintFeedLayoutEditor();
         showToast('Состав ленты сохранён', 'success');
       });
@@ -633,6 +679,7 @@ export async function renderProfilePage(app, currentUser) {
         if (from < 0 || to < 0 || to >= feedOrder.length) return;
         [feedOrder[from], feedOrder[to]] = [feedOrder[to], feedOrder[from]];
         feedOrder = saveFeedOrder(feedOrder);
+        window.dispatchEvent(new Event('gulrating:feed-layout-changed'));
         paintFeedLayoutEditor();
         showToast('Порядок ленты сохранён', 'success');
       });
@@ -642,13 +689,13 @@ export async function renderProfilePage(app, currentUser) {
 
   // Акцент: сохраняем RGB-тройку и сразу применяем к CSS-переменной
   const currentAccent = localStorage.getItem('gulrating:accent') || '99 102 241';
-  document.querySelectorAll('.accent-swatch').forEach(sw => {
+  pageRoot.querySelectorAll('.accent-swatch').forEach(sw => {
     sw.classList.toggle('border-white', sw.dataset.rgb === currentAccent);
     sw.classList.toggle('border-transparent', sw.dataset.rgb !== currentAccent);
     sw.addEventListener('click', () => {
       localStorage.setItem('gulrating:accent', sw.dataset.rgb);
       document.documentElement.style.setProperty('--p-rgb', sw.dataset.rgb);
-      document.querySelectorAll('.accent-swatch').forEach(x => {
+      pageRoot.querySelectorAll('.accent-swatch').forEach(x => {
         x.classList.toggle('border-white', x === sw);
         x.classList.toggle('border-transparent', x !== sw);
       });
@@ -656,29 +703,28 @@ export async function renderProfilePage(app, currentUser) {
     });
   });
 
-  // Обработчики табов
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => {
-        b.classList.remove('bg-primary', 'text-white');
-        b.classList.add('bg-card', 'hover:bg-slate-700');
-      });
-      btn.classList.remove('bg-card', 'hover:bg-slate-700');
-      btn.classList.add('bg-primary', 'text-white');
-
-      if (btn.dataset.tab === 'ratings') {
-        document.getElementById('profile-content').innerHTML = renderMyRatings(myRatingsList);
-      } else {
-        document.getElementById('profile-content').innerHTML = renderWatchlist(watchlistList);
-      }
-
-      // Добавляем обработчики кликов по карточкам
-      initTitleCards(currentUser);
+  function setActivityTab(tab) {
+    pageRoot.querySelectorAll('.tab-btn').forEach(button => {
+      const selected = button.dataset.tab === tab;
+      button.classList.toggle('bg-primary', selected);
+      button.classList.toggle('text-white', selected);
+      button.classList.toggle('bg-card', !selected);
+      button.classList.toggle('hover:bg-slate-700', !selected);
+    });
+    pageRoot.querySelector('#profile-content').innerHTML = tab === 'ratings'
+      ? renderMyRatings(myRatingsList)
+      : renderWatchlist(watchlistList);
+  }
+  pageRoot.querySelectorAll('.tab-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      setActivityTab(button.dataset.tab);
+      initTitleCards(pageRoot, currentUser);
     });
   });
+  setActivityTab(previousActivityTab);
 
   // Обработчики навигации
-  document.querySelectorAll('.nav-btn').forEach(btn => {
+  pageRoot.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (btn.dataset.page === 'feed') {
         const { renderFeed } = await import('./Feed.js');
@@ -688,11 +734,11 @@ export async function renderProfilePage(app, currentUser) {
   });
 
   // Инициализируем клики по карточкам
-  initTitleCards(currentUser);
+  initTitleCards(pageRoot, currentUser);
 
   // Обработчики одобрения пользователей для админа
   if (currentUser.profile.is_admin) {
-    document.querySelectorAll('.approve-user-btn').forEach(btn => {
+    pageRoot.querySelectorAll('.approve-user-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const userId = btn.dataset.userId;
         btn.disabled = true;
@@ -712,11 +758,11 @@ export async function renderProfilePage(app, currentUser) {
 
         showToast('Доступ одобрен', 'success');
         // Перерисовываем профиль вместо полной перезагрузки страницы
-        renderProfilePage(app, currentUser);
+        renderProfilePage(app, currentUser, { force: true });
       });
     });
 
-    document.querySelectorAll('.user-admin-toggle').forEach(input => {
+    pageRoot.querySelectorAll('.user-admin-toggle').forEach(input => {
       input.addEventListener('change', async () => {
         const userId = input.dataset.userId;
         const isAdmin = input.checked;
@@ -730,11 +776,11 @@ export async function renderProfilePage(app, currentUser) {
           return;
         }
         showToast(isAdmin ? 'Права администратора выданы' : 'Права администратора сняты', 'success');
-        renderProfilePage(app, currentUser);
+        renderProfilePage(app, currentUser, { force: true });
       });
     });
 
-    document.querySelectorAll('.revoke-user-btn').forEach(btn => {
+    pageRoot.querySelectorAll('.revoke-user-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const userId = btn.dataset.userId;
         btn.disabled = true;
@@ -746,12 +792,12 @@ export async function renderProfilePage(app, currentUser) {
           return;
         }
         showToast('Доступ пользователя отозван', 'success');
-        renderProfilePage(app, currentUser);
+        renderProfilePage(app, currentUser, { force: true });
       });
     });
 
     // Экспорт данных
-    document.getElementById('export-btn').addEventListener('click', async () => {
+    pageRoot.querySelector('#export-btn').addEventListener('click', async () => {
       try {
         const [{ data: titles }, { data: ratings }, { data: watchlistData }, { data: profilesData }] = await Promise.all([
           supabase.from('titles').select('*'),
@@ -850,14 +896,14 @@ function renderWatchlist(items) {
   }).join('');
 }
 
-function initTitleCards(currentUser) {
-  document.querySelectorAll('.title-card').forEach(card => {
+function initTitleCards(pageRoot, currentUser) {
+  pageRoot.querySelectorAll('.title-card').forEach(card => {
     card.addEventListener('click', () => {
       const titleId = card.dataset.titleId;
       const mediaType = card.dataset.mediaType;
       openRatingModal(titleId, mediaType, currentUser, (appEl) => {
         // Перерисовываем профиль, чтобы обновилась статистика (без полной перезагрузки)
-        renderProfilePage(document.getElementById('app'), currentUser);
+        renderProfilePage(document.getElementById('app'), currentUser, { force: true });
       });
     });
   });

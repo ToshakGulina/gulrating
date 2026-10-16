@@ -9,6 +9,7 @@ import { getPendingRatings, flushPendingRatings } from '../lib/offline.js';
 import { searchOfflineCatalog, getPopularOffline, getOfflineCatalogStats } from '../lib/offlineCatalog.js';
 import { isFullCatalogInstalled, searchFullCatalog } from '../lib/fullCatalog.js';
 import { getNotifications, markNotificationsRead, unreadNotifications } from '../lib/watchHistory.js';
+import { mountPage } from '../lib/pageState.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -37,6 +38,9 @@ function saveSort(value) {
 }
 
 let activeFilter = 'all';
+let feedRoot = null;
+const feedEl = (id) => feedRoot?.querySelector(`#${id}`) || null;
+const feedAll = (selector) => feedRoot?.querySelectorAll(selector) || [];
 let activeSort = readSort();   // сортировка ленты: new | rating_desc | rating_asc
 let feedChannel = null;
 let realtimeTimer = null;
@@ -61,6 +65,8 @@ let searchDocClickHandler = null; // document-обработчик клика и
 let onlineFlushHandler = null;    // автосинк отложенных оценок при появлении сети
 let filtersResizeHandler = null;  // пересчёт отступа липких фильтров
 let notifChangedHandler = null;   // обновление бейджа колокольчика
+let feedLayoutHandler = null;
+let mergeRatingsHandler = null;
 
 // Офлайн-копия ленты: последний успешный срез по каждому фильтру
 const FEED_CACHE_KEY = 'gulrating:feed_cache';
@@ -117,14 +123,35 @@ export function cleanupFeed() {
     window.removeEventListener('gulrating:notifications-changed', notifChangedHandler);
     notifChangedHandler = null;
   }
+  if (feedLayoutHandler) {
+    window.removeEventListener('gulrating:feed-layout-changed', feedLayoutHandler);
+    feedLayoutHandler = null;
+  }
+  if (mergeRatingsHandler) {
+    window.removeEventListener('gulrating:merge-ratings-changed', mergeRatingsHandler);
+    mergeRatingsHandler = null;
+  }
 }
 
-export async function renderFeed(app, currentUser) {
+export async function renderFeed(app, currentUser, { refresh = false } = {}) {
+  const page = mountPage(app, 'feed');
+  feedRoot = page.root;
+  if (!page.isNew) {
+    applyFeedOrder();
+    if (refresh) {
+      activeSort = readSort();
+      await loadRatings(currentUser, activeFilter);
+      recsCache.dbAt = 0;
+      loadRecs(currentUser);
+    }
+    return;
+  }
+
   cleanupFeed();
   activeFilter = 'all';
   activeSort = readSort(); // сортировку могли поменять из профиля
 
-  app.innerHTML = `
+  page.root.innerHTML = `
     <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
       <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800 safe-top">
         <div class="flex items-center gap-3 mb-3">
@@ -229,7 +256,7 @@ export async function renderFeed(app, currentUser) {
 
   // Уведомления: колокол с бейджем и список в оверлее
   function paintNotifBadge() {
-    const badge = document.getElementById('notif-badge');
+    const badge = feedEl('notif-badge');
     if (!badge) return;
     const n = unreadNotifications();
     badge.textContent = n ? String(n) : '';
@@ -237,7 +264,11 @@ export async function renderFeed(app, currentUser) {
   }
   notifChangedHandler = paintNotifBadge;
   window.addEventListener('gulrating:notifications-changed', notifChangedHandler);
-  document.getElementById('notif-btn').addEventListener('click', () => {
+  feedLayoutHandler = applyFeedOrder;
+  window.addEventListener('gulrating:feed-layout-changed', feedLayoutHandler);
+  mergeRatingsHandler = () => loadRatings(currentUser, activeFilter);
+  window.addEventListener('gulrating:merge-ratings-changed', mergeRatingsHandler);
+  feedEl('notif-btn').addEventListener('click', () => {
     const list = getNotifications();
     const ov = document.createElement('div');
     ov.className = 'fixed inset-0 z-40 bg-black/60 p-4';
@@ -269,7 +300,7 @@ export async function renderFeed(app, currentUser) {
   paintNotifBadge();
 
   // Липкие фильтры: отступ сверху = высота шапки (меняется с размером окна)
-  const filtersBar = document.getElementById('feed-filters');
+  const filtersBar = feedEl('feed-filters');
   const feedHeader = app.querySelector('.sticky.top-0');
   const setFiltersTop = () => {
     if (filtersBar && feedHeader) filtersBar.style.top = `${feedHeader.offsetHeight}px`;
@@ -277,13 +308,13 @@ export async function renderFeed(app, currentUser) {
   setFiltersTop();
   filtersResizeHandler = () => {
     setFiltersTop();
-    if (document.getElementById('trends-grid')) renderTrendsGrid(currentUser);
+    if (feedEl('trends-grid')) renderTrendsGrid(currentUser);
   };
   window.addEventListener('resize', filtersResizeHandler);
 
   // Очередь офлайн-оценок: баннер, ручная отправка
   paintPending();
-  document.getElementById('pending-flush').addEventListener('click', async (e) => {
+  feedEl('pending-flush').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
     const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
@@ -298,7 +329,7 @@ export async function renderFeed(app, currentUser) {
     const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
     if (sent) showToast(`Отложенные оценки отправлены в базу: ${sent}`, 'success');
     paintPending();
-    if (document.getElementById('ratings-list')) {
+    if (feedEl('ratings-list')) {
       loadRatings(currentUser, activeFilter);
       recsCache.dbAt = 0;
       loadRecs(currentUser);
@@ -307,7 +338,7 @@ export async function renderFeed(app, currentUser) {
   window.addEventListener('online', onlineFlushHandler);
 
   // Каталог: полноценный просмотр с жанрами и фильтрами
-  document.getElementById('catalog-btn').addEventListener('click', () => {
+  feedEl('catalog-btn').addEventListener('click', () => {
     openCatalog(currentUser, (id, type) => {
       openRatingModal(id, type, currentUser, () => loadRatings(currentUser, activeFilter));
     });
@@ -338,7 +369,7 @@ export async function renderFeed(app, currentUser) {
 function scheduleReload(currentUser) {
   clearTimeout(realtimeTimer);
   realtimeTimer = setTimeout(() => {
-    if (document.getElementById('ratings-list')) {
+    if (feedEl('ratings-list')) {
       loadRatings(currentUser, activeFilter);
       recsCache.dbAt = 0; // событие из базы — обновляем ряды без троттла
       loadRecs(currentUser);
@@ -347,8 +378,8 @@ function scheduleReload(currentUser) {
 }
 
 async function loadRatings(currentUser, filter = 'all') {
-  const listEl = document.getElementById('ratings-list');
-  const noteEl = document.getElementById('feed-note');
+  const listEl = feedEl('ratings-list');
+  const noteEl = feedEl('feed-note');
   if (!listEl) return;
 
   // Примечание для режима «хочу посмотреть» (показываем всю компанию)
@@ -425,8 +456,8 @@ async function loadRatings(currentUser, filter = 'all') {
           </button>
         </div>
       `;
-      const focusBtn = document.getElementById('focus-search-btn');
-      if (focusBtn) focusBtn.addEventListener('click', () => document.getElementById('search-input').focus());
+      const focusBtn = feedEl('focus-search-btn');
+      if (focusBtn) focusBtn.addEventListener('click', () => feedEl('search-input').focus());
       return;
     }
 
@@ -454,6 +485,9 @@ async function loadRatings(currentUser, filter = 'all') {
 
     const year = releaseYear(title.release_date);
     const ratingColor = item.rating >= 8 ? 'bg-green-600' : item.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+    const groupRows = item.groupedRatings || [];
+    const visibleGroupRows = groupRows.slice(0, 5);
+    const hiddenGroupCount = Math.max(0, groupRows.length - visibleGroupRows.length);
 
     return `
       <div class="title-card bg-card rounded-2xl overflow-hidden hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
@@ -467,11 +501,17 @@ async function loadRatings(currentUser, filter = 'all') {
                 <h3 class="font-semibold text-lg leading-tight">${escapeHtml(title.title)}</h3>
                 <p class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${title.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
               </div>
-              ${!isWatchlistView ? `
+              ${!isWatchlistView ? (item.groupedRatings ? `
+                <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-xl px-2.5 py-1.5 text-white text-center shrink-0">
+                  <span class="text-[9px] uppercase tracking-wider font-semibold opacity-80">средняя</span>
+                  <strong class="text-xl leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
+                  <span class="text-[9px] opacity-80">${groupRows.length} оценок</span>
+                </div>
+              ` : `
                 <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
                   ${escapeHtml(formatRating(item.rating))}
                 </div>
-              ` : `
+              `) : `
                 <div class="px-2 py-1 rounded-lg bg-slate-700 text-yellow-400 font-medium text-sm">
                   Хочу посмотреть
                 </div>
@@ -479,18 +519,32 @@ async function loadRatings(currentUser, filter = 'all') {
             </div>
             
             ${item.groupedRatings ? `
-              <div class="mt-2 text-xs text-gray-300">
-                <span class="font-medium">Средняя ${escapeHtml(formatRating(item.rating))} · ${item.groupedRatings.length} оценок</span>
-                <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                  ${item.groupedRatings.map(r => `
-                    <span class="inline-flex items-center gap-1">
-                      <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="w-5 h-5 rounded-full bg-slate-700">
-                      ${escapeHtml(r.profiles?.username || 'Участник')}: ${escapeHtml(formatRating(r.rating))}
-                    </span>`).join('')}
+              <div class="grouped-ratings-panel mt-3 rounded-xl border border-slate-600/70 bg-slate-900/65 p-3">
+                <div class="flex items-center justify-between gap-3 mb-2">
+                  <span class="text-[10px] font-semibold uppercase tracking-[.14em] text-gray-400">Оценки компании</span>
+                  <div class="flex items-center -space-x-2" aria-label="${groupRows.length} оценок участников">
+                    ${visibleGroupRows.slice(0, 4).map(r => `
+                      <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" title="${escapeHtml(r.profiles?.username || 'Участник')}" class="w-6 h-6 rounded-full border-2 border-slate-900 bg-slate-700 object-cover">
+                    `).join('')}
+                    ${groupRows.length > 4 ? `<span class="w-6 h-6 rounded-full border-2 border-slate-900 bg-slate-700 text-[9px] text-gray-200 flex items-center justify-center">+${groupRows.length - 4}</span>` : ''}
+                  </div>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  ${visibleGroupRows.map((r, index) => {
+                    const score = Number(r.rating || 0);
+                    const chipColor = score >= 8 ? 'border-green-500/30 bg-green-500/10 text-green-200' : score >= 5 ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-100' : 'border-red-500/30 bg-red-500/10 text-red-200';
+                    return `<span class="group-rating-chip inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] ${chipColor}" style="--chip-delay:${index * 35}ms" title="${escapeHtml(r.profiles?.username || 'Участник')}: ${escapeHtml(formatRating(score))}">
+                      <span class="max-w-[90px] truncate text-gray-200">${escapeHtml(r.profiles?.username || 'Участник')}</span>
+                      <b>${escapeHtml(formatRating(score))}</b>
+                    </span>`;
+                  }).join('')}
+                  ${hiddenGroupCount ? `<span class="inline-flex items-center rounded-full bg-slate-800 px-2 py-1 text-[11px] text-gray-400">ещё ${hiddenGroupCount}</span>` : ''}
                 </div>
               </div>
-              ${item.groupedRatings.filter(r => r.comment).slice(0, 3).map(r => `
-                <p class="mt-1 text-gray-400 text-xs line-clamp-2"><b>${escapeHtml(r.profiles?.username || 'Участник')}:</b> ${escapeHtml(r.comment)}</p>
+              ${groupRows.filter(r => r.comment).slice(0, 2).map(r => `
+                <blockquote class="group-rating-comment mt-2 rounded-lg border-l-2 border-primary/70 bg-slate-900/40 px-3 py-2 text-xs text-gray-400 line-clamp-2">
+                  <b class="text-gray-300">${escapeHtml(r.profiles?.username || 'Участник')}:</b> ${escapeHtml(r.comment)}
+                </blockquote>
               `).join('')}
             ` : `
               <div class="mt-2 flex items-center gap-2">
@@ -515,7 +569,7 @@ async function loadRatings(currentUser, filter = 'all') {
   paintPending();
 
   // Обработчик клика по карточке тайтла
-  document.querySelectorAll('.title-card').forEach(card => {
+  feedAll('.title-card').forEach(card => {
     card.addEventListener('click', () => {
       const titleId = card.dataset.titleId;
       const mediaType = card.dataset.mediaType;
@@ -576,22 +630,25 @@ export function saveVisibleFeedSections(sections) {
 }
 
 function applyFeedOrder() {
-  const wrap = document.getElementById('blocks-wrap');
+  const wrap = feedEl('blocks-wrap');
   if (!wrap) return;
+  const visible = new Set(getVisibleFeedSections());
   for (const id of getFeedOrder()) {
-    const el = document.getElementById('blk-' + id);
-    if (el) wrap.appendChild(el);
+    const el = feedEl('blk-' + id);
+    if (!el) continue;
+    el.classList.toggle('hidden', !visible.has(id));
+    wrap.appendChild(el);
   }
 }
 
 // Баннер очереди отложенных оценок
 function paintPending() {
-  const banner = document.getElementById('pending-banner');
+  const banner = feedEl('pending-banner');
   if (!banner) return;
   const pending = getPendingRatings();
   banner.classList.toggle('hidden', pending.length === 0);
   if (!pending.length) return;
-  const textEl = document.getElementById('pending-text');
+  const textEl = feedEl('pending-text');
   if (textEl) textEl.textContent = `📴 Отложенных оценок: ${pending.length} — отправятся в базу при появлении сети`;
 }
 
@@ -623,11 +680,11 @@ function applySort(list) {
 }
 
 function initSort(currentUser) {
-  document.querySelectorAll('.sort-btn').forEach(btn => {
+  feedAll('.sort-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       activeSort = btn.dataset.sort;
       saveSort(activeSort);
-      document.querySelectorAll('.sort-btn').forEach(b => {
+      feedAll('.sort-btn').forEach(b => {
         const active = b.dataset.sort === activeSort;
         b.classList.toggle('bg-secondary', active);
         b.classList.toggle('text-white', active);
@@ -665,7 +722,7 @@ function skeletonCards(count = 3) {
 // (TMDb recommendations от вашего топ-тайтла). Ряды кликабельны целиком.
 async function loadRecs(currentUser) {
   // Блоки трендов и подборок живут в общем контейнере порядка секций
-  const section = document.getElementById('blocks-wrap');
+  const section = feedEl('blocks-wrap');
   if (!section) return;
   section.querySelectorAll('#blk-trends, #blk-recs').forEach(n => n.remove());
   const visibleSections = getVisibleFeedSections();
@@ -743,7 +800,7 @@ function trendColumnCount(grid) {
 }
 
 function renderTrendsGrid(currentUser) {
-  const grid = document.getElementById('trends-grid');
+  const grid = feedEl('trends-grid');
   if (!grid) return;
   let items = recsCache.trends[trendsActive];
   let offlineTrends = false;
@@ -755,7 +812,7 @@ function renderTrendsGrid(currentUser) {
       offlineTrends = true;
     }
   }
-  document.querySelectorAll('.trend-tab').forEach(btn => {
+  feedAll('.trend-tab').forEach(btn => {
     const active = btn.dataset.key === trendsActive;
     btn.classList.toggle('bg-primary', active);
     btn.classList.toggle('text-white', active);
@@ -796,7 +853,7 @@ function renderTrendsGrid(currentUser) {
 }
 
 function paintTrendsSkeleton() {
-  const grid = document.getElementById('trends-grid');
+  const grid = feedEl('trends-grid');
   if (!grid) return;
   const columns = trendColumnCount(grid);
   const count = Math.max(columns, Math.floor(20 / columns) * columns);
@@ -969,8 +1026,8 @@ function fillRecRow(section, id, titleText, subtitle, items, badgeClass, emptyHi
 }
 
 function initSearch(currentUser) {
-  const searchInput = document.getElementById('search-input');
-  const resultsContainer = document.getElementById('search-results');
+  const searchInput = feedEl('search-input');
+  const resultsContainer = feedEl('search-results');
   let searchTimeout;
 
   // При фокусе на пустом поле показываем историю поиска
@@ -1019,20 +1076,20 @@ function initSearch(currentUser) {
     `;
     resultsContainer.classList.remove('hidden');
 
-    document.getElementById('clear-history-btn').addEventListener('click', (e) => {
+    feedEl('clear-history-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       clearHistory();
       resultsContainer.classList.add('hidden');
       showToast('История очищена', 'success');
     });
-    document.querySelectorAll('.history-query').forEach(el => {
+    feedAll('.history-query').forEach(el => {
       el.addEventListener('click', () => {
         searchInput.value = el.dataset.query;
         searchInput.dispatchEvent(new Event('input'));
         searchInput.focus();
       });
     });
-    document.querySelectorAll('.history-title').forEach(el => {
+    feedAll('.history-title').forEach(el => {
       el.addEventListener('click', () => {
         resultsContainer.classList.add('hidden');
         openRatingModal(el.dataset.id, el.dataset.type, currentUser, () => {
@@ -1106,7 +1163,7 @@ function initSearch(currentUser) {
         }).join('');
 
         // Обработчик клика по результату поиска
-        document.querySelectorAll('.search-result-item').forEach(item => {
+        feedAll('.search-result-item').forEach(item => {
           item.addEventListener('click', () => {
             const titleId = item.dataset.id;
             const mediaType = item.dataset.type;
@@ -1148,9 +1205,9 @@ function initSearch(currentUser) {
   });
 
   // Обработчики фильтров
-  document.querySelectorAll('.filter-btn').forEach(btn => {
+  feedAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.filter-btn').forEach(b => {
+      feedAll('.filter-btn').forEach(b => {
         b.classList.remove('bg-primary', 'text-white');
         b.classList.add('bg-card', 'hover:bg-slate-700');
       });
@@ -1163,7 +1220,7 @@ function initSearch(currentUser) {
 }
 
 function initNav(currentUser) {
-  document.querySelectorAll('.nav-btn').forEach(btn => {
+  feedAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (btn.dataset.page === 'profile') {
         const { renderProfilePage } = await import('./Profile.js');
