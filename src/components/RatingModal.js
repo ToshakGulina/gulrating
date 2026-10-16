@@ -44,7 +44,7 @@ export function openWatchOverlay(opts) {
     <div id="watch-stage" class="flex-1 relative min-h-0 rounded-xl overflow-hidden bg-black/60 flex items-center justify-center">
       <p id="watch-status" class="text-sm text-gray-400 px-4 text-center">Ищем доступные плееры…</p>
     </div>
-    <div id="watch-sources" class="flex gap-2 overflow-x-auto pb-1 flex-shrink-0"></div>
+    <div id="watch-sources" class="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pb-1 flex-shrink-0 content-start"></div>
     <p id="watch-hint" class="text-xs text-gray-500 flex-shrink-0"></p>`;
   document.body.appendChild(ov);
 
@@ -66,17 +66,31 @@ export function openWatchOverlay(opts) {
     frame.className = 'absolute inset-0 w-full h-full bg-black';
     frame.allow = 'fullscreen; encrypted-media; autoplay';
     frame.setAttribute('allowfullscreen', '');
+    frame.referrerPolicy = 'no-referrer';
     frame.src = url;
     stage.appendChild(frame);
     setTab(url);
   }
 
-  function selectSource(player, idx, buttons) {
+  function markSelected(buttons, idx) {
     buttons.forEach((b, i) => b.classList.toggle('bg-primary', i === idx));
     buttons.forEach((b, i) => b.classList.toggle('text-white', i === idx));
+  }
+
+  function selectSource(player, idx, buttons) {
+    markSelected(buttons, idx);
+    try {
+      localStorage.setItem('gulrating:last_dub', JSON.stringify({ type: player.type, name: player.name }));
+    } catch (e) { /* приватный режим — не страшно */ }
     if (apk) {
-      // Чистая страница плеера — верхним документом WebView
-      window.location.href = player.url;
+      // Чистая страница плеера — верхним документом WebView; Referer
+      // подставляет нативный мост (страница зеркала), иначе плеерные CDN
+      // отвечают «недоступно в регионе» на чужой/пустой referer
+      if (window.GulRatingBridge && window.GulRatingBridge.openPlayer) {
+        window.GulRatingBridge.openPlayer(player.url, mirrorUrl || '');
+      } else {
+        window.location.href = player.url;
+      }
       return;
     }
     showFrame(player.url);
@@ -92,17 +106,22 @@ export function openWatchOverlay(opts) {
       sources.appendChild(b);
       return b;
     });
+    // Стартуем с прошлой озвучки, если она ещё в списке, иначе с первой
+    let start = 0;
+    try {
+      const last = JSON.parse(localStorage.getItem('gulrating:last_dub') || 'null');
+      if (last) start = Math.max(0, list.findIndex((x) => x.type === last.type && x.name === last.name));
+    } catch (e) { /* повреждённая запись — не важна */ }
+    markSelected(buttons, start);
     if (apk) {
-      stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Выберите озвучку — плеер откроется внутри приложения.<br>Кнопка ⛶ внутри плеера развернёт видео на весь экран.</p>';
-      setTab(list[0] && list[0].url);
-      buttons[0] && buttons[0].classList.add('bg-primary', 'text-white');
-    } else if (list[0]) {
-      buttons[0].classList.add('bg-primary', 'text-white');
-      showFrame(list[0].url);
+      stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Нажмите озвучку — плеер откроется внутри приложения.<br>Кнопка ⛶ внутри плеера развернёт видео на весь экран.</p>';
+      setTab(list[start] && list[start].url);
+    } else if (list[start]) {
+      showFrame(list[start].url);
     }
     hint.textContent = apk
-      ? 'Плеер откроется в приложении целиком: прогресс и «продолжить с минуты» работают.'
-      : '⛭ — плеер на весь экран, Esc — выход. Озвучки переключаются кнопками ниже.';
+      ? 'Нажмите озвучку: плеер откроется в приложении, прогресс и «продолжить» работают. Выбор запомнится.'
+      : '⛭ — на весь экран, Esc — выход. Озвучки — плитками ниже, выбор запомнится. Если плеер пишет «недоступно в регионе» — попробуйте другую озвучку или «вкладка».';
   }
 
   function fallback() {

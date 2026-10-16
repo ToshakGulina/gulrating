@@ -182,6 +182,20 @@ public class MainActivity extends Activity {
             }
 
 
+            // Переход на чистую страницу плеера с Referer зеркала:
+            // плеерные CDN сверяют встраивающую страницу со своим списком,
+            // без знакомого referer пишут «недоступно в регионе»
+            @JavascriptInterface
+            public void openPlayer(final String url, final String referer) {
+                if (url == null || url.isEmpty()) return;
+                handler.post(() -> {
+                    inPlayerSession = true;
+                    java.util.Map<String, String> headers = new java.util.HashMap<>();
+                    if (referer != null && !referer.isEmpty()) headers.put("Referer", referer);
+                    web.loadUrl(url, headers);
+                });
+            }
+
             @JavascriptInterface
             public void notify(final String text) {
                 handler.post(() -> showNotification(text));
