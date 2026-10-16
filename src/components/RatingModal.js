@@ -30,6 +30,21 @@ const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-
 // браузера и сразу включает следующий.
 const BAD_DUBS_KEY = 'gulrating:bad_dubs';
 
+// Embed-only плееры: открытые верхним документом отвечают «404 NOT FOUND» /
+// «контент не найден» (скриншоты пользователя из APK), но отлично играют
+// внутри фрейма — как в браузере. В приложении ведём их во фрейм, остальные
+// источники — верхним документом (там работают прогресс и продолжение).
+const EMBED_ONLY_HOSTS = ['stravers.live', 'obrut.show'];
+
+function isEmbedOnly(url) {
+  try {
+    const h = new URL(url).hostname;
+    return EMBED_ONLY_HOSTS.some((x) => h === x || h.endsWith('.' + x));
+  } catch (e) {
+    return false;
+  }
+}
+
 function readBadDubs() {
   try {
     const v = JSON.parse(localStorage.getItem(BAD_DUBS_KEY) || '[]');
@@ -132,7 +147,13 @@ export function openWatchOverlay(opts) {
     if (!dub) return;
     setTab(dub.url);
     if (apk) {
-      // Referer зеркала подставляет нативный мост — рабочая схема зеркал
+      // Embed-only (Alloha, Turbo) — во фрейм, как в браузере: верхним
+      // документом они отказываются работать. Остальные — верхним
+      // документом через мост: так нативно пишутся прогресс и продолжение
+      if (isEmbedOnly(dub.url)) {
+        showFrame(dub.url);
+        return;
+      }
       if (window.GulRatingBridge && window.GulRatingBridge.openPlayer) {
         window.GulRatingBridge.openPlayer(dub.url, mirrorUrl || '');
       } else {
@@ -285,7 +306,7 @@ export function openWatchOverlay(opts) {
         setTab((curDub() || {}).url);
       }
       hint.textContent = apk
-        ? 'Источник — верхняя строка, озвучка — нижняя. Запуск — тапом по озвучке; выбор запомнится.'
+        ? 'Запуск — тапом по озвучке. Alloha и Turbo играют во встроенном фрейме (прогресс у них не пишется), остальные источники — целиком в приложении с прогрессом и продолжением.'
         : '⛭ — на весь экран, Esc — выход. Запуск — тапом по озвучке; источник лишь меняет список. «Не играет» спрячет источник и включит следующий.';
     })
     .catch(() => fallback());
