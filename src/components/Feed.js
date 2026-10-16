@@ -455,8 +455,8 @@ async function loadRatings(currentUser, filter = 'all') {
     return `
       <div class="title-card bg-card rounded-2xl overflow-hidden hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="p-4 flex gap-4">
-          <div class="flex-shrink-0 w-20">
-            ${posterImg(title.poster_path, title.title, 'w-20 aspect-[2/3] rounded-lg')}
+          <div class="feed-card-poster flex-shrink-0">
+            ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-start justify-between gap-2">
@@ -926,11 +926,11 @@ function initSearch(currentUser) {
       ` : ''}
       ${titles.length ? `
         <div class="p-2 border-t border-slate-700">
-          <div class="grid grid-cols-4 gap-2">
+          <div class="flex gap-2 overflow-x-auto pb-1">
             ${titles.map(t => `
-              <div class="history-title cursor-pointer group min-w-0" data-id="${escapeHtml(t.id)}" data-type="${escapeHtml(t.media_type)}">
-                ${posterImg(t.poster_path, t.title, 'w-full aspect-[2/3] rounded-lg')}
-                <div class="text-[11px] truncate mt-1 group-hover:text-white">${escapeHtml(t.title)}</div>
+              <div class="history-title cursor-pointer group flex-shrink-0" data-id="${escapeHtml(t.id)}" data-type="${escapeHtml(t.media_type)}">
+                ${posterImg(t.poster_path, t.title, 'w-full aspect-[2/3] rounded-md')}
+                <div class="text-[10px] leading-tight line-clamp-2 mt-1 group-hover:text-white">${escapeHtml(t.title)}</div>
               </div>
             `).join('')}
           </div>
@@ -1014,8 +1014,8 @@ function initSearch(currentUser) {
           primeTitleCache(item.media_type, item.id, item);
           return `
             <div class="search-result-item p-3 hover:bg-slate-700 cursor-pointer flex gap-3 transition-colors" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
-              <div class="flex-shrink-0 w-10">
-                ${posterImg(item.poster_path, item.title, 'w-10 aspect-[2/3] rounded')}
+              <div class="flex-shrink-0 w-14">
+                ${posterImg(item.poster_path, item.title, 'w-14 aspect-[2/3] rounded')}
               </div>
               <div class="min-w-0">
                 <div class="font-medium truncate">${escapeHtml(item.title)}</div>

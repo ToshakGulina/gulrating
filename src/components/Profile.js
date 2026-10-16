@@ -691,8 +691,8 @@ function renderMyRatings(ratings) {
 
     return `
       <div class="title-card bg-card rounded-2xl p-4 flex gap-4 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
-        <div class="flex-shrink-0 w-16">
-          ${posterImg(title.poster_path, title.title, 'w-16 aspect-[2/3] rounded-lg')}
+        <div class="profile-card-poster flex-shrink-0">
+          ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-start justify-between gap-2">
@@ -727,8 +727,8 @@ function renderWatchlist(items) {
 
     return `
       <div class="title-card bg-card rounded-2xl p-4 flex gap-4 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
-        <div class="flex-shrink-0 w-16">
-          ${posterImg(title.poster_path, title.title, 'w-16 aspect-[2/3] rounded-lg')}
+        <div class="profile-card-poster flex-shrink-0">
+          ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-semibold leading-tight">${escapeHtml(title.title)}</h3>

@@ -25,16 +25,29 @@ android {
         versionName '1.0'
     }
 
-    // Стабильная подпись релизов: keystore лежит в приватном репозитории
-    // (та же политика, что у ключей в src/config.js). Благодаря одному ключу
-    // новые APK ставятся поверх старых без удаления.
+    // Подпись подключается только при наличии всех переменных окружения.
+    // В CI секреты выдаются только tag-релизу; PR собирается без подписи.
+    def signingValues = [
+        storeFile: System.getenv('ANDROID_KEYSTORE_FILE'),
+        storePassword: System.getenv('ANDROID_KEYSTORE_PASSWORD'),
+        keyAlias: System.getenv('ANDROID_KEY_ALIAS'),
+        keyPassword: System.getenv('ANDROID_KEY_PASSWORD')
+    ]
+    def hasAnySigningValue = signingValues.values().any { it }
+    def hasCompleteSigning = signingValues.values().every { it }
+    if (hasAnySigningValue && !hasCompleteSigning) {
+        throw new GradleException('Для подписи задайте все ANDROID_KEYSTORE_* secrets.')
+    }
+
     signingConfigs {
-        release {
-            storeFile file('../keystore/gulrating.p12')
-            storePassword 'gulrating2026'
-            keyAlias 'gulrating'
-            keyPassword 'gulrating2026'
-            storeType 'pkcs12'
+        if (hasCompleteSigning) {
+            release {
+                storeFile file(signingValues.storeFile)
+                storePassword signingValues.storePassword
+                keyAlias signingValues.keyAlias
+                keyPassword signingValues.keyPassword
+                storeType 'pkcs12'
+            }
         }
     }
 
@@ -42,7 +55,9 @@ android {
         release {
             // Обёртка тонкая, минификация не нужна: меньше риск сломать WebView-логику
             minifyEnabled false
-            signingConfig signingConfigs.release
+            if (hasCompleteSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 

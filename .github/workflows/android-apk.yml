@@ -1,8 +1,7 @@
 name: android-apk
 
-# Сборка APK для установки вне Google Play (sideload).
-# Ручной запуск: Actions → android-apk → Run workflow.
-# Тег v*: дополнительно публикует APK в GitHub Release.
+# APK для sideload. PR/manual branch builds are unsigned previews;
+# only version tags are signed and published as releases.
 on:
   workflow_dispatch:
   push:
@@ -11,36 +10,100 @@ on:
   pull_request:
     paths:
       - 'android/**'
+      - 'src/**'
+      - 'assets/**'
+      - 'data/offline-catalog.json'
+      - 'index.html'
+      - 'manifest.json'
+      - 'sw.js'
+      - 'tailwind.config.js'
+      - 'scripts/build-css.sh'
+      - 'scripts/release-notes.sh'
+      - 'CHANGELOG.md'
       - '.github/workflows/android-apk.yml'
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
+      - name: Restore release signing key
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for secret_name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!secret_name}" ]; then
+              echo "::error::Missing repository Actions secret: ${secret_name}"
+              exit 1
+            fi
+          done
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/gulrating-release.p12"
+          test -s "$RUNNER_TEMP/gulrating-release.p12"
+
       - name: Build signed release APK
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/gulrating-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: cd android && gradle --no-daemon -q assembleRelease
 
-      - uses: actions/upload-artifact@v4
+      - name: Build unsigned preview APK
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: cd android && gradle --no-daemon -q assembleRelease
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          SAFE_REF="$(printf '%s' "$GITHUB_REF_NAME" | tr '/:' '--')"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            cp android/app/build/outputs/apk/release/app-release.apk "release/gulrating-${SAFE_REF}.apk"
+          else
+            cp android/app/build/outputs/apk/release/app-release-unsigned.apk "release/gulrating-${SAFE_REF}-unsigned.apk"
+          fi
+          scripts/release-notes.sh "${GITHUB_REF_NAME}" > release/release-notes.md
+
+      - uses: actions/upload-artifact@v7
         with:
           name: gulrating-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: release/*
+          if-no-files-found: error
+          retention-days: 30
 
-      - name: Publish GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/')
+  publish:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: gulrating-apk
+          path: release
+
+      - name: Create release with signed APK and changelog
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            android/app/build/outputs/apk/release/app-release.apk \
+            "release/gulrating-${GITHUB_REF_NAME}.apk#Подписанный APK для Android" \
             --title "ГульРейтинг APK ${GITHUB_REF_NAME}" \
-            --notes "APK для установки вне Google Play: скачайте файл на телефон и откройте его (разрешите установку из неизвестных источников). Подписан стабильным ключом проекта: новые версии ставятся поверх старых без удаления." \
+            --notes-file release/release-notes.md \
             --repo "$GITHUB_REPOSITORY"

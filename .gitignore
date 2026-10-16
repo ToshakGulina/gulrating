@@ -1,8 +1,15 @@
-# Зависимости и сборка (проект без сборки, но на случай локальных экспериментов)
+# Зависимости и сборка
 node_modules/
 dist/
 build/
 .cache/
+out/
+pub/
+android/.gradle/
+android/local.properties
+android/**/build/
+*.apk
+*.aab
 
 # Логи и системные файлы
 *.log
@@ -17,3 +24,6 @@ src/config.local.js
 # Кэши инструментов
 .vscode/
 .idea/
+
+# Android signing material
+android/keystore/

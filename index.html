@@ -44,6 +44,20 @@
     /* Карточки ленты: тонкая рамка и мягкий отклик вместо плоских плиток */
     #ratings-list .title-card { border: 1px solid rgb(51 65 85 / .45); transition: border-color .15s ease, background-color .15s ease; }
     #ratings-list .title-card:hover { border-color: rgb(71 85 105 / .8); }
+
+    /* Размеры постеров задаём явно: одинаковый макет в браузере, PWA и APK. */
+    .poster-frame { position: relative; aspect-ratio: 2 / 3; overflow: hidden; }
+    .poster-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .feed-card-poster { width: 96px; flex: 0 0 96px; }
+    .profile-card-poster { width: 80px; flex: 0 0 80px; }
+    #poster-box { width: clamp(84px, 25vw, 112px); flex: 0 0 clamp(84px, 25vw, 112px); }
+    #poster-box > .poster-frame { width: 100%; aspect-ratio: 2 / 3; }
+    .history-title { width: 56px; flex: 0 0 56px; }
+    .history-title > .poster-frame { width: 100%; aspect-ratio: 2 / 3; }
+    @media (min-width: 640px) {
+      #poster-box { width: 112px; flex-basis: 112px; }
+    }
+
     /* Заставка до загрузки JS — чтобы не было пустого белого экрана */
     #boot-splash {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
