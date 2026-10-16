@@ -194,6 +194,7 @@ export function openWatchOverlay(opts) {
         // источников с одной озвучкой): лишь подставляет список
         // его озвучек (ту же озвучку, если она есть и здесь). Запуск —
         // отдельным тапом по озвучке, как просил пользователь
+        curType = g.type;
         curName = (g.dubs.find((d) => d.name === curName) || g.dubs[0] || {}).name || null;
         renderPlayers();
         renderDubs();
