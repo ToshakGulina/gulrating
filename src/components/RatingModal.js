@@ -757,8 +757,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
     renderValue();
 
-    // «Смотреть»: в нашем APK открываем плеер прямо в WebView приложения,
-    // в браузере — пробуем встроить фреймом поверх карточки
+    // «Смотреть»: если известна страница зеркала, используем её встроенный
+    // список источников в текущей вкладке (и в браузере, и в приложении).
     const watchBtn = modal.querySelector('#watch-btn');
     if (watchBtn) {
       watchBtn.addEventListener('click', () => {
@@ -774,12 +774,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           query: `${title.title || title.name || ''} ${yr}`.trim()
         });
         reportWatchNative(titleId, mediaType);
-        if (isApk()) {
-          // РАБОЧАЯ СХЕМА (как в v1.0.4): в приложении плеер открывается
-          // страницей зеркала верхним документом — зеркало само разруливает
-          // все источники своим виджетом, это заведомо работает со всеми
-          // плеерами, фуллскрином и ландшафтом. Чистый список плееров —
-          // только в браузере, где он идеален
+        if (kpPageUrl) {
+          // Используем зеркало и в браузере, и в APK: его встроенный виджет
+          // показывает полный список источников (включая Alloha и Turbo).
+          // Переходим в той же вкладке, не открываем отдельную.
           window.location.href = kpPageUrl;
           return;
         }
