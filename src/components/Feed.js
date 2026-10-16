@@ -486,7 +486,7 @@ async function loadRatings(currentUser, filter = 'all') {
     const year = releaseYear(title.release_date);
     const ratingColor = item.rating >= 8 ? 'bg-green-600' : item.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
     const groupRows = item.groupedRatings || [];
-    const visibleGroupRows = groupRows.slice(0, 5);
+    const visibleGroupRows = groupRows.slice(0, 3);
     const hiddenGroupCount = Math.max(0, groupRows.length - visibleGroupRows.length);
 
     return `
@@ -503,8 +503,7 @@ async function loadRatings(currentUser, filter = 'all') {
               </div>
               ${!isWatchlistView ? (item.groupedRatings ? `
                 <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-xl px-2.5 py-1.5 text-white text-center shrink-0">
-                  <span class="text-[9px] uppercase tracking-wider font-semibold opacity-80">средняя</span>
-                  <strong class="text-xl leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
+                  <strong class="text-lg leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
                   <span class="text-[9px] opacity-80">${groupRows.length} оценок</span>
                 </div>
               ` : `
@@ -519,33 +518,15 @@ async function loadRatings(currentUser, filter = 'all') {
             </div>
             
             ${item.groupedRatings ? `
-              <div class="grouped-ratings-panel mt-3 rounded-xl border border-slate-600/70 bg-slate-900/65 p-3">
-                <div class="flex items-center justify-between gap-3 mb-2">
-                  <span class="text-[10px] font-semibold uppercase tracking-[.14em] text-gray-400">Оценки компании</span>
-                  <div class="flex items-center -space-x-2" aria-label="${groupRows.length} оценок участников">
-                    ${visibleGroupRows.slice(0, 4).map(r => `
-                      <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" title="${escapeHtml(r.profiles?.username || 'Участник')}" class="w-6 h-6 rounded-full border-2 border-slate-900 bg-slate-700 object-cover">
-                    `).join('')}
-                    ${groupRows.length > 4 ? `<span class="w-6 h-6 rounded-full border-2 border-slate-900 bg-slate-700 text-[9px] text-gray-200 flex items-center justify-center">+${groupRows.length - 4}</span>` : ''}
-                  </div>
-                </div>
-                <div class="flex flex-wrap gap-1.5">
-                  ${visibleGroupRows.map((r, index) => {
-                    const score = Number(r.rating || 0);
-                    const chipColor = score >= 8 ? 'border-green-500/30 bg-green-500/10 text-green-200' : score >= 5 ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-100' : 'border-red-500/30 bg-red-500/10 text-red-200';
-                    return `<span class="group-rating-chip inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] ${chipColor}" style="--chip-delay:${index * 35}ms" title="${escapeHtml(r.profiles?.username || 'Участник')}: ${escapeHtml(formatRating(score))}">
-                      <span class="max-w-[90px] truncate text-gray-200">${escapeHtml(r.profiles?.username || 'Участник')}</span>
-                      <b>${escapeHtml(formatRating(score))}</b>
-                    </span>`;
-                  }).join('')}
-                  ${hiddenGroupCount ? `<span class="inline-flex items-center rounded-full bg-slate-800 px-2 py-1 text-[11px] text-gray-400">ещё ${hiddenGroupCount}</span>` : ''}
-                </div>
+              <div class="grouped-ratings-summary mt-2 flex min-w-0 items-center gap-2 text-[11px] text-gray-400" title="Общая оценка компании">
+                <span class="flex items-center -space-x-2 flex-shrink-0" aria-hidden="true">
+                  ${visibleGroupRows.map(r => `
+                    <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" title="${escapeHtml(r.profiles?.username || 'Участник')}" class="w-5 h-5 rounded-full border-2 border-card bg-slate-700 object-cover">
+                  `).join('')}
+                  ${hiddenGroupCount ? `<span class="w-5 h-5 rounded-full border-2 border-card bg-slate-700 text-[8px] text-gray-300 flex items-center justify-center">+${hiddenGroupCount}</span>` : ''}
+                </span>
+                <span class="truncate">Средняя оценка компании</span>
               </div>
-              ${groupRows.filter(r => r.comment).slice(0, 2).map(r => `
-                <blockquote class="group-rating-comment mt-2 rounded-lg border-l-2 border-primary/70 bg-slate-900/40 px-3 py-2 text-xs text-gray-400 line-clamp-2">
-                  <b class="text-gray-300">${escapeHtml(r.profiles?.username || 'Участник')}:</b> ${escapeHtml(r.comment)}
-                </blockquote>
-              `).join('')}
             ` : `
               <div class="mt-2 flex items-center gap-2">
                 <img src="${escapeHtml(safeAvatarUrl(user.avatar_url, user.username))}" alt="" class="w-6 h-6 rounded-full bg-slate-700">

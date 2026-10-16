@@ -67,13 +67,15 @@ export function openWatchOverlay(opts) {
   const { kpId, imdbId, query, titleText, mirrorUrl } = opts || {};
   const apk = isApk();
   const ov = document.createElement('div');
+  ov.id = 'watch-overlay';
   ov.className = 'fixed inset-0 z-50 bg-black/95 flex flex-col p-3 gap-2';
   ov.innerHTML = `
     <div class="flex items-center gap-2">
       <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
-      <button id="watch-fs" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-200 text-sm" title="На весь экран" aria-label="На весь экран">⛭</button>
-      <a id="watch-tab" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-200 text-xs" href="${escapeHtml(mirrorUrl || '#')}" target="_blank" rel="noopener noreferrer" title="Открыть в новой вкладке">вкладка</a>
-      <button id="watch-close" class="text-gray-300 hover:text-white text-2xl leading-none px-2" aria-label="Закрыть плеер">&times;</button>
+      <button id="watch-crop" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-xs text-gray-300 hover:bg-slate-700 disabled:opacity-40" title="Обрезать верх и низ окна сайта-плеера; могут скрыться его кнопки" aria-label="Обрезать верх и низ окна сайта-плеера" aria-pressed="false" disabled>Кадр</button>
+      <button id="watch-fs" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-lg leading-none text-gray-200 hover:bg-slate-700" title="На весь экран" aria-label="На весь экран">⛶</button>
+      <a id="watch-tab" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-slate-700" href="${escapeHtml(mirrorUrl || '#')}" target="_blank" rel="noopener noreferrer" title="Открыть в новой вкладке">вкладка</a>
+      <button id="watch-close" class="rounded-xl px-2 py-1 text-2xl leading-none text-gray-300 hover:bg-slate-800 hover:text-white" aria-label="Закрыть плеер">&times;</button>
     </div>
     <div id="watch-stage" class="flex-1 relative min-h-0 rounded-xl overflow-hidden bg-black/60 flex items-center justify-center">
       <p id="watch-status" class="text-sm text-gray-400 px-4 text-center">Ищем доступные плееры…</p>
@@ -81,7 +83,7 @@ export function openWatchOverlay(opts) {
     <div id="watch-players" class="flex flex-wrap gap-1.5 flex-shrink-0 content-start"></div>
     <div id="watch-dubs" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pb-1 flex-shrink-0 content-start"></div>
     <div class="flex items-center gap-2 flex-shrink-0">
-      <button id="watch-bad" class="px-2 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-gray-400 text-xs">не играет</button>
+      <button id="watch-bad" class="rounded-full bg-slate-800/70 px-3 py-1.5 text-xs text-gray-400 hover:bg-slate-700 hover:text-gray-200">не играет</button>
       <p id="watch-hint" class="text-xs text-gray-500 flex-1"></p>
     </div>`;
   document.body.appendChild(ov);
@@ -92,6 +94,40 @@ export function openWatchOverlay(opts) {
   const hint = ov.querySelector('#watch-hint');
   const tabLink = ov.querySelector('#watch-tab');
   const fsBtn = ov.querySelector('#watch-fs');
+  const cropBtn = ov.querySelector('#watch-crop');
+  function updateFullscreenButton() {
+    const exiting = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+    fsBtn.title = exiting ? 'Выйти из полного экрана' : 'На весь экран';
+    fsBtn.setAttribute('aria-label', fsBtn.title);
+  }
+
+  async function toggleFullscreen() {
+    const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fullscreenElement) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) await Promise.resolve(exit.call(document)).catch(() => {});
+      return;
+    }
+    const request = ov.requestFullscreen || ov.webkitRequestFullscreen;
+    if (!request) {
+      showToast('Полноэкранный режим не поддерживается этим браузером', 'info');
+      return;
+    }
+    try {
+      await Promise.resolve(request.call(ov));
+    } catch (error) {
+      showToast('Не удалось открыть плеер на весь экран', 'info');
+    }
+  }
+
+  const handleFullscreenChange = () => updateFullscreenButton();
+  const removeOverlayListeners = () => {
+    document.removeEventListener('keydown', ov._onKey);
+    document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+  };
+  document.addEventListener('fullscreenchange', handleFullscreenChange);
+  document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
   if (apk) fsBtn.style.display = 'none'; // фуллскрин в APK делает сам плеер
 
   let groups = [];        // [{ type, embed, dubs: [{name, quality, url}] }]
@@ -99,7 +135,7 @@ export function openWatchOverlay(opts) {
   let curName = null;
   let showHidden = false; // показать спрятанные (браузер: только-приложение; плохие)
 
-  const CHIP = 'px-3 py-1.5 rounded-lg text-xs whitespace-nowrap flex-shrink-0 ';
+  const CHIP = 'px-3 py-1.5 rounded-full text-xs whitespace-nowrap flex-shrink-0 ';
   const CHIP_IDLE = CHIP + 'bg-slate-800 hover:bg-slate-700 text-gray-200';
   const CHIP_ON = CHIP + 'bg-primary text-white';
 
@@ -118,6 +154,7 @@ export function openWatchOverlay(opts) {
     // без referer мы выглядим как прямой заход, а не как чужой сайт
     frame.src = url;
     stage.appendChild(frame);
+    cropBtn.disabled = false;
     setTab(url);
   }
 
@@ -165,10 +202,9 @@ export function openWatchOverlay(opts) {
     }
     showFrame(dub.url);
     if (autoFs) {
-      // Тап по озвучке — пользовательский жест: браузер разрешает
-      // развернуть фрейм на весь экран сразу
-      const f = stage.querySelector('iframe');
-      if (f && f.requestFullscreen) f.requestFullscreen().catch(() => {});
+      // Полноэкранным становится наш overlay, поэтому крестик и управление
+      // остаются видимыми поверх iframe.
+      toggleFullscreen();
     }
     void group;
   }
@@ -260,24 +296,29 @@ export function openWatchOverlay(opts) {
     }
   });
 
-  fsBtn.addEventListener('click', () => {
-    const frame = stage.querySelector('iframe');
-    if (!frame) return;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    else if (frame.requestFullscreen) frame.requestFullscreen().catch(() => {});
+  cropBtn.addEventListener('click', () => {
+    if (!stage.querySelector('iframe')) return;
+    const cropped = stage.classList.toggle('crop-vertical');
+    cropBtn.setAttribute('aria-pressed', String(cropped));
+    cropBtn.textContent = cropped ? 'Целиком' : 'Кадр';
+    cropBtn.title = cropped ? 'Показать всё окно сайта-плеера' : 'Обрезать верх/низ окна сайта-плеера; могут скрыться его кнопки';
   });
+  fsBtn.addEventListener('click', toggleFullscreen);
   ov.querySelector('#watch-close').addEventListener('click', () => {
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    document.removeEventListener('keydown', ov._onKey);
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) Promise.resolve(exit.call(document)).catch(() => {});
+    }
+    removeOverlayListeners();
     ov.remove();
   });
   ov._onKey = (e) => {
     if (!ov.isConnected) {
-      document.removeEventListener('keydown', ov._onKey);
+      removeOverlayListeners();
       return;
     }
-    if (e.key === 'Escape' && !document.fullscreenElement) {
-      document.removeEventListener('keydown', ov._onKey);
+    if (e.key === 'Escape' && !document.fullscreenElement && !document.webkitFullscreenElement) {
+      removeOverlayListeners();
       ov.remove();
     }
   };
@@ -287,6 +328,7 @@ export function openWatchOverlay(opts) {
     stage.innerHTML = '<p id="watch-status" class="text-sm text-gray-400 px-4 text-center">Ищем доступные плееры…</p>';
     playersBox.innerHTML = '';
     dubsBox.innerHTML = '';
+    cropBtn.disabled = true;
     fetchKinoboxPlayers({ kpId, imdbId, query })
       .then((list) => {
         if (!list.length) return fallback('пустой список от API');
@@ -331,6 +373,7 @@ export function openWatchOverlay(opts) {
     groups = [];
     playersBox.innerHTML = '';
     dubsBox.innerHTML = '';
+    cropBtn.disabled = true;
     stage.innerHTML = '';
     const box = document.createElement('div');
     box.className = 'flex flex-col items-center gap-3 px-4 text-center';
@@ -350,19 +393,19 @@ export function openWatchOverlay(opts) {
     row.className = 'flex gap-2 flex-wrap justify-center';
     if (apk) {
       const b = document.createElement('button');
-      b.className = 'px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-white text-sm';
+      b.className = 'px-4 py-2 rounded-xl bg-primary hover:bg-primary/90 text-white text-sm';
       b.textContent = 'Открыть страницу зеркала';
       b.addEventListener('click', () => { window.location.href = mirrorUrl; });
       row.appendChild(b);
     } else {
       const retry = document.createElement('button');
-      retry.className = 'px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-white text-sm';
+      retry.className = 'px-4 py-2 rounded-xl bg-primary hover:bg-primary/90 text-white text-sm';
       retry.textContent = 'Повторить поиск';
       retry.addEventListener('click', () => load());
       row.appendChild(retry);
       if (mirrorUrl) {
         const tab = document.createElement('a');
-        tab.className = 'px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-200 text-sm';
+        tab.className = 'px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-gray-200 text-sm';
         tab.href = mirrorUrl;
         tab.target = '_blank';
         tab.rel = 'noopener noreferrer';
@@ -425,7 +468,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm';
   modal.innerHTML = `
-    <div class="bg-card w-full max-w-lg rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+    <div class="rating-modal-panel bg-card w-full max-w-lg rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
       <div class="p-4 flex justify-between items-center border-b border-slate-700 sticky top-0 bg-card z-10">
         <h2 class="text-xl font-bold">Загружаем информацию...</h2>
         <button id="close-modal" class="text-gray-400 hover:text-white" aria-label="Закрыть">
@@ -437,7 +480,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       <div id="modal-content" class="p-4">
         <div class="animate-pulse space-y-4">
           <div class="flex gap-4">
-            <div class="w-28 aspect-[2/3] bg-slate-700 rounded-lg"></div>
+            <div class="w-28 aspect-[2/3] bg-slate-700 rounded-xl"></div>
             <div class="flex-1 space-y-2">
               <div class="h-6 bg-slate-700 rounded w-3/4"></div>
               <div class="h-4 bg-slate-700 rounded w-1/2"></div>
@@ -497,29 +540,15 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       year
     });
 
-    const averageRating = allRatings.length > 0
-      ? (allRatings.reduce((sum, r) => sum + Number(r.rating), 0) / allRatings.length).toFixed(1)
+    const groupRatings = allRatings.filter(r => r.user_id !== currentUser.id);
+    const averageRating = groupRatings.length > 0
+      ? (groupRatings.reduce((sum, r) => sum + Number(r.rating), 0) / groupRatings.length).toFixed(1)
       : null;
 
-    // Бейдж друзей: оценка одна — пишем имя и оценку напрямую;
-    // иначе средняя, а при наведении/тапе — расклад по каждому.
-    let friendsBadge = '';
-    if (allRatings.length === 1) {
-      const r = allRatings[0];
-      friendsBadge = `<span class="flex items-center gap-1.5">${FRIENDS_ICON} ${escapeHtml(r.profiles.username)}: <b class="text-pink-300">${formatRating(r.rating)}</b></span>`;
-    } else if (averageRating) {
-      friendsBadge = `
-        <span id="friends-badge" class="relative group flex items-center gap-1.5 cursor-help">
-          ${FRIENDS_ICON} Средняя у друзей: <b class="text-pink-300">${averageRating}</b>
-          <span id="friends-tip" class="hidden group-hover:block absolute left-0 top-6 z-30 w-48 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-xl">
-            ${allRatings.map(r => `
-              <span class="flex items-center justify-between gap-3 py-0.5">
-                <span class="text-gray-300 truncate">${escapeHtml(r.profiles.username)}</span>
-                <b class="${valueColor(Number(r.rating))}">${formatRating(r.rating)}</b>
-              </span>`).join('')}
-          </span>
-        </span>`;
-    }
+    // Один короткий итог на карточке; подробный список оценок доступен ниже.
+    const friendsBadge = averageRating
+      ? `<span class="friends-score-pill inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300" title="Средняя оценка компании">${FRIENDS_ICON}<b class="text-pink-300">${averageRating}</b><span class="text-gray-500">компания · ${groupRatings.length}</span></span>`
+      : '';
 
     // Очередь внешних рейтингов: первые два доступных видны сразу,
     // остальные — под кнопкой «Все рейтинги». Порядок: КП, IMDb, TMDb,
@@ -559,7 +588,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     document.getElementById('modal-content').innerHTML = `
       <div class="flex gap-4 mb-4">
         <div id="poster-box" class="flex-shrink-0 w-28 ${title.poster_path ? 'cursor-zoom-in' : ''}" title="${title.poster_path ? 'Открыть постер' : ''}">
-          ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
+          ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-xl')}
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-bold text-lg leading-tight">${kpPageUrl
@@ -587,12 +616,12 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
               ? `<div class="text-xs text-gray-500 mb-2 space-y-0.5">${rows.map((r, i) => `<div>${i === 0 ? '💵 ' : ''}${r}</div>`).join('')}</div>`
               : '';
           })()}
-          '<button id="watch-btn" class="text-xs text-primary hover:underline mb-2 self-start">▶ Смотреть</button>'
+          <button id="watch-btn" class="watch-action-btn inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 mb-2 text-sm font-medium text-primary hover:bg-primary/20 hover:text-white transition-colors"><span aria-hidden="true">▶</span> Смотреть</button>
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
             ${friendsBadge}
             ${extraRows.length ? `
-              <button id="more-ratings-btn" class="text-xs text-gray-400 hover:text-white underline decoration-dotted underline-offset-4 text-left">Все рейтинги (${extraRows.length})</button>
+              <button id="more-ratings-btn" class="rating-more-btn rounded-xl bg-slate-800 px-2.5 py-1 text-[11px] text-gray-300 hover:bg-slate-700 hover:text-white text-left">Ещё рейтинги · ${extraRows.length}</button>
               <span id="more-ratings" class="hidden flex-col items-start gap-1.5">
                 ${extraRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
               </span>
@@ -613,7 +642,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         <div class="flex items-center gap-3 mb-3 mt-9">
           <button id="rating-minus" class="w-10 h-10 flex-shrink-0 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold" aria-label="Минус 0.1">−</button>
           <div class="relative flex-1">
-            <div id="rating-bubble" class="absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-lg text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400"></div>
+            <div id="rating-bubble" class="absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400"></div>
             <input type="range" id="rating-slider" min="1" max="10" step="0.1" class="rating-slider w-full" aria-label="Оценка от 1 до 10">
           </div>
           <button id="rating-plus" class="w-10 h-10 flex-shrink-0 rounded-full bg-slate-700 hover:bg-slate-600 text-xl font-bold" aria-label="Плюс 0.1">+</button>
@@ -621,57 +650,48 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         <p class="text-xs text-gray-500 text-center mb-3">Тяните бегунок или листайте кнопками — шаг 0.1</p>
 
         <textarea id="rating-comment" placeholder="Комментарий (опционально)" rows="2"
-          class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500 text-sm mb-3"
+          class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500 text-sm mb-3"
         >${escapeHtml(status.hasRating ? (status.rating.comment || '') : '')}</textarea>
         <div class="flex gap-2">
-          <button id="save-rating-btn" class="flex-1 bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition-colors">
+          <button id="save-rating-btn" class="flex-1 bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-xl transition-colors">
             ${status.hasRating ? 'Обновить оценку' : 'Сохранить оценку'}
           </button>
           ${status.hasRating ? `
-            <button id="delete-rating-btn" class="px-4 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-lg transition-colors">
+            <button id="delete-rating-btn" class="px-4 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-xl transition-colors">
               Удалить
             </button>
           ` : ''}
         </div>
 
         ${!status.hasRating ? `
-          <button id="add-watchlist-btn" class="w-full mt-2 py-2 px-4 rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors text-sm ${status.isInWatchlist ? 'text-green-400 border-green-600/30 bg-green-600/10' : ''}">
+          <button id="add-watchlist-btn" class="w-full mt-2 py-2 px-4 rounded-xl border border-slate-700 hover:bg-slate-700 transition-colors text-sm ${status.isInWatchlist ? 'text-green-400 border-green-600/30 bg-green-600/10' : ''}">
             ${status.isInWatchlist ? '✓ В списке «Хочу посмотреть»' : '+ Добавить в «Хочу посмотреть»'}
           </button>
         ` : ''}
       </div>
 
       ${allRatings.length > 0 ? `
-        <div class="border-t border-slate-700 pt-4">
-          <h4 class="font-semibold mb-3">Оценки друзей</h4>
-          <div class="space-y-3">
+        <details class="company-ratings-details border-t border-slate-700 pt-3">
+          <summary class="cursor-pointer select-none rounded-xl px-2.5 py-2 text-sm text-gray-300 hover:bg-slate-800">
+            Оценки компании <span class="text-gray-500">· ${allRatings.length}</span>
+          </summary>
+          <div class="mt-2 space-y-2 px-2">
             ${allRatings.map(r => `
-              <div class="flex gap-3 items-start">
-                <img src="${escapeHtml(safeAvatarUrl(r.profiles.avatar_url, r.profiles.username))}" alt="" class="w-8 h-8 rounded-full bg-slate-700">
+              <div class="flex items-center gap-2.5 rounded-xl bg-slate-800/60 px-2.5 py-2">
+                <img src="${escapeHtml(safeAvatarUrl(r.profiles.avatar_url, r.profiles.username))}" alt="" class="w-7 h-7 rounded-full bg-slate-700">
                 <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="font-medium text-sm">${escapeHtml(r.profiles.username)}</span>
-                    <span class="font-bold text-sm ${Number(r.rating) >= 8 ? 'text-green-400' : Number(r.rating) >= 5 ? 'text-yellow-400' : 'text-red-400'}">${escapeHtml(formatRating(r.rating))}/10</span>
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="font-medium text-xs truncate">${escapeHtml(r.profiles.username)}</span>
+                    <span class="font-bold text-xs ${Number(r.rating) >= 8 ? 'text-green-400' : Number(r.rating) >= 5 ? 'text-yellow-400' : 'text-red-400'}">${escapeHtml(formatRating(r.rating))}</span>
                   </div>
-                  ${r.comment ? `<p class="text-sm text-gray-400 mt-0.5">${escapeHtml(r.comment)}</p>` : ''}
+                  ${r.comment ? `<p class="text-xs text-gray-400 mt-0.5 line-clamp-2">${escapeHtml(r.comment)}</p>` : ''}
                 </div>
               </div>
             `).join('')}
           </div>
-        </div>
+        </details>
       ` : ''}
     `;
-
-    // --- Тултип «у кого какая оценка» (тап по бейджу для телефонов) ---
-    const friendsBadgeEl = document.getElementById('friends-badge');
-    const friendsTip = document.getElementById('friends-tip');
-    if (friendsBadgeEl && friendsTip) {
-      friendsBadgeEl.addEventListener('click', (e) => {
-        e.stopPropagation();
-        friendsTip.classList.toggle('hidden');
-        friendsTip.classList.toggle('block');
-      });
-    }
 
     // --- Постер: клик открывает крупный просмотр ---
     const posterBox = document.getElementById('poster-box');
@@ -699,7 +719,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       moreBtn.addEventListener('click', () => {
         const opened = !moreBox.classList.toggle('hidden');
         moreBox.classList.toggle('flex', opened);
-        moreBtn.textContent = opened ? 'Свернуть рейтинги' : `Все рейтинги (${moreBox.children.length})`;
+        moreBtn.textContent = opened ? 'Скрыть рейтинги' : `Ещё рейтинги · ${moreBox.children.length}`;
       });
     }
 
@@ -743,8 +763,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       bubble.style.left = `calc(${(pct * 100).toFixed(2)}% + ${((0.5 - pct) * THUMB_PX).toFixed(1)}px)`;
       bubble.textContent = formatRating(val);
       bubble.className = selectedScore === null
-        ? 'absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-lg text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400'
-        : `absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-lg text-sm font-bold pointer-events-none whitespace-nowrap border border-transparent text-white ${valueBg(selectedScore)}`;
+        ? 'absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400'
+        : `absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-transparent text-white ${valueBg(selectedScore)}`;
     }
 
     function setScore(n, fromSlider) {
