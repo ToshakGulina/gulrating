@@ -217,11 +217,11 @@ public class MainActivity extends Activity {
             // плееров (фрейм) тоже даёт ландшафт и иммерсив сразу
             @JavascriptInterface
             public void enterCinema() {
-                handler.post(() -> {
-                    // Фреймовый режим (embed-only плееры): тоже десктопный UA
-                    setPlayerUA();
-                    enterCinema();
-                });
+                // ВАЖНО: здесь нельзя трогать User-Agent — setUserAgentString
+                // перезагружает текущую страницу (дом) и роняет оверлей.
+                // Во фреймовом режиме плееры живут и под мобильным UA,
+                // десктопный нужен только полнодокументной навигации
+                handler.post(() -> enterCinema());
             }
 
             @JavascriptInterface
