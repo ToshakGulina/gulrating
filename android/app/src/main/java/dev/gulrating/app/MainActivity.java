@@ -51,6 +51,9 @@ public class MainActivity extends Activity {
     // Идёт сеанс плеера: после входа на хост плеера держим внутри WebView
     // любые редиректы и смежные домены, пока пользователь не вернётся на сайт
     private volatile boolean inPlayerSession = false;
+    // User-Agent кэшируем: из shouldInterceptRequest (фоновый поток)
+    // обращаться к WebView нельзя
+    private String userAgent;
     // Нативный фуллскрин видео (кнопка полноэкранного режима в плеере)
     private FrameLayout root;
     private View customView;
@@ -82,7 +85,8 @@ public class MainActivity extends Activity {
         web.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
         // Маркер для сайта: включает поведение «приложение» (офлайн-база,
         // открытие плеера внутри WebView)
-        web.getSettings().setUserAgentString(web.getSettings().getUserAgentString() + " GulRatingApp/1");
+        userAgent = web.getSettings().getUserAgentString() + " GulRatingApp/1";
+        web.getSettings().setUserAgentString(userAgent);
 
         // Фуллскрин плеера: WebView отдаёт кастомную вью сюда, без этого
         // кнопка полноэкранного режима в плеере молча не работает
@@ -302,19 +306,30 @@ public class MainActivity extends Activity {
             c.setConnectTimeout(10000);
             c.setReadTimeout(15000);
             c.setRequestProperty("Accept", "text/html");
-            c.setRequestProperty("User-Agent", web.getSettings().getUserAgentString());
+            c.setRequestProperty("User-Agent", userAgent);
             String cookie = android.webkit.CookieManager.getInstance().getCookie(url);
             if (cookie != null) c.setRequestProperty("Cookie", cookie);
             if (c.getResponseCode() != 200) return null;
             String ctype = c.getContentType();
             if (ctype == null || !ctype.contains("text/html")) return null;
+            String charset = "UTF-8";
+            int cs = ctype.toLowerCase().indexOf("charset=");
+            if (cs >= 0) {
+                String named = ctype.substring(cs + 8).split("[;\s]")[0].trim();
+                if (!named.isEmpty()) charset = named;
+            }
             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
             java.io.InputStream in = c.getInputStream();
             byte[] buf = new byte[16384];
             int n;
             while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
             in.close();
-            String html = bos.toString("UTF-8");
+            String html;
+            try {
+                html = bos.toString(charset);
+            } catch (Exception enc) {
+                html = bos.toString("UTF-8");
+            }
             String script = "<script>(function(){function rp(){try{var v=document.querySelector('video');"
                     + "if(v&&v.duration&&window.GulRatingBridge){GulRatingBridge.reportPosition(Math.round(v.currentTime),Math.round(v.duration));}}"
                     + "catch(e){}}setInterval(rp,3000);rp();"
@@ -325,8 +340,14 @@ public class MainActivity extends Activity {
             int idx = html.lastIndexOf("</body>");
             if (idx > 0) html = html.substring(0, idx) + script + html.substring(idx);
             else html = html + script;
-            return new WebResourceResponse("text/html", "UTF-8",
-                    new java.io.ByteArrayInputStream(html.getBytes("UTF-8")));
+            byte[] out;
+            try {
+                out = html.getBytes(charset);
+            } catch (Exception enc) {
+                out = html.getBytes("UTF-8");
+            }
+            return new WebResourceResponse("text/html", charset,
+                    new java.io.ByteArrayInputStream(out));
         } catch (Exception e) {
             return null; // не смогли подменить — пусть грузится оригинал
         }

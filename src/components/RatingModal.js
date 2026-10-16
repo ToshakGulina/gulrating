@@ -48,6 +48,16 @@ export function openWatchOverlay(url, titleText) {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else if (frame.requestFullscreen) frame.requestFullscreen().catch(() => {});
   });
+  ov._onKey = (e) => {
+    if (e.key === 'Escape' && !document.fullscreenElement) {
+      document.removeEventListener('keydown', ov._onKey);
+      ov.remove();
+    }
+  };
+  document.addEventListener('keydown', ov._onKey);
+  new MutationObserver(() => {
+    if (!ov.isConnected) document.removeEventListener('keydown', ov._onKey);
+  }).observe(ov, { childList: false });
   document.body.appendChild(ov);
 }
 
