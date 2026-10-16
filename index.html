@@ -67,7 +67,9 @@
     #boot-splash .dot { animation: blink 1.2s infinite; }
     #boot-splash .dot:nth-child(2) { animation-delay: .2s; }
     #boot-splash .dot:nth-child(3) { animation-delay: .4s; }
+    #boot-splash.splash-leaving { animation: splash-leave .18s ease-in forwards; }
     @keyframes blink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
+    @keyframes splash-leave { to { opacity: 0; visibility: hidden; } }
 
     /* Живой фон: мягкие цветные свечения вместо плоского тёмного полотна */
     body::before {
@@ -80,6 +82,87 @@
         radial-gradient(640px 420px at 12% -6%, rgba(99, 102, 241, .20), transparent 62%),
         radial-gradient(720px 520px at 88% 8%, rgba(236, 72, 153, .13), transparent 62%),
         radial-gradient(900px 640px at 50% 112%, rgba(56, 189, 248, .10), transparent 64%);
+      animation: ambient-float 28s ease-in-out infinite alternate;
+      transform-origin: center;
+    }
+
+    /* Ненавязчивая системная анимация интерфейса: вход, переходы, карточки, оверлеи */
+    html { scroll-behavior: smooth; }
+    #app > * { animation: page-arrive .42s cubic-bezier(.2,.75,.25,1); }
+    #blocks-wrap > * { animation: section-arrive .38s cubic-bezier(.2,.75,.25,1); }
+    #blocks-wrap > :nth-child(2) { animation-delay: 55ms; }
+    #blocks-wrap > :nth-child(3) { animation-delay: 110ms; }
+    #ratings-list > .title-card { animation: card-arrive .34s cubic-bezier(.2,.75,.25,1); }
+    #ratings-list > .title-card:nth-child(2) { animation-delay: 35ms; }
+    #ratings-list > .title-card:nth-child(3) { animation-delay: 70ms; }
+    #ratings-list > .title-card:nth-child(4) { animation-delay: 105ms; }
+    #ratings-list > .title-card:nth-child(5) { animation-delay: 140ms; }
+    #ratings-list > .title-card:nth-child(6) { animation-delay: 175ms; }
+    #ratings-list > .title-card:nth-child(n+7) { animation-delay: 210ms; }
+
+    button:not(:disabled), a { transition: color .18s ease, background-color .18s ease, border-color .18s ease, box-shadow .18s ease, translate .18s ease, scale .18s ease, opacity .18s ease; }
+    input, select, textarea { transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
+    @media (hover: hover) {
+      button:not(:disabled):hover { translate: 0 -1px; }
+    }
+    button:not(:disabled):active { translate: 0 1px; scale: .98; }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid rgb(var(--p-rgb) / .8);
+      outline-offset: 2px;
+    }
+
+    .title-card, .rec-card, .history-title, .history-query, .catalog-item, .search-result-item {
+      transition: transform .2s cubic-bezier(.2,.75,.25,1), box-shadow .2s ease, border-color .2s ease, background-color .2s ease;
+    }
+    .title-card, .rec-card, .history-title, .catalog-item { animation: card-arrive .34s cubic-bezier(.2,.75,.25,1); }
+    .search-result-item, #modal-content > * { animation: card-arrive .25s cubic-bezier(.2,.75,.25,1); }
+    #catalog-grid > .catalog-item:nth-child(2) { animation-delay: 25ms; }
+    #catalog-grid > .catalog-item:nth-child(3) { animation-delay: 50ms; }
+    #catalog-grid > .catalog-item:nth-child(4) { animation-delay: 75ms; }
+    #catalog-grid > .catalog-item:nth-child(5) { animation-delay: 100ms; }
+    #catalog-grid > .catalog-item:nth-child(6) { animation-delay: 125ms; }
+    #catalog-grid > .catalog-item:nth-child(n+7) { animation-delay: 150ms; }
+    #trends-grid > .rec-card:nth-child(2) { animation-delay: 30ms; }
+    #trends-grid > .rec-card:nth-child(3) { animation-delay: 60ms; }
+    #trends-grid > .rec-card:nth-child(4) { animation-delay: 90ms; }
+    #trends-grid > .rec-card:nth-child(5) { animation-delay: 120ms; }
+    #trends-grid > .rec-card:nth-child(6) { animation-delay: 150ms; }
+    #trends-grid > .rec-card:nth-child(7) { animation-delay: 180ms; }
+    #trends-grid > .rec-card:nth-child(8) { animation-delay: 210ms; }
+    #trends-grid > .rec-card:nth-child(n+9) { animation-delay: 240ms; }
+    @media (hover: hover) {
+      .title-card:hover, .rec-card:hover, .history-title:hover, .catalog-item:hover { transform: translateY(-3px); }
+      .title-card:hover, .catalog-item:hover { box-shadow: 0 14px 34px rgb(0 0 0 / .22); }
+      .rec-card:hover { filter: brightness(1.08); }
+      .history-query:hover, .search-result-item:hover { transform: translateX(3px); }
+    }
+    .fixed.inset-0 { animation: overlay-arrive .22s ease-out both; }
+    .fixed.inset-0 > div { animation: panel-arrive .28s cubic-bezier(.2,.75,.25,1); }
+    #search-results:not(.hidden) { animation: dropdown-arrive .16s ease-out both; transform-origin: top center; }
+    nav.fixed { animation: nav-arrive .35s cubic-bezier(.2,.75,.25,1) both; }
+    .toast-item { animation: toast-arrive .25s cubic-bezier(.2,.75,.25,1) both; }
+    .toast-item.toast-leaving { animation: toast-leave .2s ease-in both; }
+
+    @keyframes page-arrive { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes section-arrive { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes card-arrive { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes overlay-arrive { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes panel-arrive { from { opacity: 0; transform: translateY(10px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes dropdown-arrive { from { opacity: 0; transform: translateY(-4px) scaleY(.98); } to { opacity: 1; transform: translateY(0) scaleY(1); } }
+    @keyframes nav-arrive { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-arrive { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes toast-leave { to { opacity: 0; transform: translateY(6px) scale(.98); } }
+    @keyframes ambient-float { from { transform: scale(1); } to { transform: scale(1.035) translateY(-.5%); } }
+
+    /* Уважаем настройку системы «уменьшить движение» */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+      }
+      body::before { animation: none !important; }
     }
 
     /* Слайдер оценки «как яркость на телефоне»: градиентная дорожка и крупный бегунок */
