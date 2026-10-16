@@ -50,7 +50,7 @@ export async function getCurrentUser() {
 
   let user = null;
   try {
-    const { data, error } = await supabase.auth.getSession();
+    const { data, error } = await withTimeout(supabase.auth.getSession(), 1500);
     if (error) throw error;
     user = data && data.session ? data.session.user : null;
   } catch (e) {
