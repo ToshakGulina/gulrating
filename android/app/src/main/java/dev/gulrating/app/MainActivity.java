@@ -15,7 +15,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
 import android.view.WindowManager;
-import android.webkit.WebResourceResponse;
 import android.widget.FrameLayout;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -40,7 +39,14 @@ public class MainActivity extends Activity {
     private static final String HOME_HOST = "gulrating.pages.dev";
     // Хосты плеера: открываются внутри WebView приложения (кнопка «Смотреть»),
     // кнопка «назад» телефона возвращает к сайту через историю WebView
-    private static final String[] PLAYER_HOSTS = { "kinokino.vip", "www.kinokino.vip" };
+    // Хосты плееров: зеркала (kinokino.vip) и бэкенды Kinobox, на которые
+    // приложение теперь переходит напрямую (чистый плеер без обвязки зеркала)
+    private static final String[] PLAYER_HOSTS = {
+            "kinokino.vip", "kinobox.tv", "stravers.live",
+            "kodik.info", "kodik.cc", "kodik.club", "kodik.ws",
+            "videocdn.net", "videocdn.tv", "collaps.me", "collaps.so",
+            "bazon.cc", "alloha.cool", "hdzo.fun", "pleer.videocdn.net"
+    };
     private static final String CHANNEL = "gulrating-watch";
 
     private WebView web;
@@ -51,9 +57,6 @@ public class MainActivity extends Activity {
     // Идёт сеанс плеера: после входа на хост плеера держим внутри WebView
     // любые редиректы и смежные домены, пока пользователь не вернётся на сайт
     private volatile boolean inPlayerSession = false;
-    // User-Agent кэшируем: из shouldInterceptRequest (фоновый поток)
-    // обращаться к WebView нельзя
-    private String userAgent;
     // Нативный фуллскрин видео (кнопка полноэкранного режима в плеере)
     private FrameLayout root;
     private View customView;
@@ -92,8 +95,7 @@ public class MainActivity extends Activity {
         web.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
         // Маркер для сайта: включает поведение «приложение» (офлайн-база,
         // открытие плеера внутри WebView)
-        userAgent = web.getSettings().getUserAgentString() + " GulRatingApp/1";
-        web.getSettings().setUserAgentString(userAgent);
+        web.getSettings().setUserAgentString(web.getSettings().getUserAgentString() + " GulRatingApp/1");
 
         // Фуллскрин плеера: WebView отдаёт кастомную вью сюда, без этого
         // кнопка полноэкранного режима в плеере молча не работает
@@ -155,31 +157,6 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                // Видео плеера обычно лежит во вложенном фрейме чужого домена:
-                // из натива туда не дотянуться, поэтому подменяем HTML документа
-                // (главного кадра и фреймов плеера) своей копией со скриптом-мостом:
-                // он шлёт позицию в GulRatingBridge и сам продолжает с сохранённой минуты
-                if (inPlayerSession && "GET".equals(request.getMethod())) {
-                    String accept = request.getRequestHeaders() == null
-                            ? "" : String.valueOf(request.getRequestHeaders().get("Accept")).toLowerCase();
-                    // Документ это или нет, окончательно решает content-type
-                    // после fetch: здесь лишь не отбрасываем кадры и фреймы
-                    // с нестандартным Accept (*/*, пусто и т.п.)
-                    boolean isDoc = request.isForMainFrame()
-                            || accept.isEmpty()
-                            || accept.contains("text/html")
-                            || accept.contains("*/*");
-                    String url = request.getUrl().toString();
-                    if (isDoc && !url.startsWith(HOME)) {
-                        WebResourceResponse injected = injectBridgeScript(url, request.getRequestHeaders());
-                        if (injected != null) return injected;
-                    }
-                }
-                return super.shouldInterceptRequest(view, request);
-            }
-
-            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (!isPlayerHost(url)) return;
@@ -203,42 +180,6 @@ public class MainActivity extends Activity {
                 return prefs().getString("positions", "{}");
             }
 
-            // Позицию репортит скрипт, внедрённый в страницу плеера
-            // (видео часто живёт во вложенном фрейме — оттуда и пишем)
-            @JavascriptInterface
-            public void reportPosition(final long t, final long d) {
-                final String key = currentWatchKey;
-                if (key == null || key.isEmpty() || t <= 0 || d <= 0) return;
-                try {
-                    SharedPreferences p = prefs();
-                    org.json.JSONObject all = new org.json.JSONObject(p.getString("positions", "{}"));
-                    org.json.JSONObject rec = new org.json.JSONObject();
-                    rec.put("t", t);
-                    rec.put("d", d);
-                    rec.put("at", System.currentTimeMillis());
-                    all.put(key, rec);
-                    p.edit().putString("positions", all.toString()).apply();
-                } catch (Exception ignored) {
-                }
-            }
-
-            // С какой минуты продолжать (0 — не продолжать)
-            @JavascriptInterface
-            public long getResume() {
-                final String key = currentWatchKey;
-                if (key == null || key.isEmpty()) return 0;
-                try {
-                    org.json.JSONObject all = new org.json.JSONObject(prefs().getString("positions", "{}"));
-                    org.json.JSONObject rec = all.optJSONObject(key);
-                    if (rec == null) return 0;
-                    long t = rec.optLong("t", 0);
-                    long d = rec.optLong("d", 0);
-                    if (t < 30 || d <= 0 || t > d - 20) return 0;
-                    return t;
-                } catch (Exception e) {
-                    return 0;
-                }
-            }
 
             @JavascriptInterface
             public void notify(final String text) {
@@ -316,76 +257,10 @@ public class MainActivity extends Activity {
         String host = Uri.parse(url).getHost();
         if (host == null) return false;
         for (String h : PLAYER_HOSTS) {
-            if (h.equals(host)) return true;
+            // С поддоменами: theatre.stravers.live, player.kinobox.tv и т.п.
+            if (host.equals(h) || host.endsWith("." + h)) return true;
         }
         return false;
-    }
-
-    private WebResourceResponse injectBridgeScript(String url, java.util.Map<String, String> headers) {
-        try {
-            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-            c.setConnectTimeout(10000);
-            c.setReadTimeout(15000);
-            c.setInstanceFollowRedirects(true);
-            // Плеерные CDN (kodik и подобные) отсекают запросы без Referer и
-            // прочего браузерного окружения — копируем заголовки исходного
-            // запроса WebView целиком
-            if (headers != null) {
-                for (java.util.Map.Entry<String, String> h : headers.entrySet()) {
-                    String name = h.getKey();
-                    if (name == null) continue;
-                    String low = name.toLowerCase();
-                    if (low.equals("host") || low.equals("accept-encoding") || low.equals("connection")) continue;
-                    c.setRequestProperty(name, h.getValue());
-                }
-            }
-            c.setRequestProperty("Accept", "text/html,application/xhtml+xml");
-            c.setRequestProperty("Accept-Encoding", "gzip");
-            if (userAgent != null) c.setRequestProperty("User-Agent", userAgent);
-            String cookie = android.webkit.CookieManager.getInstance().getCookie(url);
-            if (cookie != null) c.setRequestProperty("Cookie", cookie);
-            if (c.getResponseCode() != 200) return null;
-            String ctype = c.getContentType();
-            if (ctype == null || !ctype.contains("text/html")) return null;
-            String charset = "UTF-8";
-            int cs = ctype.toLowerCase().indexOf("charset=");
-            if (cs >= 0) {
-                String named = ctype.substring(cs + 8).split("[;\s]")[0].trim();
-                if (!named.isEmpty()) charset = named;
-            }
-            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-            java.io.InputStream in = c.getInputStream();
-            byte[] buf = new byte[16384];
-            int n;
-            while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
-            in.close();
-            String html;
-            try {
-                html = bos.toString(charset);
-            } catch (Exception enc) {
-                html = bos.toString("UTF-8");
-            }
-            String script = "<script>(function(){function rp(){try{var v=document.querySelector('video');"
-                    + "if(v&&v.duration&&window.GulRatingBridge){GulRatingBridge.reportPosition(Math.round(v.currentTime),Math.round(v.duration));}}"
-                    + "catch(e){}}setInterval(rp,3000);rp();"
-                    + "var s=0;try{s=window.GulRatingBridge?window.GulRatingBridge.getResume():0;}catch(e){}"
-                    + "if(s>0){var k=0;var iv=setInterval(function(){try{var v=document.querySelector('video');"
-                    + "if(v&&v.duration&&v.currentTime<5){v.currentTime=s;clearInterval(iv);}}catch(e){}if(++k>25)clearInterval(iv);},1000);}"
-                    + "document.addEventListener('DOMContentLoaded',rp);})();</script>";
-            int idx = html.lastIndexOf("</body>");
-            if (idx > 0) html = html.substring(0, idx) + script + html.substring(idx);
-            else html = html + script;
-            byte[] out;
-            try {
-                out = html.getBytes(charset);
-            } catch (Exception enc) {
-                out = html.getBytes("UTF-8");
-            }
-            return new WebResourceResponse("text/html", charset,
-                    new java.io.ByteArrayInputStream(out));
-        } catch (Exception e) {
-            return null; // не смогли подменить — пусть грузится оригинал
-        }
     }
 
     private void probePlayer() {
