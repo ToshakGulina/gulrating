@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { enqueueRating, networkLikeError } from '../lib/offline.js';
 import { addWatchEntry, reportWatchNative, isApk } from '../lib/watchHistory.js';
+import { fetchKinoboxPlayers } from '../lib/kinobox.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -20,33 +21,118 @@ const RU_CRITICS_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" 
 const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18-3-3.6-3-14.4 0-18z"/></svg>';
 const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
 
-// Встроенный плеер: оверлей с iframe. Полноэкранный режим делаем СВОЕЙ
-// кнопкой, разворачивая сам iframe-элемент на весь экран: кнопки чужого
-// плеера внутри фрейма могут быть ограничены его авторами, а requestFullscreen
-// на элементе фрейма браузер разрешает всегда (по жесту пользователя).
-// Если сайт отдаёт заголовки против встраивания — фрейм будет пустым,
-// тогда остаётся ссылка «открыть в новой вкладке».
-export function openWatchOverlay(url, titleText) {
+// Встроенный плеер: оверлей в нашем стиле со СПИСКОМ чистых плееров Kinobox
+// (озвучки), а не со страницей зеркала целиком. Зеркало — лишь обёртка: его
+// скрипт берёт iframe-адреса из api.kinobox.tv; мы делаем то же через свою
+// Function /kinobox и показываем только плеер, без рекламы и счётчиков.
+// В браузере плеер встаёт во фрейм оверлея (⛭ — наш фуллскрин элемента),
+// в APK по кнопке озвучки WebView переходит на чистую страницу плеера:
+// видео оказывается в верхнем документе, и нативные прогресс/продолжение
+// приложения работают без всяких подмен HTML.
+export function openWatchOverlay(opts) {
+  const { kpId, imdbId, query, titleText, mirrorUrl } = opts || {};
+  const apk = isApk();
   const ov = document.createElement('div');
-  ov.className = 'fixed inset-0 z-50 bg-black/90 flex flex-col p-3 gap-2';
+  ov.className = 'fixed inset-0 z-50 bg-black/95 flex flex-col p-3 gap-2';
   ov.innerHTML = `
     <div class="flex items-center gap-2">
       <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
       <button id="watch-fs" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-200 text-sm" title="На весь экран" aria-label="На весь экран">⛭</button>
-      <a class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-200 text-xs" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="Открыть в новой вкладке">вкладка</a>
+      <a id="watch-tab" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-200 text-xs" href="${escapeHtml(mirrorUrl || '#')}" target="_blank" rel="noopener noreferrer" title="Открыть в новой вкладке">вкладка</a>
       <button id="watch-close" class="text-gray-300 hover:text-white text-2xl leading-none px-2" aria-label="Закрыть плеер">&times;</button>
     </div>
-    <iframe id="watch-frame" class="flex-1 w-full rounded-xl bg-black" src="${escapeHtml(url)}" allow="fullscreen; encrypted-media; autoplay" allowfullscreen></iframe>
-    <p class="text-xs text-gray-500">Кнопка ⛭ разворачивает плеер на весь экран; Esc — выход. Если кадр пустой — сайт запрещает встраивание, тогда «вкладка».</p>`;
-  const frame = ov.querySelector('#watch-frame');
-  ov.querySelector('#watch-close').addEventListener('click', () => {
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    ov.remove();
-  });
-  ov.querySelector('#watch-fs').addEventListener('click', () => {
+    <div id="watch-stage" class="flex-1 relative min-h-0 rounded-xl overflow-hidden bg-black/60 flex items-center justify-center">
+      <p id="watch-status" class="text-sm text-gray-400 px-4 text-center">Ищем доступные плееры…</p>
+    </div>
+    <div id="watch-sources" class="flex gap-2 overflow-x-auto pb-1 flex-shrink-0"></div>
+    <p id="watch-hint" class="text-xs text-gray-500 flex-shrink-0"></p>`;
+  document.body.appendChild(ov);
+
+  const stage = ov.querySelector('#watch-stage');
+  const sources = ov.querySelector('#watch-sources');
+  const hint = ov.querySelector('#watch-hint');
+  const tabLink = ov.querySelector('#watch-tab');
+  const fsBtn = ov.querySelector('#watch-fs');
+  if (apk) fsBtn.style.display = 'none'; // фуллскрин в APK делает сам плеер
+
+  function setTab(u) {
+    if (u) tabLink.href = u;
+  }
+
+  function showFrame(url) {
+    stage.innerHTML = '';
+    const frame = document.createElement('iframe');
+    frame.id = 'watch-frame';
+    frame.className = 'absolute inset-0 w-full h-full bg-black';
+    frame.allow = 'fullscreen; encrypted-media; autoplay';
+    frame.setAttribute('allowfullscreen', '');
+    frame.src = url;
+    stage.appendChild(frame);
+    setTab(url);
+  }
+
+  function selectSource(player, idx, buttons) {
+    buttons.forEach((b, i) => b.classList.toggle('bg-primary', i === idx));
+    buttons.forEach((b, i) => b.classList.toggle('text-white', i === idx));
+    if (apk) {
+      // Чистая страница плеера — верхним документом WebView
+      window.location.href = player.url;
+      return;
+    }
+    showFrame(player.url);
+  }
+
+  function renderSources(list) {
+    sources.innerHTML = '';
+    const buttons = list.map((player, i) => {
+      const b = document.createElement('button');
+      b.className = 'px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-200 text-xs whitespace-nowrap flex-shrink-0';
+      b.textContent = `${i + 1}. ${player.name}${player.quality ? ' (' + player.quality + ')' : ''} [${player.type}]`;
+      b.addEventListener('click', () => selectSource(player, i, buttons));
+      sources.appendChild(b);
+      return b;
+    });
+    if (apk) {
+      stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Выберите озвучку — плеер откроется внутри приложения.<br>Кнопка ⛶ внутри плеера развернёт видео на весь экран.</p>';
+      setTab(list[0] && list[0].url);
+      buttons[0] && buttons[0].classList.add('bg-primary', 'text-white');
+    } else if (list[0]) {
+      buttons[0].classList.add('bg-primary', 'text-white');
+      showFrame(list[0].url);
+    }
+    hint.textContent = apk
+      ? 'Плеер откроется в приложении целиком: прогресс и «продолжить с минуты» работают.'
+      : '⛭ — плеер на весь экран, Esc — выход. Озвучки переключаются кнопками ниже.';
+  }
+
+  function fallback() {
+    // API не ответил — как раньше, зеркало целиком (последний вариант)
+    sources.innerHTML = '';
+    if (apk) {
+      stage.innerHTML = '';
+      const b = document.createElement('button');
+      b.className = 'px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-white text-sm';
+      b.textContent = 'Открыть страницу зеркала';
+      b.addEventListener('click', () => { window.location.href = mirrorUrl; });
+      stage.appendChild(b);
+    } else if (mirrorUrl) {
+      showFrame(mirrorUrl);
+    } else {
+      stage.innerHTML = '<p class="text-sm text-gray-400 px-4 text-center">Плееры не найдены</p>';
+    }
+    hint.textContent = 'Список плееров получить не удалось — открываем зеркало целиком (там может быть реклама).';
+  }
+
+  fsBtn.addEventListener('click', () => {
+    const frame = stage.querySelector('iframe');
+    if (!frame) return;
     // Фуллскрин именно элемента фрейма: не зависит от кнопок чужого плеера
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else if (frame.requestFullscreen) frame.requestFullscreen().catch(() => {});
+  });
+  ov.querySelector('#watch-close').addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    ov.remove();
   });
   ov._onKey = (e) => {
     if (!ov.isConnected) {
@@ -59,7 +145,13 @@ export function openWatchOverlay(url, titleText) {
     }
   };
   document.addEventListener('keydown', ov._onKey);
-  document.body.appendChild(ov);
+
+  fetchKinoboxPlayers({ kpId, imdbId, query })
+    .then((list) => {
+      if (!list.length) return fallback();
+      renderSources(list);
+    })
+    .catch(() => fallback());
 }
 
 // «105 936 голосов» с правильным склонением
@@ -258,7 +350,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
               ? `<div class="text-xs text-gray-500 mb-2 space-y-0.5">${rows.map((r, i) => `<div>${i === 0 ? '💵 ' : ''}${r}</div>`).join('')}</div>`
               : '';
           })()}
-          ${kpPageUrl ? '<button id="watch-btn" class="text-xs text-primary hover:underline mb-2 self-start">▶ Смотреть</button>' : ''}
+          '<button id="watch-btn" class="text-xs text-primary hover:underline mb-2 self-start">▶ Смотреть</button>'
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
             ${friendsBadge}
@@ -445,21 +537,25 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     if (watchBtn) {
       watchBtn.addEventListener('click', () => {
         // История просмотров: «Продолжить» и прогресс берут её отсюда
+        const yr = String(title.release_date || title.first_air_date || '').slice(0, 4);
         addWatchEntry({
           id: titleId,
           media_type: mediaType,
           title: title.title,
           poster_path: title.poster_path,
-          kp_url: kpPageUrl
+          kp_url: kpPageUrl,
+          kpId: kpRatings && kpRatings.kpId,
+          query: `${title.title || title.name || ''} ${yr}`.trim()
         });
         reportWatchNative(titleId, mediaType);
-        if (isApk()) {
-          // Внутри APK: нативная навигация WebView (плеер в приложении)
-          window.location.href = kpPageUrl;
-          return;
-        }
-        // В браузере: встроенный оверлей-фрейм с нашим фуллскрином
-        openWatchOverlay(kpPageUrl, title.title);
+        // И в браузере, и в APK — оверлей со списком чистых плееров;
+        // зеркало целиком только если Kinobox API не ответит
+        openWatchOverlay({
+          kpId: kpRatings && kpRatings.kpId,
+          query: `${title.title || title.name || ''} ${yr}`.trim(),
+          titleText: title.title || title.name || '',
+          mirrorUrl: kpPageUrl
+        });
       });
     }
 

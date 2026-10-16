@@ -479,7 +479,7 @@ export async function renderProfilePage(app, currentUser) {
             <div class="text-[10px] text-gray-500">просмотрено ${pct}%</div>` : ''}
         </div>
         <div class="flex flex-col gap-1 flex-shrink-0 items-stretch">
-          ${i.kp_url ? '<button class="wh-continue px-2 py-1 text-[11px] bg-primary hover:bg-primary/90 text-white rounded-lg">Продолжить</button>' : ''}
+          ${(i.kp_url || i.kpId || i.query) ? '<button class="wh-continue px-2 py-1 text-[11px] bg-primary hover:bg-primary/90 text-white rounded-lg">Продолжить</button>' : ''}
           ${i.media_type === 'tv' && !i.done ? '<button class="wh-done px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded-lg">Досмотрено</button>' : ''}
           <button class="wh-del px-2 py-1 text-[11px] text-gray-500 hover:text-red-400" aria-label="Убрать из истории">&times;</button>
         </div>
@@ -487,10 +487,15 @@ export async function renderProfilePage(app, currentUser) {
     }).join('');
     whBox.querySelectorAll('.wh-continue').forEach(b => b.addEventListener('click', () => {
       const item = getWatchHistory().find(x => x.key === b.closest('[data-key]').dataset.key);
-      if (!item || !item.kp_url) return;
+      if (!item || !(item.kp_url || item.kpId || item.query)) return;
       reportWatchNative(item.id, item.media_type);
-      if (isApk()) window.location.href = item.kp_url;
-      else openWatchOverlay(item.kp_url, item.title);
+      // Оверлей со списком чистых плееров Kinobox; зеркало — только фолбэк
+      openWatchOverlay({
+        kpId: item.kpId,
+        query: item.query || item.title,
+        titleText: item.title,
+        mirrorUrl: item.kp_url
+      });
     }));
     whBox.querySelectorAll('.wh-done').forEach(b => b.addEventListener('click', async () => {
       b.disabled = true;
