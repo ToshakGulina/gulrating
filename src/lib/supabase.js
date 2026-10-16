@@ -22,28 +22,67 @@ if (configIsComplete()) {
   }
 }
 
-// Получаем текущего пользователя вместе с профилем.
-// profile может отсутствовать (триггер в базе ещё не создан) — возвращаем null,
-// а не падаем, чтобы интерфейс мог показать понятное сообщение.
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('request timeout')), ms); })
+  ]).finally(() => clearTimeout(timer));
+}
+
+// Профиль-копия нужна только для офлайн-старта уже вошедшего пользователя.
+// Данные никогда не используются для авторизации/выдачи доступа на сервере.
+function cachedProfile(userId) {
+  try {
+    const value = JSON.parse(localStorage.getItem(`gulrating:profile:${userId}`) || 'null');
+    return value && value.id === userId ? value : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Получаем пользователя из локально сохранённой Supabase-сессии: getUser()
+// всегда проверяет JWT по сети и из-за этого блокировал запуск без интернета.
+// Профиль обновляем по сети с коротким таймаутом, а офлайн берём проверенную
+// локальную копию (при этом серверные операции остаются недоступны до сети).
 export async function getCurrentUser() {
   if (!supabase) return null;
 
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return null;
-
-  let profile = null;
+  let user = null;
   try {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .maybeSingle();
-    profile = data || null;
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    user = data && data.session ? data.session.user : null;
   } catch (e) {
-    profile = null;
+    return null;
+  }
+  if (!user) return null;
+
+  const profileKey = `gulrating:profile:${user.id}`;
+  try {
+    const query = supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    const result = await withTimeout(query, 3000);
+    if (!result.error && result.data) {
+      try { localStorage.setItem(profileKey, JSON.stringify(result.data)); } catch (e) { /* quota */ }
+      return { ...user, profile: result.data };
+    }
+    if (!result.error && !result.data) return { ...user, profile: null };
+  } catch (e) {
+    // Недоступность сети — это не потеря аккаунта. Используем копию профиля.
   }
 
-  return { ...user, profile };
+  const profile = cachedProfile(user.id) || {
+    id: user.id,
+    username: user.user_metadata && user.user_metadata.username
+      ? user.user_metadata.username
+      : (user.email ? user.email.split('@')[0] : 'Пользователь'),
+    avatar_url: null,
+    // Только для локального интерфейса: все серверные операции всё равно
+    // контролируются RLS; при восстановлении сети статус читается заново.
+    is_approved: true,
+    is_admin: false
+  };
+  return { ...user, profile, offlineOnly: true };
 }
 
 // Получаем все профили пользователей (для списков участников)

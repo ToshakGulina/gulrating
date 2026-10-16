@@ -2,6 +2,7 @@ import { supabase, getCurrentUser } from './lib/supabase.js';
 import { syncOfflineCatalog, isAppContext } from './lib/offlineCatalog.js';
 import { checkNewSeasons } from './lib/watchHistory.js';
 import { configIsComplete, APP_BUILD } from './config.js';
+import { setSyncUser, syncUserData } from './lib/userSync.js';
 
 // Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
 // Акцент интерфейса из настроек профиля применяем до первой отрисовки
@@ -18,6 +19,9 @@ import { renderAccessDenied } from './components/AccessDenied.js';
 import { renderSetupPage, renderFatalError, renderProfileMissing } from './components/Setup.js';
 
 const app = document.getElementById('app');
+window.addEventListener('gulrating:sync-not-configured', () => {
+  showToast('Для синхронизации выполните supabase-user-sync.sql в Supabase → SQL Editor.', 'info', 9000);
+});
 
 // Установка на устройство (Android/iOS): браузер отдаёт событие установки
 // один раз — сохраняем его и показываем кнопку в профиле
@@ -38,6 +42,8 @@ window.addEventListener('offline', () => {
 });
 window.addEventListener('online', () => {
   showToast('Снова в сети', 'success', 2000);
+  // Обновляем сессию/профиль с сервера после локального офлайн-старта.
+  renderApp();
   // Дозакачиваем офлайн-базу фильмов (только в приложении)
   if (isAppContext()) syncOfflineCatalog().catch(() => {});
 });
@@ -55,6 +61,12 @@ async function renderApp() {
   rendering = true;
   try {
     const currentUser = await getCurrentUser();
+    setSyncUser(currentUser);
+    if (currentUser) {
+      // Быстрый pull/merge настроек на старте; таймаут не должен блокировать
+      // офлайн-вход. Неудача остаётся локально и повторится при сети/изменениях.
+      await syncUserData(currentUser, 1600);
+    }
 
     if (!currentUser) {
       cleanupFeed();

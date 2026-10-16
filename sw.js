@@ -9,7 +9,7 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v3';
+const CACHE_VERSION = 'gulrating-v4';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -25,6 +25,7 @@ const SHELL_ASSETS = [
   '/src/main.js',
   '/src/config.js',
   '/src/lib/supabase.js',
+  '/src/lib/userSync.js',
   '/src/lib/tmdb.js',
   '/src/lib/ratings.js',
   '/src/lib/date.js',
@@ -35,6 +36,7 @@ const SHELL_ASSETS = [
   '/src/lib/fullCatalog.js',
   '/src/lib/watchHistory.js',
   '/src/lib/kinopoisk.js',
+  '/src/lib/kinobox.js',
   '/src/components/Auth.js',
   '/src/components/Setup.js',
   '/src/components/AccessDenied.js',
