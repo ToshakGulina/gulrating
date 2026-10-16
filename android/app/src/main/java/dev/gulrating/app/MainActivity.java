@@ -207,7 +207,10 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (!isPlayerHost(url)) return;
+                if (!isPlayerHost(url)) {
+                    scheduleBundledBootCheck(url);
+                    return;
+                }
                 resumePlayback(view);
             }
         });
@@ -299,13 +302,45 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
+    private boolean isBundledShellPath(String path) {
+        return path == null || "/".equals(path) || "/index.html".equals(path)
+                || "/manifest.json".equals(path) || path.startsWith("/src/")
+                || path.startsWith("/assets/") || path.startsWith("/vendor/")
+                || path.startsWith("/icons/") || path.startsWith("/data/");
+    }
+
     private void tryBundledFallback(WebResourceRequest request) {
-        if (request.isForMainFrame() && HOME_HOST.equals(request.getUrl().getHost())
-                && !triedBundledFallback) {
+        Uri uri = request.getUrl();
+        boolean homeOrigin = HOME_HOST.equals(uri.getHost())
+                && "https".equalsIgnoreCase(uri.getScheme());
+        boolean failedShellAsset = homeOrigin && isBundledShellPath(uri.getPath());
+        if ((request.isForMainFrame() || failedShellAsset) && homeOrigin && !triedBundledFallback) {
             triedBundledFallback = true;
             useBundledWebApp = true;
             handler.post(() -> web.loadUrl(HOME));
         }
+    }
+
+    // Некоторые WebView сообщают о неудачной загрузке ES-модуля только
+    // после onPageFinished, а не как об ошибке главного документа. Если
+    // приложение не смонтировало ничего в #app, перезапускаем страницу из APK.
+    private void scheduleBundledBootCheck(String url) {
+        Uri finished = Uri.parse(url);
+        if (!HOME_HOST.equals(finished.getHost()) || triedBundledFallback || useBundledWebApp) return;
+        handler.postDelayed(() -> {
+            if (isFinishing() || triedBundledFallback || useBundledWebApp) return;
+            Uri current = Uri.parse(web.getUrl() == null ? "" : web.getUrl());
+            if (!HOME_HOST.equals(current.getHost())) return;
+            web.evaluateJavascript(
+                    "(function(){var a=document.getElementById('app');return !a||!a.firstChild;})()",
+                    value -> {
+                        if ("true".equals(value) && !triedBundledFallback && !useBundledWebApp) {
+                            triedBundledFallback = true;
+                            useBundledWebApp = true;
+                            web.loadUrl(HOME);
+                        }
+                    });
+        }, 13000);
     }
 
     private WebResourceResponse bundledWebResponse(String requestPath) {
