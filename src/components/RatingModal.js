@@ -116,7 +116,6 @@ export function openWatchOverlay(opts) {
     frame.setAttribute('allowfullscreen', '');
     // Плеерные CDN сверяют встраивающую страницу со списком зеркал:
     // без referer мы выглядим как прямой заход, а не как чужой сайт
-    frame.referrerPolicy = 'no-referrer';
     frame.src = url;
     stage.appendChild(frame);
     setTab(url);
@@ -269,6 +268,7 @@ export function openWatchOverlay(opts) {
   });
   ov.querySelector('#watch-close').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    document.removeEventListener('keydown', ov._onKey);
     ov.remove();
   });
   ov._onKey = (e) => {
@@ -377,7 +377,18 @@ export function openWatchOverlay(opts) {
       : 'Кнопка выше откроет зеркало отдельно — там просмотр работает всегда. Текст причины пригодится, если пожалуешься агенту.';
   }
 
-  load();
+  if (!apk && mirrorUrl) {
+    // В браузере зеркало показываем ВНУТРИ нашего оверлея: сохраняется
+    // полный виджет со всеми источниками (включая Alloha и Turbo) и крестик.
+    playersBox.style.display = 'none';
+    dubsBox.style.display = 'none';
+    ov.querySelector('#watch-bad').style.display = 'none';
+    tabLink.style.display = 'none';
+    hint.textContent = 'Плеер открыт в окне. Закройте его крестиком, чтобы вернуться к ГульРейтингу.';
+    showFrame(mirrorUrl);
+  } else {
+    load();
+  }
 }
 
 // «105 936 голосов» с правильным склонением
@@ -757,8 +768,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
     renderValue();
 
-    // «Смотреть»: если известна страница зеркала, используем её встроенный
-    // список источников в текущей вкладке (и в браузере, и в приложении).
+    // «Смотреть»: в браузере страница зеркала открывается во фрейме
+    // оверлея с крестиком; в APK — верхним документом WebView.
     const watchBtn = modal.querySelector('#watch-btn');
     if (watchBtn) {
       watchBtn.addEventListener('click', () => {
@@ -774,10 +785,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           query: `${title.title || title.name || ''} ${yr}`.trim()
         });
         reportWatchNative(titleId, mediaType);
-        if (kpPageUrl) {
-          // Используем зеркало и в браузере, и в APK: его встроенный виджет
-          // показывает полный список источников (включая Alloha и Turbo).
-          // Переходим в той же вкладке, не открываем отдельную.
+        if (isApk() && kpPageUrl) {
           window.location.href = kpPageUrl;
           return;
         }
