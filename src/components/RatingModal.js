@@ -426,7 +426,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       <div id="modal-content" class="p-4">
         <div class="animate-pulse space-y-4">
           <div class="flex gap-4">
-            <div class="w-24 aspect-[2/3] bg-slate-700 rounded-lg"></div>
+            <div class="w-28 aspect-[2/3] bg-slate-700 rounded-lg"></div>
             <div class="flex-1 space-y-2">
               <div class="h-6 bg-slate-700 rounded w-3/4"></div>
               <div class="h-4 bg-slate-700 rounded w-1/2"></div>
@@ -547,8 +547,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
     document.getElementById('modal-content').innerHTML = `
       <div class="flex gap-4 mb-4">
-        <div id="poster-box" class="flex-shrink-0 w-24 ${title.poster_path ? 'cursor-zoom-in' : ''}" title="${title.poster_path ? 'Открыть постер' : ''}">
-          ${posterImg(title.poster_path, title.title, 'w-24 aspect-[2/3] rounded-lg')}
+        <div id="poster-box" class="flex-shrink-0 w-28 ${title.poster_path ? 'cursor-zoom-in' : ''}" title="${title.poster_path ? 'Открыть постер' : ''}">
+          ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-bold text-lg leading-tight">${kpPageUrl
