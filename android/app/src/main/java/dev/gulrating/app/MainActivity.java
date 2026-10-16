@@ -45,7 +45,8 @@ public class MainActivity extends Activity {
             "kinokino.vip", "kinobox.tv", "stravers.live",
             "kodik.info", "kodik.cc", "kodik.club", "kodik.ws",
             "videocdn.net", "videocdn.tv", "collaps.me", "collaps.so",
-            "bazon.cc", "alloha.cool", "hdzo.fun", "pleer.videocdn.net"
+            "bazon.cc", "alloha.cool", "hdzo.fun", "pleer.videocdn.net",
+            "kurolesya.link", "obrut.show", "nextembed.ws"
     };
     private static final String CHANNEL = "gulrating-watch";
 
