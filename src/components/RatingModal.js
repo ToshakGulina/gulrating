@@ -139,8 +139,7 @@ export function openWatchOverlay(opts) {
         ...g,
         dubs: showHidden ? g.dubs : g.dubs.filter((d) => !bad.includes(`${g.type}::${d.name}`)),
       }))
-      .filter((g) => g.dubs.length)
-      .filter((g) => apk || showHidden || g.embed !== 'referer');
+      .filter((g) => g.dubs.length);
   }
 
   function play(dub, group, autoFs) {
@@ -188,7 +187,7 @@ export function openWatchOverlay(opts) {
       const b = document.createElement('button');
       b.className = g.type === curType ? CHIP_ON : CHIP_IDLE;
       b.textContent = g.type;
-      b.title = g.embed === 'referer' ? 'Работает только в приложении' : '';
+      b.title = '';
       b.addEventListener('click', () => {
         // Смена источника НИКОГДА не запускает playback (в том числе у
         // источников с одной озвучкой): лишь подставляет список
@@ -206,7 +205,7 @@ export function openWatchOverlay(opts) {
     if (hiddenCount > 0) {
       const t = document.createElement('button');
       t.className = CHIP + 'bg-transparent text-gray-500 hover:text-gray-300';
-      t.textContent = showHidden ? 'скрыть лишнее' : `ещё ${hiddenCount} (обычно не играют здесь)`;
+      t.textContent = showHidden ? 'скрыть отмеченные' : `показать скрытые (${hiddenCount})`;
       t.addEventListener('click', () => {
         showHidden = !showHidden;
         renderPlayers();

@@ -21,9 +21,6 @@ function flatten(j) {
   for (const p of data) {
     if (!p) continue;
     const trs = Array.isArray(p.translations) ? p.translations : [];
-    // embed: 'any' | 'referer' (только приложение) — проставляет Function
-    // после пре-проверки; 'dead' уже отфильтрован там же
-    const embed = p.embed || 'any';
     if (trs.length) {
       for (const tr of trs) {
         const url = (tr && tr.iframeUrl) || p.iframeUrl;
@@ -33,11 +30,10 @@ function flatten(j) {
           name: (tr && tr.name) || 'Основная озвучка',
           quality: (tr && tr.quality) || '',
           url,
-          embed,
         });
       }
     } else if (p.iframeUrl) {
-      out.push({ type: p.type || 'player', name: 'Основная озвучка', quality: '', url: p.iframeUrl, embed });
+      out.push({ type: p.type || 'player', name: 'Основная озвучка', quality: '', url: p.iframeUrl });
     }
   }
   return out;
@@ -54,7 +50,7 @@ export async function fetchKinoboxPlayers({ kpId, imdbId, query } = {}) {
   // 1) напрямую: зеркала делают ровно этот запрос из браузера
   for (const base of DIRECT_BASES) {
     try {
-      const r = await fetch(`${base}/api/players?${qs}`);
+      const r = await fetch(`${base}/api/players?${qs}`, { cache: 'no-store' });
       if (!r.ok) continue;
       const list = flatten(await r.json());
       if (list.length) return list;
@@ -64,7 +60,7 @@ export async function fetchKinoboxPlayers({ kpId, imdbId, query } = {}) {
   }
 
   // 2) серверный обход через нашу Function
-  const r2 = await fetch('/kinobox?' + qs);
+  const r2 = await fetch('/kinobox?' + qs, { cache: 'no-store' });
   if (!r2.ok) throw new Error('kinobox: http ' + r2.status);
   const list = flatten(await r2.json());
   if (!list.length) throw new Error('kinobox: пусто');
