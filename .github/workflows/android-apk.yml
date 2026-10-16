@@ -43,7 +43,8 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
-          cp android/app/build/outputs/apk/release/app-release.apk "release/gulrating-${GITHUB_REF_NAME}.apk"
+          SAFE_REF="$(printf '%s' "$GITHUB_REF_NAME" | tr '/:' '--')"
+          cp android/app/build/outputs/apk/release/app-release.apk "release/gulrating-${SAFE_REF}.apk"
           scripts/release-notes.sh "${GITHUB_REF_NAME}" > release/release-notes.md
 
       - uses: actions/upload-artifact@v7
