@@ -1,0 +1,29 @@
+name: Предложить улучшение
+description: Опишите задачу и пользу для пользователей
+title: "[Идея]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу нужно решить?
+      description: Опишите текущую ситуацию и неудобство.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Как должно работать?
+      description: Опишите ожидаемое поведение.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Где это нужно?
+      options:
+        - Везде
+        - Android APK
+        - Браузер / PWA
+    validations:
+      required: true

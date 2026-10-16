@@ -1,0 +1,29 @@
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  static-site:
+    name: JavaScript and static assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+      - name: Check syntax and local module exports
+        run: node scripts/check-modules.mjs
+      - name: Check helper scripts
+        run: sh -n scripts/build-css.sh && sh -n scripts/release-notes.sh
+      - name: Verify release notes can be generated
+        run: scripts/release-notes.sh v1.0.20 > /dev/null
+      - name: Verify compiled Tailwind CSS
+        run: |
+          ./scripts/build-css.sh
+          git diff --exit-code -- assets/tw.css

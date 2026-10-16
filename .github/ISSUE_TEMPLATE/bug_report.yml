@@ -1,0 +1,47 @@
+name: Сообщить об ошибке
+description: Опишите проблему в веб-версии или Android-приложении
+title: "[Ошибка]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Не добавляйте сюда пароли, коды входа, токены, личные данные или приватные ссылки.
+  - type: input
+    id: version
+    attributes:
+      label: Версия / APP_BUILD
+      description: Номер APK или строка сборки из Профиля
+      placeholder: 1.0.20 / 2026.10.16-63
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Устройство и среда
+      placeholder: Android 14, ГульРейтинг APK; или Chrome на Windows
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как повторить
+      description: Укажите шаги по порядку
+      placeholder: |
+        1. Открыл приложение...
+        2. Нажал...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидали и что произошло
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Скриншот или дополнительная информация
+      description: Перед загрузкой скройте почту, имя, ссылки и другие личные данные.
+    validations:
+      required: false
