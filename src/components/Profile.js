@@ -4,6 +4,11 @@ import { formatDistanceToNow } from '../lib/date.js';
 import { openRatingModal } from './RatingModal.js';
 import { cleanupFeed } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
+import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
+import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
+import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, reportWatchNative } from '../lib/watchHistory.js';
+import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
+import { openWatchOverlay } from './RatingModal.js';
 
 // Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
 const ACCENTS = [
@@ -36,7 +41,7 @@ export async function renderProfilePage(app, currentUser) {
   const approvedUsers = profileList.filter(p => p.is_approved);
 
   app.innerHTML = `
-    <div class="max-w-4xl mx-auto pb-20">
+    <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
       <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
         <div class="flex items-center justify-between">
           <h1 class="text-2xl font-bold">Профиль</h1>
@@ -72,6 +77,12 @@ export async function renderProfilePage(app, currentUser) {
           </div>
         </div>
 
+        <!-- История просмотров: продолжить с места, прогресс, «досмотрено» -->
+        <div class="bg-card rounded-2xl border border-slate-700 p-4 mb-4">
+          <h3 class="font-semibold mb-3">История просмотров</h3>
+          <div id="watch-history" class="space-y-2"></div>
+        </div>
+
         <!-- Настройки: ник, аватар, поведение ленты -->
         <div class="bg-card rounded-2xl p-5 mb-6">
           <h3 class="font-semibold mb-4">Ник и аватар</h3>
@@ -94,6 +105,9 @@ export async function renderProfilePage(app, currentUser) {
               class="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white" placeholder="Ник">
             <button id="nick-save-btn" class="px-4 py-2.5 bg-primary hover:bg-primary/90 rounded-xl text-sm font-medium">Сохранить</button>
           </div>
+
+          <h3 class="font-semibold mt-6 mb-3">Приложение на устройстве</h3>
+          <div id="install-box" class="text-sm text-gray-300 space-y-2 mb-2"></div>
 
           <h3 class="font-semibold mt-6 mb-3">Лента</h3>
           <div class="space-y-3 text-sm">
@@ -125,6 +139,30 @@ export async function renderProfilePage(app, currentUser) {
                 <span id="mymin-val" class="text-sm font-bold text-primary">8.0</span>
               </div>
               <input type="range" id="mymin-range" min="0" max="10" step="0.1" class="rating-slider w-full" aria-label="Минимальная ваша оценка для подбора похожего">
+            </div>
+            <div id="cat-size-box">
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <span class="text-gray-300">Офлайн-база фильмов (тайтлов)</span>
+                <span id="cat-size-val" class="text-sm font-bold text-cyan-300">3000</span>
+              </div>
+              <input type="range" id="cat-size-range" min="500" max="15000" step="500" class="rating-slider w-full" aria-label="Сколько популярных тайтлов держать на устройстве">
+              <p id="cat-size-status" class="text-xs text-gray-600 mt-1"></p>
+            </div>
+            <div id="full-db-box">
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <span class="text-gray-300">Полная база TMDb на устройстве</span>
+                <span id="full-db-status" class="text-xs text-gray-500"></span>
+              </div>
+              <p class="text-xs text-gray-600 mb-2">Весь каталог (~1 млн тайтлов, ≈100 МБ одним скачиванием) для полностью офлайн-поиска. Хранится чанками в IndexedDB, целиком в память не загружается.</p>
+              <button id="full-db-btn" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm">Скачать полную базу</button>
+            </div>
+            <div>
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <span class="text-gray-300">Кэш данных Кинопоиска (дней)</span>
+                <span id="kp-ttl-val" class="text-sm font-bold text-orange-300">14</span>
+              </div>
+              <input type="range" id="kp-ttl-range" min="1" max="90" step="1" class="rating-slider w-full" aria-label="Сколько дней хранить рейтинги Кинопоиска на устройстве">
+              <p class="text-xs text-gray-600 mt-1">Повторные карточки не обращаются к API вовсе: запрос идёт только при первом открытии тайтла за срок кэша.</p>
             </div>
             <label class="flex items-center justify-between gap-3">
               <span class="text-gray-300">Блок рекомендаций в ленте</span>
@@ -193,7 +231,7 @@ export async function renderProfilePage(app, currentUser) {
 
       <!-- Нижняя навигация -->
       <nav class="fixed bottom-0 left-0 right-0 bg-dark/90 backdrop-blur-card border-t border-slate-800 z-10">
-        <div class="max-w-4xl mx-auto flex">
+        <div class="max-w-4xl xl:max-w-6xl mx-auto flex">
           <button class="nav-btn flex-1 py-3 flex flex-col items-center text-gray-400 hover:text-white" data-page="feed">
             <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4m8 4V10a1 1 0 00-1-1h-2a1 1 0 00-1 1v4m3 1h3a1 1 0 001-1V10m-4 0l2-2m0 0l2 2"></path></svg>
             <span class="text-xs">Лента</span>
@@ -326,6 +364,189 @@ export async function renderProfilePage(app, currentUser) {
     myminVal.textContent = Number(myminRange.value).toFixed(1);
     localStorage.setItem('gulrating:my_min', myminRange.value);
   });
+
+  // Срок локального кэша Кинопоиска
+  const kpTtlRange = document.getElementById('kp-ttl-range');
+  const kpTtlVal = document.getElementById('kp-ttl-val');
+  kpTtlRange.value = String(getKpCacheTtlDays());
+  kpTtlVal.textContent = kpTtlRange.value;
+  kpTtlRange.addEventListener('input', () => {
+    kpTtlVal.textContent = kpTtlRange.value;
+    localStorage.setItem('gulrating:kp_cache_days', kpTtlRange.value);
+  });
+
+  // Офлайн-база фильмов: размер (полная шкала) и статус закачки
+  const catSizeRange = document.getElementById('cat-size-range');
+  const catSizeVal = document.getElementById('cat-size-val');
+  const catSizeStatus = document.getElementById('cat-size-status');
+  function paintCatStatus() {
+    if (!catSizeStatus) return;
+    const stats = getOfflineCatalogStats();
+    if (stats.syncing) {
+      catSizeStatus.textContent = `Скачивание: ${stats.count} из ${stats.target}…`;
+    } else if (!stats.count) {
+      catSizeStatus.textContent = 'База ещё не скачана — загрузка идёт автоматически, когда есть сеть.';
+    } else if (stats.complete) {
+      const date = stats.updatedAt ? new Date(stats.updatedAt).toLocaleDateString('ru-RU') : '';
+      catSizeStatus.textContent = `Скачано ${stats.count} тайтлов${date ? ', обновлено ' + date : ''}. Поиск и оценка работают без сети.`;
+    } else {
+      catSizeStatus.textContent = `Скачано ${stats.count} из ${stats.target} — продолжится автоматически при сети.`;
+    }
+  }
+  catSizeRange.value = String(getCatalogSizeSetting());
+  catSizeVal.textContent = catSizeRange.value;
+  paintCatStatus();
+  catSizeRange.addEventListener('input', () => {
+    catSizeVal.textContent = catSizeRange.value;
+  });
+  // Полная база: статус, скачивание с прогрессом, удаление
+  const fullDbBtn = document.getElementById('full-db-btn');
+  const fullDbStatus = document.getElementById('full-db-status');
+  function paintFullDb() {
+    const meta = getFullCatalogMeta();
+    if (meta) {
+      const mb = meta.bytes ? (meta.bytes / 1048576).toFixed(0) : '?';
+      fullDbStatus.textContent = meta.partial
+        ? `скачано чанков: ${meta.partial}/${meta.chunks.length}`
+        : `✓ ${Number(meta.total).toLocaleString('ru-RU')} тайтлов, ${mb} МБ`;
+      fullDbBtn.textContent = meta.partial ? 'Докачать полную базу' : 'Удалить полную базу';
+    } else {
+      fullDbStatus.textContent = 'не скачана';
+      fullDbBtn.textContent = 'Скачать полную базу';
+    }
+  }
+  paintFullDb();
+  // Офлайн-база — только для приложения (APK / установленное PWA):
+  // десктоп-сайту она не нужна, ничего не скачиваем и не показываем
+  if (!isAppContext()) {
+    document.getElementById('cat-size-box').style.display = 'none';
+    document.getElementById('full-db-box').style.display = 'none';
+  }
+  // Показываем реальный размер из манифеста, чтобы решение было осознанным
+  fetchFullManifest().then(got => {
+    if (got && !getFullCatalogMeta()) {
+      fullDbStatus.textContent = `доступно: ${Number(got.manifest.total).toLocaleString('ru-RU')} тайтлов, ${(got.manifest.bytes / 1048576).toFixed(0)} МБ`;
+    }
+  }).catch(() => {});
+  fullDbBtn.addEventListener('click', async () => {
+    const meta = getFullCatalogMeta();
+    if (meta && !meta.partial) {
+      await deleteFullCatalog();
+      paintFullDb();
+      return;
+    }
+    fullDbBtn.disabled = true;
+    fullDbBtn.textContent = 'Скачиваем… 0%';
+    const result = await downloadFullCatalog((done, total) => {
+      fullDbBtn.textContent = `Скачиваем… ${Math.round(done / total * 100)}%`;
+      fullDbStatus.textContent = `чанков: ${done}/${total}`;
+    }).catch(() => null);
+    fullDbBtn.disabled = false;
+    if (result) showToast(`Полная база скачана: ${Number(result.total).toLocaleString('ru-RU')} тайтлов`, 'success', 5000);
+    else showToast('Скачивание прервалось на сети — кнопка докачает с того же места', 'info', 5000);
+    paintFullDb();
+  });
+
+  catSizeRange.addEventListener('change', async () => {
+    setCatalogSizeSetting(Number(catSizeRange.value));
+    paintCatStatus();
+    const tick = setInterval(paintCatStatus, 2000);
+    await syncOfflineCatalog().catch(() => null);
+    clearInterval(tick);
+    paintCatStatus();
+  });
+
+  // История просмотров: продолжение, прогресс-бар (позиция из APK), «досмотрено»
+  const whBox = document.getElementById('watch-history');
+  function paintWatchHistory() {
+    const items = getWatchHistory();
+    const positions = getPositions();
+    if (!items.length) {
+      whBox.innerHTML = '<p class="text-xs text-gray-600">Пока пусто: нажмите «Смотреть» в карточке фильма или сериала.</p>';
+      return;
+    }
+    whBox.innerHTML = items.map(i => {
+      const pos = positions[i.key];
+      const pct = pos && pos.d ? Math.min(100, Math.round(pos.t / pos.d * 100)) : null;
+      return `
+      <div class="flex items-center gap-3 bg-slate-800/50 rounded-xl p-2" data-key="${escapeHtml(i.key)}">
+        ${posterImg(i.poster_path, i.title, 'w-10 aspect-[2/3] rounded-md')}
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium truncate">${escapeHtml(i.title)}</div>
+          <div class="text-[11px] text-gray-500">${i.media_type === 'movie' ? 'фильм' : 'сериал'} • ${new Date(i.last_at).toLocaleDateString('ru-RU')}${i.done ? ' • досмотрено' : ''}</div>
+          ${pct !== null ? `
+            <div class="h-1 mt-1 rounded bg-slate-700 overflow-hidden"><div class="h-full bg-red-500" style="width:${pct}%"></div></div>
+            <div class="text-[10px] text-gray-500">просмотрено ${pct}%</div>` : ''}
+        </div>
+        <div class="flex flex-col gap-1 flex-shrink-0 items-stretch">
+          ${i.kp_url ? '<button class="wh-continue px-2 py-1 text-[11px] bg-primary hover:bg-primary/90 text-white rounded-lg">Продолжить</button>' : ''}
+          ${i.media_type === 'tv' && !i.done ? '<button class="wh-done px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded-lg">Досмотрено</button>' : ''}
+          <button class="wh-del px-2 py-1 text-[11px] text-gray-500 hover:text-red-400" aria-label="Убрать из истории">&times;</button>
+        </div>
+      </div>`;
+    }).join('');
+    whBox.querySelectorAll('.wh-continue').forEach(b => b.addEventListener('click', () => {
+      const item = getWatchHistory().find(x => x.key === b.closest('[data-key]').dataset.key);
+      if (!item || !item.kp_url) return;
+      reportWatchNative(item.id, item.media_type);
+      if (/GulRatingApp/.test(navigator.userAgent)) window.location.href = item.kp_url;
+      else openWatchOverlay(item.kp_url, item.title);
+    }));
+    whBox.querySelectorAll('.wh-done').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+      await markWatchDone(b.closest('[data-key]').dataset.key).catch(() => null);
+      showToast('Слежение включено: о новом сезоне придёт уведомление', 'info', 4000);
+      paintWatchHistory();
+    }));
+    whBox.querySelectorAll('.wh-del').forEach(b => b.addEventListener('click', () => {
+      removeWatchEntry(b.closest('[data-key]').dataset.key);
+      paintWatchHistory();
+    }));
+  }
+  paintWatchHistory();
+
+  // Установка на телефон: кнопка системного install-промта либо подсказка
+  const installBox = document.getElementById('install-box');
+  function paintInstallBox() {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+      || window.matchMedia('(display-mode: fullscreen)').matches
+      || Boolean(navigator.standalone);
+    if (standalone) {
+      installBox.innerHTML = '<p class="text-green-400">✓ Установлено: работает как отдельное приложение, оболочка доступна офлайн.</p>';
+      return;
+    }
+    if (window.__gulratingInstallPrompt) {
+      installBox.innerHTML = `
+        <button id="install-app-btn" class="w-full py-2.5 bg-primary hover:bg-primary/90 text-white font-medium rounded-xl">Установить приложение на устройство</button>
+        <p class="text-xs text-gray-500">Иконка появится на домашнем экране, окно будет открываться без браузера.</p>`;
+      document.getElementById('install-app-btn').addEventListener('click', async () => {
+        const promptEvent = window.__gulratingInstallPrompt;
+        if (!promptEvent) { paintInstallBox(); return; }
+        promptEvent.prompt();
+        const choice = await promptEvent.userChoice.catch(() => null);
+        window.__gulratingInstallPrompt = null;
+        if (choice && choice.outcome === 'accepted') {
+          showToast('Устанавливаем приложение…', 'success');
+        } else {
+          showToast('Установка отменена', 'info');
+        }
+        paintInstallBox();
+      });
+      return;
+    }
+    installBox.innerHTML = `
+      <p class="text-xs text-gray-400 leading-relaxed">
+        <b class="text-gray-300">Android (Chrome/Yandex):</b> меню браузера → «Установить приложение» / «Добавить на главный экран».<br>
+        <b class="text-gray-300">iPhone (Safari):</b> «Поделиться» → «На экран «Домой»».<br>
+        После установки ГульРейтинг открывается как обычное приложение, а оболочка работает даже без сети.
+      </p>`;
+  }
+  paintInstallBox();
+  window.addEventListener('gulrating:installable', paintInstallBox);
+  window.addEventListener('gulrating:appinstalled', paintInstallBox);
 
   recsToggle.checked = localStorage.getItem('gulrating:show_recs') !== '0';
   recsToggle.addEventListener('change', () => {

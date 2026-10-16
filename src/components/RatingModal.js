@@ -4,6 +4,8 @@ import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
+import { enqueueRating, networkLikeError } from '../lib/offline.js';
+import { addWatchEntry, reportWatchNative } from '../lib/watchHistory.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -18,11 +20,38 @@ const RU_CRITICS_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" 
 const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18-3-3.6-3-14.4 0-18z"/></svg>';
 const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
 
+// Оверлей с плеером: если сторонний сайт запрещает встраивание во фрейм,
+// браузер сам покажет пусто — тогда рядом ссылка «открыть в новой вкладке»
+export function openWatchOverlay(url, titleText) {
+  const ov = document.createElement('div');
+  ov.className = 'fixed inset-0 z-50 bg-black/90 flex flex-col p-3 gap-2';
+  ov.innerHTML = `
+    <div class="flex items-center gap-2">
+      <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
+      <button class="text-gray-300 hover:text-white text-2xl leading-none px-2" aria-label="Закрыть плеер">&times;</button>
+    </div>
+    <iframe class="flex-1 w-full rounded-xl bg-black" src="${escapeHtml(url)}" allow="fullscreen; encrypted-media; autoplay" allowfullscreen></iframe>
+    <p class="text-xs text-gray-500">Если плеер не показался — сайт запрещает встраивание:
+      <a class="text-primary underline" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">открыть в новой вкладке</a></p>`;
+  ov.querySelector('button').addEventListener('click', () => ov.remove());
+  document.body.appendChild(ov);
+}
+
 // «105 936 голосов» с правильным склонением
 function criticsLabel(value) {
   return value <= 10
     ? `${value.toFixed(1)} <span class="text-xs text-gray-500">/ 10</span>`
     : `${Math.round(value)}%`;
+}
+
+// «150 млн $» / «1.2 млрд $» для бюджета и сборов
+function formatMoney(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return '';
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1).replace('.', ',')} млрд $`;
+  if (v >= 1e6) return `${Math.round(v / 1e6)} млн $`;
+  if (v >= 1e3) return `${Math.round(v / 1e3)} тыс $`;
+  return `${v} $`;
 }
 
 function formatVotes(n) {
@@ -90,14 +119,18 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const title = await getTitleDetails(titleId, mediaType);
     const year = releaseYear(title.release_date);
 
+    // Без сети статус и оценки друзей недоступны — карточка всё равно
+    // открывается (детали из кэша), оценку можно поставить в очередь
     const [status, allRatings, kpRatings] = await Promise.all([
-      getUserTitleStatus(currentUser.id, titleId),
+      getUserTitleStatus(currentUser.id, titleId)
+        .catch(() => ({ hasRating: false, rating: null, isInWatchlist: false })),
       supabase
         .from('ratings')
         .select(`*, profiles!inner(*)`)
         .eq('title_id', titleId)
         .order('rating', { ascending: false })
-        .then(({ data }) => data || []),
+        .then(({ data }) => data || [])
+        .catch(() => []),
       getKinopoiskRatings(title.title, title.original_title, year)
     ]);
 
@@ -182,6 +215,16 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           <div class="flex gap-2 flex-wrap mb-2">
             ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Открыть каталог с фильтром по жанру «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
           </div>
+          ${(() => {
+            const parts = [];
+            const budget = title.budget || (kpRatings && kpRatings.kpBudget) || null;
+            if (budget) parts.push(`Бюджет: ${formatMoney(budget)}`);
+            if (title.revenue) parts.push(`Сборы: ${formatMoney(title.revenue)}`);
+            if (kpRatings && kpRatings.kpFeesRussia) parts.push(`сборы в РФ: ${formatMoney(kpRatings.kpFeesRussia)} (КП)`);
+            if (kpRatings && kpRatings.kpFeesWorld) parts.push(`в мире: ${formatMoney(kpRatings.kpFeesWorld)} (КП)`);
+            return parts.length ? `<p class="text-xs text-gray-500 mb-2">💵 ${parts.join(' • ')}</p>` : '';
+          })()}
+          ${kpPageUrl ? '<button id="watch-btn" class="text-xs text-primary hover:underline mb-2 self-start">▶ Смотреть</button>' : ''}
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
             ${friendsBadge}
@@ -348,17 +391,41 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
 
     slider.addEventListener('input', () => setScore(parseFloat(slider.value), true));
+    // Кнопки ± step'ают от ТОГО значения, что показывает пузырёк
+    // (до первого касания это позиция бегунка), иначе был скачок 5.5 → 5
     document.getElementById('rating-minus').addEventListener('click', () => {
-      setScore((selectedScore === null ? 5.1 : selectedScore) - 0.1, false);
+      setScore((selectedScore === null ? Number(slider.value) : selectedScore) - 0.1, false);
     });
     document.getElementById('rating-plus').addEventListener('click', () => {
-      setScore((selectedScore === null ? 4.9 : selectedScore) + 0.1, false);
+      setScore((selectedScore === null ? Number(slider.value) : selectedScore) + 0.1, false);
     });
 
     if (selectedScore !== null) {
       slider.value = String(selectedScore);
     }
     renderValue();
+
+    // «Смотреть»: в нашем APK открываем плеер прямо в WebView приложения,
+    // в браузере — пробуем встроить фреймом поверх карточки
+    const watchBtn = modal.querySelector('#watch-btn');
+    if (watchBtn) {
+      watchBtn.addEventListener('click', () => {
+        // История просмотров: «Продолжить» и прогресс берут её отсюда
+        addWatchEntry({
+          id: titleId,
+          media_type: mediaType,
+          title: title.title,
+          poster_path: title.poster_path,
+          kp_url: kpPageUrl
+        });
+        reportWatchNative(titleId, mediaType);
+        if (/GulRatingApp/.test(navigator.userAgent)) {
+          window.location.href = kpPageUrl;
+          return;
+        }
+        openWatchOverlay(kpPageUrl, title.title);
+      });
+    }
 
     // Сохранение оценки
     document.getElementById('save-rating-btn').addEventListener('click', async () => {
@@ -376,8 +443,24 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         await saveRating(currentUser.id, titleId, mediaType, selectedScore, comment);
         closeModal();
         showToast(`Оценка ${formatRating(selectedScore)} сохранена`, 'success');
+        notifyTelegram(currentUser, title, selectedScore);
         if (onSaveCallback) onSaveCallback();
       } catch (e) {
+        if (networkLikeError(e)) {
+          // Офлайн: оценка не теряется, а встаёт в очередь на устройстве
+          enqueueRating({
+            title_id: title.id,
+            media_type: mediaType,
+            rating: selectedScore,
+            comment,
+            title: title.title,
+            poster_path: title.poster_path
+          });
+          closeModal();
+          showToast('Нет сети: оценка сохранена на устройстве и отправится в базу автоматически', 'info', 6000);
+          if (onSaveCallback) onSaveCallback();
+          return;
+        }
         showToast('Ошибка при сохранении: ' + e.message, 'error', 5000);
         btn.disabled = false;
         btn.textContent = status.hasRating ? 'Обновить оценку' : 'Сохранить оценку';
@@ -435,6 +518,31 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       </div>
     `;
   }
+}
+
+// Уведомление в Телеграм-чат компании через Pages Function /tg/notify.
+// Авторизация — текущей Supabase-сессией, огонь-и-забудь: бот не должен
+// ломать сохранение оценки при любых сбоях.
+function notifyTelegram(currentUser, title, score) {
+  try {
+    supabase.auth.getSession().then(({ data }) => {
+      const token = data && data.session && data.session.access_token;
+      if (!token) return;
+      fetch('/tg/notify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title_id: title.id,
+          media_type: title.media_type || 'movie',
+          title: title.title || '',
+          rating: score
+        })
+      }).catch(() => {});
+    }).catch(() => {});
+  } catch (e) { /* бот опционален */ }
 }
 
 // Крупный постер поверх всего: закрытие кликом или Esc

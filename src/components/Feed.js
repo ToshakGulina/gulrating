@@ -1,10 +1,14 @@
 import { supabase } from '../lib/supabase.js';
 import { formatDistanceToNow } from '../lib/date.js';
-import { searchTitles, getTrending, getRecommendations } from '../lib/tmdb.js';
+import { searchTitles, getTrending, getRecommendations, primeTitleCache } from '../lib/tmdb.js';
 import { openRatingModal } from './RatingModal.js';
 import { openCatalog } from './Catalog.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getSearchQueries, getRecentTitles, addSearchQuery, clearHistory } from '../lib/history.js';
+import { getPendingRatings, flushPendingRatings } from '../lib/offline.js';
+import { searchOfflineCatalog, getPopularOffline, getOfflineCatalogStats } from '../lib/offlineCatalog.js';
+import { isFullCatalogInstalled, searchFullCatalog } from '../lib/fullCatalog.js';
+import { getNotifications, markNotificationsRead, unreadNotifications } from '../lib/watchHistory.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -53,6 +57,28 @@ const FRIENDS_EMPTY_HINT = 'Появится, когда кто-то из ком
 const WANT_EMPTY_HINT = 'Появится, когда друзья добавят тайтлы в списки «хочу посмотреть».';
 const PERSONAL_EMPTY_HINT = 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших оценок.';
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
+let searchDocClickHandler = null; // document-обработчик клика из поиска
+let onlineFlushHandler = null;    // автосинк отложенных оценок при появлении сети
+let filtersResizeHandler = null;  // пересчёт отступа липких фильтров
+
+// Офлайн-копия ленты: последний успешный срез по каждому фильтру
+const FEED_CACHE_KEY = 'gulrating:feed_cache';
+function writeFeedCache(filter, items) {
+  try {
+    const all = JSON.parse(localStorage.getItem(FEED_CACHE_KEY) || '{}');
+    all[filter] = (items || []).slice(0, 20);
+    localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(all));
+  } catch (e) { /* приватный режим */ }
+}
+function readFeedCache(filter) {
+  try {
+    const all = JSON.parse(localStorage.getItem(FEED_CACHE_KEY) || '{}');
+    const items = all[filter];
+    return Array.isArray(items) && items.length ? items : null;
+  } catch (e) {
+    return null;
+  }
+}
 
 export function cleanupFeed() {
   if (feedChannel) {
@@ -60,22 +86,39 @@ export function cleanupFeed() {
     feedChannel = null;
   }
   clearTimeout(realtimeTimer);
+  if (searchDocClickHandler) {
+    document.removeEventListener('click', searchDocClickHandler);
+    searchDocClickHandler = null;
+  }
+  if (onlineFlushHandler) {
+    window.removeEventListener('online', onlineFlushHandler);
+    onlineFlushHandler = null;
+  }
+  if (filtersResizeHandler) {
+    window.removeEventListener('resize', filtersResizeHandler);
+    filtersResizeHandler = null;
+  }
 }
 
 export async function renderFeed(app, currentUser) {
   cleanupFeed();
   activeFilter = 'all';
+  activeSort = readSort(); // сортировку могли поменять из профиля
 
   app.innerHTML = `
-    <div class="max-w-4xl mx-auto pb-20">
-      <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
+    <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
+      <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800 safe-top">
         <div class="flex items-center gap-3 mb-3">
           <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
             class="w-10 h-10 rounded-full bg-slate-700 border border-slate-600">
-          <div class="min-w-0">
+          <div class="min-w-0 flex-1">
             <h1 class="text-xl font-bold leading-tight truncate">Привет, ${escapeHtml(currentUser.profile.username)}! 👋</h1>
             <p class="text-xs text-gray-400">${escapeHtml(todayCaption())}</p>
           </div>
+          <button id="notif-btn" class="relative flex-shrink-0 w-10 h-10 rounded-xl bg-card hover:bg-slate-700 flex items-center justify-center" aria-label="Уведомления" title="Уведомления">
+            <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+            <span id="notif-badge" class="hidden absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-secondary text-white text-[10px] font-bold flex items-center justify-center"></span>
+          </button>
         </div>
         <div class="relative">
           <input type="text" id="search-input" placeholder="Поиск фильма или сериала..." autocomplete="off"
@@ -89,7 +132,9 @@ export async function renderFeed(app, currentUser) {
       </div>
 
       <div class="p-4">
-        <div class="flex gap-2 mb-4 overflow-x-auto scrollbar-hide">
+        <!-- Фильтры и сортировка: прилипают под шапкой и не исчезают при прокрутке -->
+        <div id="feed-filters" class="sticky z-10 -mx-4 px-4 pt-2 pb-3 bg-dark/95 backdrop-blur-card">
+        <div class="flex gap-2 mb-2 overflow-x-auto scrollbar-hide">
           <button class="filter-btn px-4 py-2 bg-primary text-white rounded-full text-sm font-medium whitespace-nowrap" data-filter="all">Все оценки</button>
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="movies">Фильмы</button>
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="tv">Сериалы</button>
@@ -97,7 +142,7 @@ export async function renderFeed(app, currentUser) {
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="watchlist">Хочу посмотреть</button>
         </div>
 
-        <div class="flex items-center gap-2 mb-4 text-xs text-gray-400">
+        <div class="flex items-center gap-2 text-xs text-gray-400">
           <span class="flex-shrink-0">Сортировка:</span>
           <div class="flex gap-1.5 overflow-x-auto scrollbar-hide">
             ${SORT_OPTIONS.map(o => `
@@ -105,20 +150,34 @@ export async function renderFeed(app, currentUser) {
             `).join('')}
           </div>
         </div>
+        </div>
 
-        <div id="feed-note" class="hidden text-xs text-gray-500 mb-3">Показан список «хочу посмотреть» всей вашей компании</div>
+        <div id="feed-note" class="hidden text-xs text-gray-500 mt-3 mb-3">Показан список «хочу посмотреть» всей вашей компании</div>
 
-        <!-- Рекомендации: популярность, вкусы друзей, персональный подбор -->
-        <div id="recs-section" class="space-y-6 mb-6"></div>
+        <div id="blocks-wrap" class="mt-4 space-y-6">
 
-        <div id="ratings-list" class="space-y-4">
-          ${skeletonCards(3)}
+          <div id="blk-feed" class="space-y-3">
+            <div class="flex items-center gap-2">
+              <h3 class="font-semibold">Оценки</h3>
+              ${moveControls('feed')}
+            </div>
+
+            <!-- Отложенные (офлайн) оценки: видно очередь и можно отправить вручную -->
+            <div id="pending-banner" class="hidden mb-3 text-xs bg-slate-800/70 border border-slate-700 rounded-xl px-3 py-2 text-gray-300 flex items-center gap-2">
+              <span id="pending-text"></span>
+              <button id="pending-flush" class="ml-auto px-2 py-1 bg-primary hover:bg-primary/90 text-white rounded-lg flex-shrink-0">Отправить сейчас</button>
+            </div>
+
+            <div id="ratings-list" class="space-y-4">
+              ${skeletonCards(3)}
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- Нижняя навигация -->
       <nav class="fixed bottom-0 left-0 right-0 bg-dark/90 backdrop-blur-card border-t border-slate-800 z-10">
-        <div class="max-w-4xl mx-auto flex">
+        <div class="max-w-4xl xl:max-w-6xl mx-auto flex">
           <button class="nav-btn flex-1 py-3 flex flex-col items-center text-primary" data-page="feed">
             <svg class="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4m8 4V10a1 1 0 00-1-1h-2a1 1 0 00-1 1v4m3 1h3a1 1 0 001-1V10m-4 0l2-2m0 0l2 2"></path></svg>
             <span class="text-xs">Лента</span>
@@ -140,6 +199,95 @@ export async function renderFeed(app, currentUser) {
   initSearch(currentUser);
   initNav(currentUser);
   initSort(currentUser);
+
+  // Кнопки ↑↓ переставляют секции ленты (порядок запоминается)
+  const blocksWrap = document.getElementById('blocks-wrap');
+  blocksWrap.addEventListener('click', (e) => {
+    const btn = e.target.closest('.blk-move');
+    if (!btn) return;
+    const order = readFeedOrder();
+    const idx = order.indexOf(btn.dataset.blk);
+    const to = idx + (btn.dataset.dir === 'up' ? -1 : 1);
+    if (idx < 0 || to < 0 || to >= order.length) return;
+    [order[idx], order[to]] = [order[to], order[idx]];
+    localStorage.setItem(FEED_ORDER_KEY, JSON.stringify(order));
+    applyFeedOrder();
+  });
+  applyFeedOrder();
+
+  // Уведомления: колокол с бейджем и список в оверлее
+  function paintNotifBadge() {
+    const badge = document.getElementById('notif-badge');
+    if (!badge) return;
+    const n = unreadNotifications();
+    badge.textContent = n ? String(n) : '';
+    badge.classList.toggle('hidden', !n);
+  }
+  document.getElementById('notif-btn').addEventListener('click', () => {
+    const list = getNotifications();
+    const ov = document.createElement('div');
+    ov.className = 'fixed inset-0 z-40 bg-black/60 p-4';
+    ov.innerHTML = `
+      <div class="mx-auto max-w-md mt-12 bg-card rounded-2xl border border-slate-700 p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <h3 class="font-semibold flex-1">Уведомления</h3>
+          <button id="notif-read" class="text-xs text-primary underline">все прочитаны</button>
+          <button id="notif-close" class="text-gray-400 hover:text-white text-2xl leading-none px-1" aria-label="Закрыть">&times;</button>
+        </div>
+        <div class="space-y-2 max-h-96 overflow-y-auto">
+          ${list.length ? list.map(n => `
+            <div class="text-sm rounded-xl p-2 ${n.read ? 'text-gray-400 bg-slate-800/40' : 'text-white bg-slate-800'}">
+              ${escapeHtml(n.text)}
+              <div class="text-[10px] text-gray-500 mt-0.5">${new Date(n.at).toLocaleString('ru-RU')}</div>
+            </div>`).join('')
+            : '<p class="text-xs text-gray-600">Пока тихо. Сюда придут уведомления о новых сезонах и сериях досмотренных сериалов.</p>'}
+        </div>
+      </div>`;
+    ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+    ov.querySelector('#notif-close').addEventListener('click', () => ov.remove());
+    ov.querySelector('#notif-read').addEventListener('click', () => {
+      markNotificationsRead();
+      paintNotifBadge();
+      ov.remove();
+    });
+    document.body.appendChild(ov);
+  });
+  paintNotifBadge();
+
+  // Липкие фильтры: отступ сверху = высота шапки (меняется с размером окна)
+  const filtersBar = document.getElementById('feed-filters');
+  const feedHeader = app.querySelector('.sticky.top-0');
+  const setFiltersTop = () => {
+    if (filtersBar && feedHeader) filtersBar.style.top = `${feedHeader.offsetHeight}px`;
+  };
+  setFiltersTop();
+  filtersResizeHandler = () => setFiltersTop();
+  window.addEventListener('resize', filtersResizeHandler);
+
+  // Очередь офлайн-оценок: баннер, ручная отправка
+  paintPending();
+  document.getElementById('pending-flush').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
+    btn.disabled = false;
+    if (sent) showToast(`Отправлено отложенных оценок: ${sent}`, 'success');
+    paintPending();
+    loadRatings(currentUser, activeFilter);
+  });
+
+  // Сеть появилась: отложенные оценки улетают сами
+  onlineFlushHandler = async () => {
+    const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
+    if (sent) showToast(`Отложенные оценки отправлены в базу: ${sent}`, 'success');
+    paintPending();
+    if (document.getElementById('ratings-list')) {
+      loadRatings(currentUser, activeFilter);
+      recsCache.dbAt = 0;
+      loadRecs(currentUser);
+    }
+  };
+  window.addEventListener('online', onlineFlushHandler);
 
   // Каталог: полноценный просмотр с жанрами и фильтрами
   document.getElementById('catalog-btn').addEventListener('click', () => {
@@ -190,6 +338,7 @@ async function loadRatings(currentUser, filter = 'all') {
   if (noteEl) noteEl.classList.toggle('hidden', filter !== 'watchlist');
 
   let data;
+  let offlineCopy = false;
 
   if (filter === 'watchlist') {
     const { data: watchlist, error } = await supabase
@@ -198,10 +347,17 @@ async function loadRatings(currentUser, filter = 'all') {
       .order('created_at', { ascending: false });
 
     if (error) {
-      listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
-      return;
+      const cached = readFeedCache(filter);
+      if (!cached) {
+        listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+        return;
+      }
+      data = cached;
+      offlineCopy = true;
+    } else {
+      data = watchlist;
+      writeFeedCache(filter, watchlist);
     }
-    data = watchlist;
   } else {
     // titles!inner — внутренний join: фильтр по типу тайтла применяется к строкам
     // ленты, а не к вложенному объекту (без !inner PostgREST вернул бы все оценки
@@ -222,10 +378,17 @@ async function loadRatings(currentUser, filter = 'all') {
     const { data: ratings, error } = await query;
 
     if (error) {
-      listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
-      return;
+      const cached = readFeedCache(filter);
+      if (!cached) {
+        listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+        return;
+      }
+      data = cached;
+      offlineCopy = true;
+    } else {
+      data = applySort(ratings);
+      writeFeedCache(filter, ratings);
     }
-    data = applySort(ratings);
   }
 
   if (!data || data.length === 0) {
@@ -264,6 +427,8 @@ async function loadRatings(currentUser, filter = 'all') {
     const title = item.titles;
     const user = item.profiles;
     if (!title || !user) return '';
+    // Офлайн-кэш: показанную карточку можно будет открыть и оценить без сети
+    primeTitleCache(title.media_type, title.id, title);
 
     const year = releaseYear(title.release_date);
     const ratingColor = item.rating >= 8 ? 'bg-green-600' : item.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
@@ -304,6 +469,14 @@ async function loadRatings(currentUser, filter = 'all') {
     `;
   }).join('');
 
+  if (offlineCopy) {
+    listEl.insertAdjacentHTML('afterbegin', `
+      <div class="text-xs bg-slate-800/70 border border-slate-700 rounded-xl px-3 py-2 text-gray-400">
+        Офлайн: показана сохранённая копия ленты. Новые оценки сохраняются на устройстве и отправятся при появлении сети.
+      </div>`);
+  }
+  paintPending();
+
   // Обработчик клика по карточке тайтла
   document.querySelectorAll('.title-card').forEach(card => {
     card.addEventListener('click', () => {
@@ -314,6 +487,42 @@ async function loadRatings(currentUser, filter = 'all') {
       });
     });
   });
+}
+
+// Порядок секций ленты: пользователь двигает блоки кнопками ↑ ↓
+const FEED_ORDER_KEY = 'gulrating:feed_order';
+const FEED_ORDER_DEFAULT = ['trends', 'recs', 'feed'];
+function readFeedOrder() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FEED_ORDER_KEY) || 'null');
+    if (Array.isArray(parsed) && parsed.length === 3 && FEED_ORDER_DEFAULT.every(id => parsed.includes(id))) return parsed;
+  } catch (e) { /* повреждено */ }
+  return [...FEED_ORDER_DEFAULT];
+}
+function moveControls(id) {
+  return `<span class="ml-auto flex gap-1 flex-shrink-0">
+      <button class="blk-move w-7 h-7 rounded-lg bg-card hover:bg-slate-700 text-gray-400 text-sm" data-blk="${id}" data-dir="up" title="Секцию выше" aria-label="Секцию выше">↑</button>
+      <button class="blk-move w-7 h-7 rounded-lg bg-card hover:bg-slate-700 text-gray-400 text-sm" data-blk="${id}" data-dir="down" title="Секцию ниже" aria-label="Секцию ниже">↓</button>
+    </span>`;
+}
+function applyFeedOrder() {
+  const wrap = document.getElementById('blocks-wrap');
+  if (!wrap) return;
+  for (const id of readFeedOrder()) {
+    const el = document.getElementById('blk-' + id);
+    if (el) wrap.appendChild(el);
+  }
+}
+
+// Баннер очереди отложенных оценок
+function paintPending() {
+  const banner = document.getElementById('pending-banner');
+  if (!banner) return;
+  const pending = getPendingRatings();
+  banner.classList.toggle('hidden', pending.length === 0);
+  if (!pending.length) return;
+  const textEl = document.getElementById('pending-text');
+  if (textEl) textEl.textContent = `📴 Отложенных оценок: ${pending.length} — отправятся в базу при появлении сети`;
 }
 
 // Сортировка оценок ленты (выбор пользователя хранится локально)
@@ -369,25 +578,34 @@ function skeletonCards(count = 3) {
 // среднее >= 7.5 и вы ещё не оценили); 3) Похоже на то, что вам понравилось
 // (TMDb recommendations от вашего топ-тайтла). Ряды кликабельны целиком.
 async function loadRecs(currentUser) {
-  const section = document.getElementById('recs-section');
+  // Блоки трендов и подборок живут в общем контейнере порядка секций
+  const section = document.getElementById('blocks-wrap');
   if (!section) return;
-  if (localStorage.getItem('gulrating:show_recs') === '0') {
-    section.innerHTML = '';
-    return;
-  }
+  section.querySelectorAll('#blk-trends, #blk-recs').forEach(n => n.remove());
+  if (localStorage.getItem('gulrating:show_recs') === '0') return;
 
-  section.innerHTML = `
+  section.insertAdjacentHTML('afterbegin', `
+    <div id="blk-trends" class="space-y-3">
     <div id="recs-trends">
       <div class="flex items-center gap-2 mb-3 overflow-x-auto scrollbar-hide">
         <h3 class="font-semibold mr-1">Тренды</h3>
         ${TREND_TABS.map(t => `<button class="trend-tab px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap ${t.key === trendsActive ? 'bg-primary text-white' : 'bg-card hover:bg-slate-700 text-gray-300'}" data-key="${t.key}">${t.label}</button>`).join('')}
+        ${moveControls('trends')}
       </div>
-      <div id="trends-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3"></div>
+      <div id="trends-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3"></div>
     </div>
-    ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
-    ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
-    ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
-  `;
+    </div>
+    <div id="blk-recs" class="space-y-4">
+      <div class="flex items-center gap-2">
+        <h3 class="font-semibold">Подборки по вкусам компании</h3>
+        ${moveControls('recs')}
+      </div>
+      ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
+      ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
+      ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
+    </div>
+  `);
+  applyFeedOrder();
 
   section.querySelectorAll('.trend-tab').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -434,7 +652,16 @@ async function loadRecs(currentUser) {
 function renderTrendsGrid(currentUser) {
   const grid = document.getElementById('trends-grid');
   if (!grid) return;
-  const items = recsCache.trends[trendsActive];
+  let items = recsCache.trends[trendsActive];
+  let offlineTrends = false;
+  if (!items) {
+    // Офлайн: вместо трендов — популярные тайтлы из базы на устройстве
+    const local = getPopularOffline(18);
+    if (local.length) {
+      items = local;
+      offlineTrends = true;
+    }
+  }
   document.querySelectorAll('.trend-tab').forEach(btn => {
     const active = btn.dataset.key === trendsActive;
     btn.classList.toggle('bg-primary', active);
@@ -451,8 +678,11 @@ function renderTrendsGrid(currentUser) {
     grid.innerHTML = '<p class="col-span-full text-sm text-gray-500 py-6">В этой выборке пусто.</p>';
     return;
   }
-  grid.innerHTML = items.map(item => {
+  grid.innerHTML = (offlineTrends
+    ? `<p class="col-span-full text-xs text-gray-500 pb-1">📴 Офлайн: популярные тайтлы из базы на устройстве (${getOfflineCatalogStats().count})</p>`
+    : '') + items.map(item => {
     const year = releaseYear(item.release_date);
+    primeTitleCache(item.media_type, item.id, item);
     return `
       <div class="rec-card cursor-pointer group" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
         <div class="relative group-hover:opacity-80 transition-opacity">
@@ -623,6 +853,7 @@ function fillRecRow(section, id, titleText, subtitle, items, badgeClass, emptyHi
     <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
       ${items.map(item => {
         const year = releaseYear(item.release_date);
+        primeTitleCache(item.media_type, item.id, item);
         return `
           <div class="rec-card flex-shrink-0 w-28 cursor-pointer group relative" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
             <div class="group-hover:opacity-80 transition-opacity">
@@ -652,6 +883,8 @@ function initSearch(currentUser) {
   function showHistoryDropdown() {
     const queries = getSearchQueries();
     const titles = getRecentTitles();
+    // История тоже кэшируется: недавние тайтлы можно открыть и оценить офлайн
+    titles.forEach(t => primeTitleCache(t.media_type, t.id, { ...t, release_date: t.year ? `${t.year}-01-01` : null }));
     if (queries.length === 0 && titles.length === 0) {
       resultsContainer.classList.add('hidden');
       return;
@@ -722,10 +955,32 @@ function initSearch(currentUser) {
     searchTimeout = setTimeout(async () => {
       let results = [];
       let errorText = null;
+      let offlineNote = null;
       try {
+        if (navigator.onLine === false) throw new Error('Нет сети.');
         results = await searchTitles(query);
       } catch (err) {
-        errorText = err.message;
+        // Без сети (или TMDb недоступен) ищем в текстовой базе на устройстве
+        const stats = getOfflineCatalogStats();
+        let local = searchOfflineCatalog(query);
+        let fullUsed = false;
+        if (isFullCatalogInstalled()) {
+          resultsContainer.innerHTML = '<div class="p-4 text-gray-500 text-center text-sm">Ищем по полной базе на устройстве…</div>';
+          resultsContainer.classList.remove('hidden');
+          const full = await searchFullCatalog(query, 20, local);
+          if (full.length) {
+            local = [...local, ...full];
+            fullUsed = true;
+          }
+        }
+        if (local.length) {
+          results = local;
+          offlineNote = `Офлайн-поиск по базе на устройстве (${stats.count} тайтлов${fullUsed ? ' + полная база' : ''})`;
+        } else if (stats.count) {
+          errorText = `${err.message} В базе на устройстве (${stats.count} тайтлов) ничего не нашлось.`;
+        } else {
+          errorText = `${err.message} База фильмов для офлайна ещё не скачана — она загружается автоматически, когда есть сеть.`;
+        }
       }
 
       if (errorText) {
@@ -733,8 +988,11 @@ function initSearch(currentUser) {
       } else if (results.length === 0) {
         resultsContainer.innerHTML = `<div class="p-4 text-gray-500 text-center">Ничего не найдено</div>`;
       } else {
-        resultsContainer.innerHTML = results.map(item => {
+        resultsContainer.innerHTML = (offlineNote
+          ? `<div class="px-3 pt-2 pb-1 text-xs text-gray-500">📴 ${escapeHtml(offlineNote)}</div>`
+          : '') + results.map(item => {
           const year = releaseYear(item.release_date);
+          primeTitleCache(item.media_type, item.id, item);
           return `
             <div class="search-result-item p-3 hover:bg-slate-700 cursor-pointer flex gap-3 transition-colors" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
               <div class="flex-shrink-0 w-10">
@@ -771,12 +1029,16 @@ function initSearch(currentUser) {
     }, 300);
   });
 
-  // Скрываем результаты при клике вне поиска и по Escape
-  document.addEventListener('click', (e) => {
+  // Скрываем результаты при клике вне поиска и по Escape.
+  // Обработчик document-уровня снимаем при cleanupFeed, иначе он копился
+  // при каждом возврате в ленту (утечка слушателей)
+  if (searchDocClickHandler) document.removeEventListener('click', searchDocClickHandler);
+  searchDocClickHandler = (e) => {
     if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
       resultsContainer.classList.add('hidden');
     }
-  });
+  };
+  document.addEventListener('click', searchDocClickHandler);
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') resultsContainer.classList.add('hidden');
     // Enter открывает первый результат — быстрее на телефоне

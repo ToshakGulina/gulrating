@@ -13,20 +13,22 @@ const API_PARAMS = new URLSearchParams({
 });
 if (!USE_PROXY) API_PARAMS.set('api_key', CONFIG.TMDB_API_KEY);
 
-// Запрос к TMDb с таймаутом и понятными сообщениями об ошибках
+// Запрос к TMDb с таймаутом и понятными сообщениями об ошибках.
+// Сначала напрямую; если сеть недоступна (в том числе гео-блок TMDb для
+// российских IP — GeoDNS отдаёт 127.0.0.1), прозрачно уходим на серверный
+// прокси /tmdb на собственном домене (Pages Functions): там запрос идёт с
+// края Cloudflare, которому TMDb отвечает.
 async function tmdbFetch(path) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`, {
-      signal: controller.signal
-    });
+    res = await tmdbRaw(`${API_BASE}${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`);
   } catch (e) {
-    throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
-  } finally {
-    clearTimeout(timer);
+    if (USE_PROXY) throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
+    try {
+      res = await tmdbRaw(`/tmdb${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`);
+    } catch (e2) {
+      throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
+    }
   }
 
   if (!res.ok) {
@@ -42,6 +44,16 @@ async function tmdbFetch(path) {
     throw new Error(`Ошибка базы фильмов TMDb (код ${res.status})${detail}`);
   }
   return res.json();
+}
+
+async function tmdbRaw(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Поиск фильмов и сериалов по запросу с автодополнением
@@ -83,10 +95,81 @@ export async function getTrending({ mediaType = 'all', window = 'week', limit = 
 }
 
 // Получаем полную информацию о тайтле по ID
-export async function getTitleDetails(id, mediaType) {
-  const data = await tmdbFetch(`/${mediaType}/${id}`);
+// Кэш деталей тайтлов: без сети карточки открываются из него,
+// и оценку можно поставить в очередь. Заполняется не только при
+// открытии модалки, но и при показе любой карточки (лента, каталог,
+// рекомендации, поиск, история) — см. primeTitleCache.
+const TITLE_CACHE_KEY = 'gulrating:title_cache';
+const TITLE_CACHE_MAX = 100;
 
-  return {
+function readTitleCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TITLE_CACHE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function writeTitleCache(cache, key, details) {
+  try {
+    cache[key] = details;
+    const keys = Object.keys(cache);
+    while (keys.length > TITLE_CACHE_MAX) delete cache[keys.shift()];
+    localStorage.setItem(TITLE_CACHE_KEY, JSON.stringify(cache));
+  } catch (e) { /* приватный режим */ }
+}
+
+// Записывает в кэш данные карточки, которая просто показалась на экране
+// (строка ленты из Supabase или результат TMDb). Уже существующую полную
+// запись не затирает.
+export function primeTitleCache(mediaType, id, partial) {
+  if (!mediaType || !id || !partial) return;
+  const cache = readTitleCache();
+  const key = `${mediaType}:${id}`;
+  if (cache[key]) return;
+  cache[key] = {
+    id,
+    media_type: mediaType,
+    title: partial.title || partial.name || '',
+    original_title: partial.original_title || partial.original_name || null,
+    release_date: partial.release_date || partial.first_air_date || null,
+    overview: partial.overview || null,
+    poster_path: partial.poster_path || null,
+    backdrop_path: partial.backdrop_path || null,
+    tmdb_rating: partial.tmdb_rating != null
+      ? partial.tmdb_rating
+      : (partial.vote_average != null ? partial.vote_average : null),
+    genres: Array.isArray(partial.genres)
+      ? partial.genres.map(g => (typeof g === 'string' ? g : g && g.name)).filter(Boolean)
+      : []
+  };
+  writeTitleCache(cache, key, cache[key]);
+}
+
+// Страница популярных тайтлов (для фоновой закачки офлайн-базы)
+export async function getPopularPage(mediaType, page) {
+  const data = await tmdbFetch(`/discover/${mediaType}?sort_by=popularity.desc&page=${page}`);
+  return (data.results || []).map(item => ({
+    id: item.id,
+    title: (mediaType === 'movie' ? item.title : item.name) || '',
+    year: String(mediaType === 'movie' ? (item.release_date || '') : (item.first_air_date || '')).slice(0, 4),
+    poster_path: item.poster_path || null,
+    vote_average: item.vote_average != null ? item.vote_average : null
+  }));
+}
+
+export async function getTitleDetails(id, mediaType) {
+  let data;
+  try {
+    data = await tmdbFetch(`/${mediaType}/${id}`);
+  } catch (e) {
+    const cached = readTitleCache()[`${mediaType}:${id}`];
+    if (cached) return cached;
+    throw e;
+  }
+
+  const details = {
     id: data.id,
     media_type: mediaType,
     title: mediaType === 'movie' ? data.title : data.name,
@@ -96,8 +179,14 @@ export async function getTitleDetails(id, mediaType) {
     poster_path: data.poster_path,
     backdrop_path: data.backdrop_path,
     tmdb_rating: data.vote_average,
-    genres: (data.genres || []).map(g => g.name)
+    genres: (data.genres || []).map(g => g.name),
+    budget: data.budget || null,
+    revenue: data.revenue || null,
+    seasons: data.number_of_seasons != null ? data.number_of_seasons : null,
+    episodes: data.number_of_episodes != null ? data.number_of_episodes : null
   };
+  writeTitleCache(readTitleCache(), `${mediaType}:${id}`, details);
+  return details;
 }
 
 // Приводим ответ TMDb к общему виду карточки рекомендации

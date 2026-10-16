@@ -1,0 +1,37 @@
+name: offline-catalog
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Раз в месяц: популярность меняется медленно
+    - cron: '0 3 1 * *'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/build-offline-catalog.mjs'
+      - '.github/workflows/offline-catalog.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Generate offline catalog
+        run: node scripts/build-offline-catalog.mjs
+      - name: Commit data file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/offline-catalog.json
+          if git diff --cached --quiet; then
+            echo "Каталог не изменился"
+          else
+            git commit -m "chore: обновить офлайн-базу фильмов"
+            git push
+          fi

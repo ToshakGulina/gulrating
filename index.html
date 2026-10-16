@@ -66,6 +66,12 @@
     /* Нижняя навигация не наезжает на домашний индикатор iPhone */
     nav.fixed { padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
 
+    /* Установленное приложение (standalone): контент не залезает под статус-бар */
+    @media all and (display-mode: standalone) {
+      .safe-top { padding-top: calc(env(safe-area-inset-top) + 0.75rem); }
+      #catalog-close-float { top: calc(env(safe-area-inset-top) + 8px); }
+    }
+
     /* Карточки ленты: тонкая рамка и мягкий отклик вместо плоских плиток */
     #ratings-list .title-card { border: 1px solid rgb(51 65 85 / .45); transition: border-color .15s ease, background-color .15s ease; }
     #ratings-list .title-card:hover { border-color: rgb(71 85 105 / .8); }

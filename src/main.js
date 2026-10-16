@@ -1,4 +1,6 @@
 import { supabase, getCurrentUser } from './lib/supabase.js';
+import { syncOfflineCatalog, isAppContext } from './lib/offlineCatalog.js';
+import { checkNewSeasons } from './lib/watchHistory.js';
 import { configIsComplete, APP_BUILD } from './config.js';
 
 // Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
@@ -16,6 +18,29 @@ import { renderAccessDenied } from './components/AccessDenied.js';
 import { renderSetupPage, renderFatalError, renderProfileMissing } from './components/Setup.js';
 
 const app = document.getElementById('app');
+
+// Установка на устройство (Android/iOS): браузер отдаёт событие установки
+// один раз — сохраняем его и показываем кнопку в профиле
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  window.__gulratingInstallPrompt = e;
+  window.dispatchEvent(new Event('gulrating:installable'));
+});
+window.addEventListener('appinstalled', () => {
+  window.__gulratingInstallPrompt = null;
+  showToast('Приложение установлено на устройство', 'success');
+  window.dispatchEvent(new Event('gulrating:appinstalled'));
+});
+
+// Сеть пропала/вернулась: интерфейс живёт из кэша, объясняем состояние
+window.addEventListener('offline', () => {
+  showToast('Нет сети: интерфейс из кэша, данные обновятся при появлении интернета', 'info', 4000);
+});
+window.addEventListener('online', () => {
+  showToast('Снова в сети', 'success', 2000);
+  // Дозакачиваем офлайн-базу фильмов (только в приложении)
+  if (isAppContext()) syncOfflineCatalog().catch(() => {});
+});
 
 function hideSplash() {
   const splash = document.getElementById('boot-splash');
@@ -44,6 +69,7 @@ async function renderApp() {
       renderAccessDenied(app);
     } else {
       await renderFeed(app, currentUser);
+      await handleDeepLink(currentUser);
     }
   } catch (e) {
     cleanupFeed();
@@ -52,6 +78,20 @@ async function renderApp() {
     rendering = false;
     hideSplash();
   }
+}
+
+// Ссылка из Телеграм-бота (?title=movie:123): открываем карточку тайтла
+// поверх ленты. Параметр съедаем сразу, чтобы повторные рендеры не
+// открывали модалку заново.
+async function handleDeepLink(currentUser) {
+  const params = new URLSearchParams(location.search);
+  const ref = params.get('title');
+  if (!ref) return;
+  const m = /^(movie|tv):(\d+)$/.exec(ref);
+  history.replaceState(null, '', location.pathname + location.hash);
+  if (!m) return;
+  const { openRatingModal } = await import('./components/RatingModal.js');
+  openRatingModal(m[2], m[1], currentUser, () => renderApp());
 }
 
 async function init() {
@@ -74,6 +114,13 @@ async function init() {
   });
 
   await renderApp();
+
+  // Фоновая закачка офлайн-базы фильмов (resume-able, не блокирует интерфейс).
+  // Только в приложении: десктоп-сайту офлайн-база не нужна
+  if (isAppContext()) syncOfflineCatalog().catch(() => {});
+
+  // Досмотренные сериалы: вышел новый сезон/серии — уведомление (троттлинг внутри)
+  checkNewSeasons().catch(() => {});
 
   // Интерфейс отдаётся из кэша мгновенно (sw.js), а здесь фоном проверяем,
   // не появился ли новый деплой: если сборка отличается — ненавязчивый тост

@@ -1,0 +1,53 @@
+name: offline-catalog-full
+
+# Полная база TMDb (~1 млн тайтлов, ~100 МБ чанками) публикуется в отдельную
+# orphan-ветку data-full: история main не раздувается, а raw.githubusercontent
+# и jsDelivr отдают файлы с CORS для браузера.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Раз в квартал: длинная задача (~час), чаще не нужна
+    - cron: '0 4 1 */3 *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: offline-catalog-full
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Generate full catalog
+        run: node scripts/build-full-catalog.mjs
+      - name: Publish to data-full branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ORIGIN="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          rm -rf pub
+          if git ls-remote --exit-code --heads "$ORIGIN" data-full >/dev/null 2>&1; then
+            git clone --depth 1 --branch data-full "$ORIGIN" pub
+          else
+            git clone --depth 1 "$ORIGIN" pub
+            cd pub && git checkout --orphan data-full && git rm -rf --cached . >/dev/null && cd ..
+          fi
+          cd pub
+          rm -rf data
+          cp -r ../out/data .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "Полная база не изменилась"
+          else
+            git commit -m "data: полная офлайн-база фильмов"
+            git push --force "$ORIGIN" data-full
+          fi
