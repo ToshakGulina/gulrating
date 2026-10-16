@@ -162,8 +162,14 @@ public class MainActivity extends Activity {
                 // он шлёт позицию в GulRatingBridge и сам продолжает с сохранённой минуты
                 if (inPlayerSession && "GET".equals(request.getMethod())) {
                     String accept = request.getRequestHeaders() == null
-                            ? "" : String.valueOf(request.getRequestHeaders().get("Accept"));
-                    boolean isDoc = request.isForMainFrame() || accept.contains("text/html");
+                            ? "" : String.valueOf(request.getRequestHeaders().get("Accept")).toLowerCase();
+                    // Документ это или нет, окончательно решает content-type
+                    // после fetch: здесь лишь не отбрасываем кадры и фреймы
+                    // с нестандартным Accept (*/*, пусто и т.п.)
+                    boolean isDoc = request.isForMainFrame()
+                            || accept.isEmpty()
+                            || accept.contains("text/html")
+                            || accept.contains("*/*");
                     String url = request.getUrl().toString();
                     if (isDoc && !url.startsWith(HOME)) {
                         WebResourceResponse injected = injectBridgeScript(url, request.getRequestHeaders());
