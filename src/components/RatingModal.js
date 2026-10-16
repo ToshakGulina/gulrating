@@ -734,8 +734,15 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           query: `${title.title || title.name || ''} ${yr}`.trim()
         });
         reportWatchNative(titleId, mediaType);
-        // И в браузере, и в APK — оверлей со списком чистых плееров;
-        // зеркало целиком только если Kinobox API не ответит
+        if (isApk()) {
+          // РАБОЧАЯ СХЕМА (как в v1.0.4): в приложении плеер открывается
+          // страницей зеркала верхним документом — зеркало само разруливает
+          // все источники своим виджетом, это заведомо работает со всеми
+          // плеерами, фуллскрином и ландшафтом. Чистый список плееров —
+          // только в браузере, где он идеален
+          window.location.href = kpPageUrl;
+          return;
+        }
         openWatchOverlay({
           kpId: kpRatings && kpRatings.kpId,
           query: `${title.title || title.name || ''} ${yr}`.trim(),

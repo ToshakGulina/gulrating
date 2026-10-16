@@ -489,6 +489,11 @@ export async function renderProfilePage(app, currentUser) {
       const item = getWatchHistory().find(x => x.key === b.closest('[data-key]').dataset.key);
       if (!item || !(item.kp_url || item.kpId || item.query)) return;
       reportWatchNative(item.id, item.media_type);
+      if (isApk() && item.kp_url) {
+        // Рабочая схема приложения: страница зеркала верхним документом
+        window.location.href = item.kp_url;
+        return;
+      }
       // Оверлей со списком чистых плееров Kinobox; зеркало — только фолбэк
       openWatchOverlay({
         kpId: item.kpId,
