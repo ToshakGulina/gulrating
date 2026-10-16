@@ -24,3 +24,6 @@ src/config.local.js
 # Кэши инструментов
 .vscode/
 .idea/
+
+# Android signing material
+android/keystore/

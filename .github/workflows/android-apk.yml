@@ -1,7 +1,7 @@
 name: android-apk
 
-# Сборка APK для sideload. Ручной запуск создаёт артефакт Actions;
-# тег v* дополнительно публикует APK в GitHub Releases.
+# APK для sideload. PR/manual branch builds are unsigned previews;
+# only version tags are signed and published as releases.
 on:
   workflow_dispatch:
   push:
@@ -37,14 +37,45 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Restore release signing key
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for secret_name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!secret_name}" ]; then
+              echo "::error::Missing repository Actions secret: ${secret_name}"
+              exit 1
+            fi
+          done
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/gulrating-release.p12"
+          test -s "$RUNNER_TEMP/gulrating-release.p12"
+
       - name: Build signed release APK
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/gulrating-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: cd android && gradle --no-daemon -q assembleRelease
+
+      - name: Build unsigned preview APK
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: cd android && gradle --no-daemon -q assembleRelease
 
       - name: Prepare release assets
         run: |
           mkdir -p release
           SAFE_REF="$(printf '%s' "$GITHUB_REF_NAME" | tr '/:' '--')"
-          cp android/app/build/outputs/apk/release/app-release.apk "release/gulrating-${SAFE_REF}.apk"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            cp android/app/build/outputs/apk/release/app-release.apk "release/gulrating-${SAFE_REF}.apk"
+          else
+            cp android/app/build/outputs/apk/release/app-release-unsigned.apk "release/gulrating-${SAFE_REF}-unsigned.apk"
+          fi
           scripts/release-notes.sh "${GITHUB_REF_NAME}" > release/release-notes.md
 
       - uses: actions/upload-artifact@v7
@@ -67,7 +98,7 @@ jobs:
           name: gulrating-apk
           path: release
 
-      - name: Create release with APK and changelog
+      - name: Create release with signed APK and changelog
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
