@@ -72,8 +72,8 @@ export function openWatchOverlay(opts) {
   ov.innerHTML = `
     <div class="flex items-center gap-2">
       <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
-      <button id="watch-fs" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-lg leading-none text-gray-200 hover:bg-slate-700" title="На весь экран" aria-label="На весь экран">⛶</button>
-      <a id="watch-tab" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-slate-700" href="${escapeHtml(mirrorUrl || '#')}" target="_blank" rel="noopener noreferrer" title="Открыть в новой вкладке">вкладка</a>
+      <button id="watch-crop" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-slate-700" title="Показать всё окно источника" aria-label="Переключить обрезку серых полей" aria-pressed="true">Показать целиком</button>
+      <button id="watch-expand" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-slate-700" title="Развернуть плеер в GulRating" aria-label="Развернуть плеер" aria-pressed="false">Развернуть</button>
       <button id="watch-close" class="rounded-xl px-2 py-1 text-2xl leading-none text-gray-300 hover:bg-slate-800 hover:text-white" aria-label="Закрыть плеер">&times;</button>
     </div>
     <div id="watch-stage" class="flex-1 relative min-h-0 rounded-xl overflow-hidden bg-black/60 flex items-center justify-center">
@@ -81,7 +81,7 @@ export function openWatchOverlay(opts) {
     </div>
     <div id="watch-players" class="flex flex-wrap gap-1.5 flex-shrink-0 content-start"></div>
     <div id="watch-dubs" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pb-1 flex-shrink-0 content-start"></div>
-    <div class="flex items-center gap-2 flex-shrink-0">
+    <div class="watch-footer flex items-center gap-2 flex-shrink-0">
       <button id="watch-bad" class="rounded-full bg-slate-800/70 px-3 py-1.5 text-xs text-gray-400 hover:bg-slate-700 hover:text-gray-200">не играет</button>
       <p id="watch-hint" class="text-xs text-gray-500 flex-1"></p>
     </div>`;
@@ -91,50 +91,20 @@ export function openWatchOverlay(opts) {
   const playersBox = ov.querySelector('#watch-players');
   const dubsBox = ov.querySelector('#watch-dubs');
   const hint = ov.querySelector('#watch-hint');
-  const tabLink = ov.querySelector('#watch-tab');
-  const fsBtn = ov.querySelector('#watch-fs');
-  function updateFullscreenButton() {
-    const exiting = Boolean(document.fullscreenElement || document.webkitFullscreenElement || ov.classList.contains('watch-viewport-fullscreen'));
-    fsBtn.title = exiting ? 'Выйти из полного экрана' : 'На весь экран';
-    fsBtn.setAttribute('aria-label', fsBtn.title);
+  const cropBtn = ov.querySelector('#watch-crop');
+  const expandBtn = ov.querySelector('#watch-expand');
+  let cropVertical = true;
+  const removeOverlayListeners = () => document.removeEventListener('keydown', ov._onKey);
+
+  function updateViewButtons() {
+    cropBtn.textContent = cropVertical ? 'Показать целиком' : 'Обрезать поля';
+    cropBtn.title = cropVertical ? 'Показать всё окно источника' : 'Скрыть серое поле сверху и снизу';
+    cropBtn.setAttribute('aria-pressed', String(cropVertical));
+    const expanded = ov.classList.contains('watch-theater-mode');
+    expandBtn.textContent = expanded ? 'Свернуть' : 'Развернуть';
+    expandBtn.title = expanded ? 'Вернуть список источников' : 'Развернуть плеер внутри GulRating';
+    expandBtn.setAttribute('aria-pressed', String(expanded));
   }
-
-  async function toggleFullscreen() {
-    const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
-    if (fullscreenElement) {
-      const exit = document.exitFullscreen || document.webkitExitFullscreen;
-      if (exit) await Promise.resolve(exit.call(document)).catch(() => {});
-      return;
-    }
-    if (ov.classList.contains('watch-viewport-fullscreen')) {
-      ov.classList.remove('watch-viewport-fullscreen');
-      updateFullscreenButton();
-      return;
-    }
-
-    const requestOverlay = ov.requestFullscreen || ov.webkitRequestFullscreen;
-    try {
-      if (!requestOverlay) throw new Error('Fullscreen API недоступен для окна плеера');
-      await Promise.resolve(requestOverlay.call(ov));
-    } catch (error) {
-      // Если браузер блокирует Fullscreen API, развернём плеер в пределах
-      // окна страницы. Крестик и остальные элементы управления останутся видны.
-      console.warn('Fullscreen request failed for overlay', error);
-      ov.classList.add('watch-viewport-fullscreen');
-      updateFullscreenButton();
-      showToast('Браузер ограничил системный полный экран: плеер развёрнут на весь экран страницы. Закрыть — ×.', 'info');
-    }
-  }
-
-  const handleFullscreenChange = () => updateFullscreenButton();
-  const removeOverlayListeners = () => {
-    document.removeEventListener('keydown', ov._onKey);
-    document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-  };
-  document.addEventListener('fullscreenchange', handleFullscreenChange);
-  document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-  if (apk) fsBtn.style.display = 'none'; // фуллскрин в APK делает сам плеер
 
   let groups = [];        // [{ type, embed, dubs: [{name, quality, url}] }]
   let curType = null;
@@ -145,22 +115,19 @@ export function openWatchOverlay(opts) {
   const CHIP_IDLE = CHIP + 'bg-slate-800 hover:bg-slate-700 text-gray-200';
   const CHIP_ON = CHIP + 'bg-primary text-white';
 
-  function setTab(u) {
-    if (u) tabLink.href = u;
-  }
-
   function showFrame(url) {
     stage.innerHTML = '';
     const frame = document.createElement('iframe');
     frame.id = 'watch-frame';
     frame.className = 'absolute inset-0 w-full h-full bg-black';
-    frame.allow = 'fullscreen; encrypted-media; autoplay';
+    frame.allow = 'fullscreen *; encrypted-media *; autoplay *; picture-in-picture *';
     frame.setAttribute('allowfullscreen', '');
+    frame.setAttribute('webkitallowfullscreen', '');
+    stage.classList.toggle('crop-vertical', cropVertical);
     // Плеерные CDN сверяют встраивающую страницу со списком зеркал:
     // без referer мы выглядим как прямой заход, а не как чужой сайт
     frame.src = url;
     stage.appendChild(frame);
-    setTab(url);
   }
 
   function curGroup() {
@@ -185,7 +152,6 @@ export function openWatchOverlay(opts) {
 
   function play(dub, group, autoFs) {
     if (!dub) return;
-    setTab(dub.url);
     if (apk) {
       // Embed-only (Alloha, Turbo) — во фрейм, как в браузере: верхним
       // документом они отказываются работать. Остальные — верхним
@@ -207,9 +173,10 @@ export function openWatchOverlay(opts) {
     }
     showFrame(dub.url);
     if (autoFs) {
-      // Полноэкранным становится наш overlay, поэтому крестик и управление
-      // остаются видимыми поверх iframe.
-      toggleFullscreen();
+      // Вместо скрытия браузерной панели раскрываем плеер внутри GulRating;
+      // крестик остаётся на месте, а серые поля iframe уже подрезаны.
+      ov.classList.add('watch-theater-mode');
+      updateViewButtons();
     }
     void group;
   }
@@ -271,7 +238,7 @@ export function openWatchOverlay(opts) {
         curName = d.name;
         renderPlayers();
         renderDubs();
-        play(d, g, true); // тап по озвучке → сразу во весь экран
+        play(d, g, true); // тап по озвучке → развернуть плеер
         remember();
       });
       dubsBox.appendChild(b);
@@ -297,16 +264,20 @@ export function openWatchOverlay(opts) {
     } else {
       renderPlayers();
       renderDubs();
-      hint.textContent = 'Живых источников не осталось — попробуйте «вкладка».';
+      hint.textContent = 'Живых источников не осталось. Попробуйте другой плеер или повторите поиск.';
     }
   });
 
-  fsBtn.addEventListener('click', toggleFullscreen);
+  cropBtn.addEventListener('click', () => {
+    cropVertical = !cropVertical;
+    stage.classList.toggle('crop-vertical', cropVertical);
+    updateViewButtons();
+  });
+  expandBtn.addEventListener('click', () => {
+    ov.classList.toggle('watch-theater-mode');
+    updateViewButtons();
+  });
   ov.querySelector('#watch-close').addEventListener('click', () => {
-    if (document.fullscreenElement || document.webkitFullscreenElement) {
-      const exit = document.exitFullscreen || document.webkitExitFullscreen;
-      if (exit) Promise.resolve(exit.call(document)).catch(() => {});
-    }
     removeOverlayListeners();
     ov.remove();
   });
@@ -315,12 +286,12 @@ export function openWatchOverlay(opts) {
       removeOverlayListeners();
       return;
     }
-    if (e.key === 'Escape' && ov.classList.contains('watch-viewport-fullscreen')) {
-      ov.classList.remove('watch-viewport-fullscreen');
-      updateFullscreenButton();
+    if (e.key === 'Escape' && ov.classList.contains('watch-theater-mode')) {
+      ov.classList.remove('watch-theater-mode');
+      updateViewButtons();
       return;
     }
-    if (e.key === 'Escape' && !document.fullscreenElement && !document.webkitFullscreenElement) {
+    if (e.key === 'Escape') {
       removeOverlayListeners();
       ov.remove();
     }
@@ -362,11 +333,10 @@ export function openWatchOverlay(opts) {
         if (!apk) play(curDub(), startG);
         else {
           stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Выберите источник и озвучку — плеер откроется внутри приложения.<br>Кнопка ⛶ внутри плеера развернёт видео на весь экран.</p>';
-          setTab((curDub() || {}).url);
         }
         hint.textContent = apk
           ? 'Тап по источнику — только выбор; тап по озвучке — запуск сразу во весь экран (ландшафт). Back — обычный вид. У источников с одной кнопкой озвучки переключает меню самого плеера.'
-          : 'Тап по источнику — только выбор; тап по озвучке — запуск сразу во весь экран, Esc — выход. У источников с одной кнопкой озвучки переключает меню самого плеера. «Не играет» спрячет источник и включит следующий.';
+          : 'Тап по источнику — только выбор; тап по озвучке — запуск и разворот плеера внутри GulRating. Esc свернёт его или закроет окно. У источников с одной кнопкой озвучки переключает меню самого плеера. «Не играет» спрячет источник и включит следующий.';
       })
       .catch((err) => fallback((err && err.message) || String(err)));
   }
@@ -404,21 +374,12 @@ export function openWatchOverlay(opts) {
       retry.textContent = 'Повторить поиск';
       retry.addEventListener('click', () => load());
       row.appendChild(retry);
-      if (mirrorUrl) {
-        const tab = document.createElement('a');
-        tab.className = 'px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-gray-200 text-sm';
-        tab.href = mirrorUrl;
-        tab.target = '_blank';
-        tab.rel = 'noopener noreferrer';
-        tab.textContent = 'Зеркало в новой вкладке';
-        row.appendChild(tab);
-      }
     }
     box.appendChild(row);
     stage.appendChild(box);
     hint.textContent = apk
       ? 'Зеркало откроется внутри приложения со своим меню озвучек.'
-      : 'Кнопка выше откроет зеркало отдельно — там просмотр работает всегда. Текст причины пригодится, если пожалуешься агенту.';
+      : 'Останьтесь в GulRating и повторите поиск позже; источник не открывается во вкладке браузера.';
   }
 
   if (!apk && mirrorUrl) {
@@ -427,7 +388,6 @@ export function openWatchOverlay(opts) {
     playersBox.style.display = 'none';
     dubsBox.style.display = 'none';
     ov.querySelector('#watch-bad').style.display = 'none';
-    tabLink.style.display = 'none';
     hint.textContent = 'Плеер открыт в окне. Закройте его крестиком, чтобы вернуться к ГульРейтингу.';
     showFrame(mirrorUrl);
   } else {

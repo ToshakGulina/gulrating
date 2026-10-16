@@ -503,9 +503,9 @@ async function loadRatings(currentUser, filter = 'all') {
               </div>
               ${!isWatchlistView ? (item.groupedRatings ? `
                 <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-xl px-2.5 py-1.5 text-white text-center shrink-0">
-                  <span class="text-[8px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
-                  <strong class="text-lg leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
-                  <span class="text-[9px] opacity-80">${groupRows.length} оценок</span>
+                  <span class="text-[10px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
+                  <strong class="text-xl leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
+                  <span class="text-[11px] opacity-80">${groupRows.length} оценок</span>
                 </div>
               ` : `
                 <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
@@ -520,14 +520,14 @@ async function loadRatings(currentUser, filter = 'all') {
             
             ${item.groupedRatings ? `
               <div class="grouped-ratings-list mt-2 grid grid-cols-1 gap-1" aria-label="Оценки участников компании">
-                ${visibleGroupRows.map(r => {
+                ${visibleGroupRows.map((r, index) => {
                   const score = Number(r.rating || 0);
                   const scoreColor = score >= 8 ? 'text-green-300' : score >= 5 ? 'text-yellow-300' : 'text-red-300';
-                  return `<div class="flex min-w-0 items-center gap-2 rounded-lg bg-slate-900/40 px-2 py-1">
-                    <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="h-5 w-5 flex-shrink-0 rounded-full bg-slate-700 object-cover">
-                    <span class="max-w-[140px] truncate text-[11px] text-gray-300">${escapeHtml(r.profiles?.username || 'Участник')}</span>
-                    <b class="flex-shrink-0 text-[11px] ${scoreColor}">${escapeHtml(formatRating(score))}</b>
-                    ${r.comment ? `<span class="min-w-0 flex-1 line-clamp-2 whitespace-normal break-words text-[10px] leading-snug text-gray-500" title="${escapeHtml(r.comment)}">${escapeHtml(r.comment)}</span>` : '<span class="flex-1"></span>'}
+                  return `<div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-xl bg-slate-900/40 px-2.5 py-1.5">
+                    <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="h-6 w-6 flex-shrink-0 rounded-full bg-slate-700 object-cover">
+                    <span class="max-w-[160px] truncate text-xs font-medium text-gray-200">${escapeHtml(r.profiles?.username || 'Участник')}</span>
+                    <b class="flex-shrink-0 text-xs ${scoreColor}">${escapeHtml(formatRating(score))}</b>
+                    ${r.comment && index < 2 ? `<span class="basis-full pl-8 line-clamp-2 whitespace-normal break-words text-xs leading-relaxed text-gray-400" title="${escapeHtml(r.comment)}">${escapeHtml(r.comment)}</span>` : ''}
                   </div>`;
                 }).join('')}
                 ${hiddenGroupCount ? `<span class="pl-2 text-[10px] text-gray-500">и ещё ${hiddenGroupCount} оценок</span>` : ''}
