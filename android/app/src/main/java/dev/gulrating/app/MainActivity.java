@@ -7,6 +7,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -92,6 +93,8 @@ public class MainActivity extends Activity {
                 }
                 customView = view;
                 customViewCallback = callback;
+                // Видео fullscreen — поворачиваем в ландшафт, как видеоплееры
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
                 web.setVisibility(View.GONE);
                 root.addView(customView, new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
@@ -195,6 +198,7 @@ public class MainActivity extends Activity {
 
     private void exitFullscreen() {
         if (customView == null) return;
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         root.removeView(customView);
         customView = null;
         web.setVisibility(View.VISIBLE);

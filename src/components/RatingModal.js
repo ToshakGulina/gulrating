@@ -20,6 +20,37 @@ const RU_CRITICS_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" 
 const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18-3-3.6-3-14.4 0-18z"/></svg>';
 const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
 
+// Встроенный плеер: оверлей с iframe. Полноэкранный режим делаем СВОЕЙ
+// кнопкой, разворачивая сам iframe-элемент на весь экран: кнопки чужого
+// плеера внутри фрейма могут быть ограничены его авторами, а requestFullscreen
+// на элементе фрейма браузер разрешает всегда (по жесту пользователя).
+// Если сайт отдаёт заголовки против встраивания — фрейм будет пустым,
+// тогда остаётся ссылка «открыть в новой вкладке».
+export function openWatchOverlay(url, titleText) {
+  const ov = document.createElement('div');
+  ov.className = 'fixed inset-0 z-50 bg-black/90 flex flex-col p-3 gap-2';
+  ov.innerHTML = `
+    <div class="flex items-center gap-2">
+      <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
+      <button id="watch-fs" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-200 text-sm" title="На весь экран" aria-label="На весь экран">⛭</button>
+      <a class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-200 text-xs" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="Открыть в новой вкладке">вкладка</a>
+      <button id="watch-close" class="text-gray-300 hover:text-white text-2xl leading-none px-2" aria-label="Закрыть плеер">&times;</button>
+    </div>
+    <iframe id="watch-frame" class="flex-1 w-full rounded-xl bg-black" src="${escapeHtml(url)}" allow="fullscreen; encrypted-media; autoplay" allowfullscreen></iframe>
+    <p class="text-xs text-gray-500">Кнопка ⛭ разворачивает плеер на весь экран; Esc — выход. Если кадр пустой — сайт запрещает встраивание, тогда «вкладка».</p>`;
+  const frame = ov.querySelector('#watch-frame');
+  ov.querySelector('#watch-close').addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    ov.remove();
+  });
+  ov.querySelector('#watch-fs').addEventListener('click', () => {
+    // Фуллскрин именно элемента фрейма: не зависит от кнопок чужого плеера
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else if (frame.requestFullscreen) frame.requestFullscreen().catch(() => {});
+  });
+  document.body.appendChild(ov);
+}
+
 // «105 936 голосов» с правильным склонением
 function criticsLabel(value) {
   return value <= 10
@@ -416,9 +447,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           window.location.href = kpPageUrl;
           return;
         }
-        // В браузере: своя вкладка — на чужом сайте фуллскрин и плеер
-        // работают как задумано их авторами
-        window.open(kpPageUrl, '_blank', 'noopener');
+        // В браузере: встроенный оверлей-фрейм с нашим фуллскрином
+        openWatchOverlay(kpPageUrl, title.title);
       });
     }
 

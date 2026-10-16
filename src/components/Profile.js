@@ -7,6 +7,7 @@ import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, poster
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
 import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
+import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
 
 // Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
@@ -489,7 +490,7 @@ export async function renderProfilePage(app, currentUser) {
       if (!item || !item.kp_url) return;
       reportWatchNative(item.id, item.media_type);
       if (isApk()) window.location.href = item.kp_url;
-      else window.open(item.kp_url, '_blank', 'noopener');
+      else openWatchOverlay(item.kp_url, item.title);
     }));
     whBox.querySelectorAll('.wh-done').forEach(b => b.addEventListener('click', async () => {
       b.disabled = true;
