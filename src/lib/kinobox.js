@@ -47,22 +47,32 @@ export async function fetchKinoboxPlayers({ kpId, imdbId, query } = {}) {
   if (!q.toString()) throw new Error('kinobox: пустой запрос');
   const qs = q.toString();
 
-  // 1) напрямую: зеркала делают ровно этот запрос из браузера
+  // Три пути: напрямую из браузера (зеркала звонят оттуда же), затем оба
+  // апстрима через нашу Function. Все ошибки копим — пользователь должен
+  // видеть ТОЧНУЮ причину отказа, а не молчаливый фолбэк
+  const errors = [];
   for (const base of DIRECT_BASES) {
     try {
       const r = await fetch(`${base}/api/players?${qs}`, { cache: 'no-store' });
-      if (!r.ok) continue;
+      if (!r.ok) {
+        errors.push(`${base}: http ${r.status}`);
+        continue;
+      }
       const list = flatten(await r.json());
       if (list.length) return list;
+      errors.push(`${base}: пустой список`);
     } catch (e) {
-      // CORS или сеть — пробуем следующий адрес, затем прокси
+      errors.push(`${base}: ${(e && e.message) || e}`);
     }
   }
-
-  // 2) серверный обход через нашу Function
-  const r2 = await fetch('/kinobox?' + qs, { cache: 'no-store' });
-  if (!r2.ok) throw new Error('kinobox: http ' + r2.status);
-  const list = flatten(await r2.json());
-  if (!list.length) throw new Error('kinobox: пусто');
-  return list;
+  try {
+    const r2 = await fetch('/kinobox?' + qs, { cache: 'no-store' });
+    if (!r2.ok) throw new Error('http ' + r2.status);
+    const list = flatten(await r2.json());
+    if (list.length) return list;
+    errors.push('/kinobox: пустой список');
+  } catch (e) {
+    errors.push(`/kinobox: ${(e && e.message) || e}`);
+  }
+  throw new Error(errors.join(' | ') || 'плееры не найдены');
 }
