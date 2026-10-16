@@ -143,7 +143,7 @@ export function openWatchOverlay(opts) {
       .filter((g) => apk || showHidden || g.embed !== 'referer');
   }
 
-  function play(dub, group) {
+  function play(dub, group, autoFs) {
     if (!dub) return;
     setTab(dub.url);
     if (apk) {
@@ -152,6 +152,10 @@ export function openWatchOverlay(opts) {
       // документом через мост: так нативно пишутся прогресс и продолжение
       if (isEmbedOnly(dub.url)) {
         showFrame(dub.url);
+        // Кинорежим: ландшафт и иммерсив сразу, не дожидаясь ⛶ плеера
+        if (window.GulRatingBridge && window.GulRatingBridge.enterCinema) {
+          window.GulRatingBridge.enterCinema();
+        }
         return;
       }
       if (window.GulRatingBridge && window.GulRatingBridge.openPlayer) {
@@ -162,6 +166,12 @@ export function openWatchOverlay(opts) {
       return;
     }
     showFrame(dub.url);
+    if (autoFs) {
+      // Тап по озвучке — пользовательский жест: браузер разрешает
+      // развернуть фрейм на весь экран сразу
+      const f = stage.querySelector('iframe');
+      if (f && f.requestFullscreen) f.requestFullscreen().catch(() => {});
+    }
     void group;
   }
 
@@ -180,10 +190,20 @@ export function openWatchOverlay(opts) {
       b.textContent = g.type;
       b.title = g.embed === 'referer' ? 'Работает только в приложении' : '';
       b.addEventListener('click', () => {
+        curType = g.type;
+        if (g.dubs.length === 1) {
+          // Озвучка одна (Turbo и подобные): выбирать нечего — запускаем
+          // сразу; остальные озвучки переключает меню самого плеера
+          curName = g.dubs[0].name;
+          renderPlayers();
+          renderDubs();
+          play(g.dubs[0], g, true);
+          remember();
+          return;
+        }
         // Смена источника НЕ запускает playback: лишь подставляет список
         // его озвучек (ту же озвучку, если она есть и здесь). Запуск —
         // отдельным тапом по озвучке, как просил пользователь
-        curType = g.type;
         curName = (g.dubs.find((d) => d.name === curName) || g.dubs[0] || {}).name || null;
         renderPlayers();
         renderDubs();
@@ -209,6 +229,7 @@ export function openWatchOverlay(opts) {
     dubsBox.innerHTML = '';
     const g = curGroup();
     if (!g) return;
+    if (g.dubs.length === 1) return; // выбирать нечего — строка не нужна
     const bad = readBadDubs();
     const dubs = showHidden ? g.dubs : g.dubs.filter((d) => !bad.includes(`${g.type}::${d.name}`));
     (dubs.length ? dubs : g.dubs).forEach((d) => {
@@ -221,7 +242,7 @@ export function openWatchOverlay(opts) {
         curName = d.name;
         renderPlayers();
         renderDubs();
-        play(d, g);
+        play(d, g, true); // жест пользователя → сразу во весь экран
         remember();
       });
       dubsBox.appendChild(b);
@@ -306,8 +327,8 @@ export function openWatchOverlay(opts) {
         setTab((curDub() || {}).url);
       }
       hint.textContent = apk
-        ? 'Запуск — тапом по озвучке. Alloha и Turbo играют во встроенном фрейме (прогресс у них не пишется), остальные источники — целиком в приложении с прогрессом и продолжением.'
-        : '⛭ — на весь экран, Esc — выход. Запуск — тапом по озвучке; источник лишь меняет список. «Не играет» спрячет источник и включит следующий.';
+        ? 'Тап по озвучке — сразу во весь экран (ландшафт). Back или возврат домой — обычный вид. У источников с одной кнопкой озвучки переключает меню самого плеера.'
+        : 'Тап по озвучке — сразу во весь экран, Esc — выход. Источник лишь меняет список; у источников с одной кнопкой озвучки переключает меню самого плеера. «Не играет» спрячет источник и включит следующий.';
     })
     .catch(() => fallback());
 
