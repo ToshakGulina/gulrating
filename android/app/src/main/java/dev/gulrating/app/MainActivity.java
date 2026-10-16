@@ -68,6 +68,13 @@ public class MainActivity extends Activity {
         NotificationChannel ch = new NotificationChannel(CHANNEL, "Просмотр и новые сезоны", NotificationManager.IMPORTANCE_DEFAULT);
         notifManager.createNotificationChannel(ch);
         handler = new Handler(Looper.getMainLooper());
+        // Система иногда возвращает полоски сама (уведомления и т.п.) —
+        // пока мы в фуллскрине, восстанавливаем иммерсивность
+        getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(vis -> {
+            if (customView != null) {
+                handler.post(() -> applyImmersive(customView));
+            }
+        });
 
         root = new FrameLayout(this);
         web = new WebView(this);
@@ -103,8 +110,11 @@ public class MainActivity extends Activity {
                 setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
                 // Полноценный полноэкранный режим: прячем шторку и кнопки навигации
                 getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-                applyImmersive(customView);
                 web.setVisibility(View.GONE);
+                applyImmersive(customView);
+                // Повторяем после раскладки: некоторые оболочки сбрасывают флаги
+                handler.post(() -> applyImmersive(customView));
+                handler.postDelayed(() -> applyImmersive(customView), 300);
                 root.addView(customView, new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             }
@@ -156,7 +166,7 @@ public class MainActivity extends Activity {
                     boolean isDoc = request.isForMainFrame() || accept.contains("text/html");
                     String url = request.getUrl().toString();
                     if (isDoc && !url.startsWith(HOME)) {
-                        WebResourceResponse injected = injectBridgeScript(url);
+                        WebResourceResponse injected = injectBridgeScript(url, request.getRequestHeaders());
                         if (injected != null) return injected;
                     }
                 }
@@ -261,13 +271,18 @@ public class MainActivity extends Activity {
         return isPlayerHost(web.getUrl()) || inPlayerSession;
     }
 
+    private static final int IMMERSIVE_FLAGS = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            | View.SYSTEM_UI_FLAG_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+
+    // Флаги ставятся на decor-вью окна (и дублируются на кастомную вью):
+    // на дочерних представлениях система их не учитывает как системные
     private void applyImmersive(View v) {
-        v.setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                | View.SYSTEM_UI_FLAG_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        if (v != null) v.setSystemUiVisibility(IMMERSIVE_FLAGS);
+        getWindow().getDecorView().setSystemUiVisibility(IMMERSIVE_FLAGS);
     }
 
     @Override
@@ -300,13 +315,27 @@ public class MainActivity extends Activity {
         return false;
     }
 
-    private WebResourceResponse injectBridgeScript(String url) {
+    private WebResourceResponse injectBridgeScript(String url, java.util.Map<String, String> headers) {
         try {
             java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
             c.setConnectTimeout(10000);
             c.setReadTimeout(15000);
-            c.setRequestProperty("Accept", "text/html");
-            c.setRequestProperty("User-Agent", userAgent);
+            c.setInstanceFollowRedirects(true);
+            // Плеерные CDN (kodik и подобные) отсекают запросы без Referer и
+            // прочего браузерного окружения — копируем заголовки исходного
+            // запроса WebView целиком
+            if (headers != null) {
+                for (java.util.Map.Entry<String, String> h : headers.entrySet()) {
+                    String name = h.getKey();
+                    if (name == null) continue;
+                    String low = name.toLowerCase();
+                    if (low.equals("host") || low.equals("accept-encoding") || low.equals("connection")) continue;
+                    c.setRequestProperty(name, h.getValue());
+                }
+            }
+            c.setRequestProperty("Accept", "text/html,application/xhtml+xml");
+            c.setRequestProperty("Accept-Encoding", "gzip");
+            if (userAgent != null) c.setRequestProperty("User-Agent", userAgent);
             String cookie = android.webkit.CookieManager.getInstance().getCookie(url);
             if (cookie != null) c.setRequestProperty("Cookie", cookie);
             if (c.getResponseCode() != 200) return null;
