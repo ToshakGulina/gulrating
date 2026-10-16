@@ -21,19 +21,23 @@ function flatten(j) {
   for (const p of data) {
     if (!p) continue;
     const trs = Array.isArray(p.translations) ? p.translations : [];
+    // embed: 'any' | 'referer' (только приложение) — проставляет Function
+    // после пре-проверки; 'dead' уже отфильтрован там же
+    const embed = p.embed || 'any';
     if (trs.length) {
       for (const tr of trs) {
         const url = (tr && tr.iframeUrl) || p.iframeUrl;
         if (!url) continue;
         out.push({
           type: p.type || 'player',
-          name: (tr && tr.name) || p.type || 'плеер',
+          name: (tr && tr.name) || 'Основная озвучка',
           quality: (tr && tr.quality) || '',
           url,
+          embed,
         });
       }
     } else if (p.iframeUrl) {
-      out.push({ type: p.type || 'player', name: p.type || 'плеер', quality: '', url: p.iframeUrl });
+      out.push({ type: p.type || 'player', name: 'Основная озвучка', quality: '', url: p.iframeUrl, embed });
     }
   }
   return out;
