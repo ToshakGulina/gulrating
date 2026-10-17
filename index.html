@@ -137,31 +137,6 @@
     .company-ratings-details > summary::-webkit-details-marker { display: none; }
     .company-ratings-details > summary::after { content: '+'; float: right; color: #94a3b8; }
     .company-ratings-details[open] > summary::after { content: '−'; }
-    #watch-stage.crop-vertical #watch-frame { top: -40%; bottom: auto; height: 140%; }
-    #watch-crop[aria-pressed="true"] { background: rgb(var(--p-rgb) / .24); color: white; }
-    #watch-expand[aria-pressed="true"] { background: rgb(var(--p-rgb) / .24); color: white; }
-    #watch-overlay.watch-theater-mode #watch-pickers,
-    #watch-overlay.watch-theater-mode .watch-footer { display: none !important; }
-    #watch-overlay.watch-theater-mode #watch-picker-toggle { display: inline-flex !important; }
-    #watch-overlay.watch-theater-mode.watch-picker-open #watch-pickers {
-      display: flex !important;
-      position: absolute;
-      z-index: 60;
-      left: 12px;
-      right: 12px;
-      bottom: 52px;
-      max-height: 38vh;
-      overflow-y: auto;
-      padding: 10px;
-      border: 1px solid rgb(148 163 184 / .3);
-      border-radius: 14px;
-      background: rgb(2 6 23 / .94);
-      -webkit-backdrop-filter: blur(12px);
-      backdrop-filter: blur(12px);
-      box-shadow: 0 16px 40px rgb(0 0 0 / .45);
-    }
-    #watch-overlay.watch-theater-mode { padding: 8px; gap: 8px; }
-    #watch-overlay.watch-theater-mode #watch-stage { border-radius: .5rem; }
     .title-card, .rec-card, .history-title, .catalog-item { animation: card-enter .3s cubic-bezier(.2,.75,.25,1); }
     .search-result-item { animation: item-enter .22s ease-out; }
     #catalog-grid > .catalog-item { animation-fill-mode: backwards; }
