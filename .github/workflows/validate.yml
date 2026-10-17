@@ -25,6 +25,8 @@ jobs:
         run: sh -n scripts/build-css.sh && sh -n scripts/release-notes.sh
       - name: Test Kinobox Pages Function proxy
         run: node scripts/test-kinobox-function.mjs
+      - name: Test TMDb HTTP geo-block fallback
+        run: node scripts/test-tmdb-fallback.mjs
       - name: Test main-tab state preservation
         run: node scripts/test-page-state.mjs
       - name: Verify release notes can be generated

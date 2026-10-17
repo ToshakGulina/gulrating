@@ -17,18 +17,29 @@ if (!USE_PROXY) API_PARAMS.set('api_key', CONFIG.TMDB_API_KEY);
 // Сначала напрямую; если сеть недоступна (в том числе гео-блок TMDb для
 // российских IP — GeoDNS отдаёт 127.0.0.1), прозрачно уходим на серверный
 // прокси /tmdb на собственном домене (Pages Functions): там запрос идёт с
-// края Cloudflare, которому TMDb отвечает.
+// края Cloudflare, которому TMDb отвечает. Некоторые блокировки возвращают
+// HTTP 530 вместо сетевой ошибки, поэтому такие ответы тоже требуют fallback.
 async function tmdbFetch(path) {
+  const query = `${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`;
   let res;
   try {
-    res = await tmdbRaw(`${API_BASE}${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`);
+    res = await tmdbRaw(`${API_BASE}${query}`);
   } catch (e) {
     if (USE_PROXY) throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
     try {
-      res = await tmdbRaw(`/tmdb${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`);
+      res = await tmdbRaw(`/tmdb${query}`);
     } catch (e2) {
       throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
     }
+  }
+
+  // При блокировке по географии / ошибке CDN запрос может завершиться HTTP
+  // 530, 52x или другим 5xx, а не reject-нуться. Повторяем его через Pages
+  // Function, если изначально не задан отдельный прокси.
+  if (!USE_PROXY && (!res.ok && (res.status === 403 || res.status >= 500))) {
+    try {
+      res = await tmdbRaw(`/tmdb${query}`);
+    } catch (e) { /* ниже покажем исходную ошибку прямого запроса */ }
   }
 
   if (!res.ok) {
