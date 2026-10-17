@@ -208,7 +208,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (!isPlayerHost(url)) {
+                if (!isPlayerHost(url) && !isPlayerSessionUrl(url)) {
                     if (useBundledWebApp && isHomeShellUrl(url)) checkRemoteBuildAndUpdate();
                     scheduleBundledBootCheck(url);
                     return;
@@ -540,52 +540,110 @@ public class MainActivity extends Activity {
         return false;
     }
 
+    private static final String FIND_VIDEO_JS =
+            "(function(){"
+                    + "function findVideo(w,depth){"
+                    + "try{var vs=w.document.querySelectorAll('video'),candidate=null;"
+                    + "for(var i=0;i<vs.length;i++){var v=vs[i];"
+                    + "if(Number.isFinite(v.duration)&&v.duration>0)return v;"
+                    + "if(!candidate)candidate=v;}"
+                    + "if(depth<3)for(var j=0;j<w.frames.length;j++){"
+                    + "var nested=findVideo(w.frames[j],depth+1);"
+                    + "if(nested&&Number.isFinite(nested.duration)&&nested.duration>0)return nested;"
+                    + "if(!candidate)candidate=nested;}return candidate;}"
+                    + "catch(e){}return null;}"
+                    + "var v=findVideo(window,0);"
+                    + "if(!v)return null;return {t:v.currentTime||0,d:v.duration||0};})()";
+
     private void probePlayer() {
         final String key = currentWatchKey;
-        if (key == null || key.isEmpty()) return;
-        if (!onPlayer()) return;
-        web.evaluateJavascript(
-                "(function(){var v=document.querySelector('video');if(!v||!v.duration)return '';return JSON.stringify({t:v.currentTime,d:v.duration});})()",
-                value -> {
-                    if (value == null || value.isEmpty() || "null".equals(value)) return;
-                    try {
-                        org.json.JSONObject o = new org.json.JSONObject(value);
-                        long t = Math.round(o.optDouble("t", 0));
-                        long d = Math.round(o.optDouble("d", 0));
-                        if (t <= 0 || d <= 0) return;
-                        SharedPreferences p = prefs();
-                        org.json.JSONObject all = new org.json.JSONObject(p.getString("positions", "{}"));
-                        org.json.JSONObject rec = new org.json.JSONObject();
-                        rec.put("t", t);
-                        rec.put("d", d);
-                        rec.put("at", System.currentTimeMillis());
-                        all.put(key, rec);
-                        p.edit().putString("positions", all.toString()).apply();
-                    } catch (Exception ignored) {
-                    }
-                });
+        if (key == null || key.isEmpty() || !onPlayer() || web == null) return;
+        web.evaluateJavascript(FIND_VIDEO_JS, value -> {
+            if (!key.equals(currentWatchKey) || value == null || value.isEmpty() || "null".equals(value)) return;
+            try {
+                Object decoded = new org.json.JSONTokener(value).nextValue();
+                // evaluateJavascript отдаёт JSON-представление результата; старые
+                // версии возвращали JSON.stringify(...) и получали здесь строку.
+                org.json.JSONObject state = decoded instanceof org.json.JSONObject
+                        ? (org.json.JSONObject) decoded
+                        : decoded instanceof String
+                                ? new org.json.JSONObject((String) decoded) : null;
+                if (state == null) return;
+                long t = Math.round(state.optDouble("t", 0));
+                long d = Math.round(state.optDouble("d", 0));
+                if (t <= 0 || d <= 0) return;
+                SharedPreferences p = prefs();
+                org.json.JSONObject all = new org.json.JSONObject(p.getString("positions", "{}"));
+                org.json.JSONObject rec = new org.json.JSONObject();
+                rec.put("t", t);
+                rec.put("d", d);
+                rec.put("at", System.currentTimeMillis());
+                all.put(key, rec);
+                p.edit().putString("positions", all.toString()).apply();
+            } catch (Exception ignored) {
+            }
+        });
     }
 
-    // Подставляем сохранённую позицию: плеер может инициализироваться с задержкой,
-    // поэтому несколько попыток
+    // Плеер может загрузить метаданные после onPageFinished. Повторяем попытку
+    // до 45 секунд и прекращаем, если пользователь уже начал смотреть дальше.
     private void resumePlayback(final WebView view) {
         final String key = currentWatchKey;
-        if (key == null || key.isEmpty()) return;
+        if (key == null || key.isEmpty() || view == null) return;
         try {
             org.json.JSONObject all = new org.json.JSONObject(prefs().getString("positions", "{}"));
             org.json.JSONObject rec = all.optJSONObject(key);
             if (rec == null) return;
             final long t = rec.optLong("t", 0);
             final long d = rec.optLong("d", 0);
-            // Не продолжаем начало и самый конец
             if (t < 30 || d <= 0 || t > d - 20) return;
-            for (int i = 0; i < 6; i++) {
-                handler.postDelayed(() -> view.evaluateJavascript(
-                        "(function(){var v=document.querySelector('video');if(!v||!v.duration||v.currentTime>5)return 'wait';v.currentTime=" + t + ";return 'ok';})()",
-                        val -> {
-                        }), i * 1500L);
-            }
+            attemptResumePlayback(view, view.getUrl(), t, 0);
         } catch (Exception ignored) {
+        }
+    }
+
+    private void attemptResumePlayback(final WebView view, final String playerUrl,
+                                       final long target, final int attempt) {
+        if (attempt >= 30 || view == null
+                || (!isPlayerHost(view.getUrl()) && !isPlayerSessionUrl(view.getUrl()))
+                || (playerUrl != null && !playerUrl.equals(view.getUrl()))) return;
+        String script = "(function(){"
+                + "function findVideo(w,depth){try{var vs=w.document.querySelectorAll('video'),candidate=null;"
+                + "for(var i=0;i<vs.length;i++){var v=vs[i];"
+                + "if(Number.isFinite(v.duration)&&v.duration>0)return v;"
+                + "if(!candidate)candidate=v;}"
+                + "if(depth<3)for(var j=0;j<w.frames.length;j++){"
+                + "var nested=findVideo(w.frames[j],depth+1);"
+                + "if(nested&&Number.isFinite(nested.duration)&&nested.duration>0)return nested;"
+                + "if(!candidate)candidate=nested;}return candidate;}"
+                + "catch(e){}return null;}"
+                + "var v=findVideo(window,0);if(!v)return 'wait';"
+                + "if(!Number.isFinite(v.duration)||v.duration<=0){"
+                + "if(v.__gulratingResumeTarget!==" + target + "){"
+                + "v.__gulratingResumeTarget=" + target + ";"
+                + "var retry=function(){v.removeEventListener('loadedmetadata',retry);"
+                + "if(Number.isFinite(v.duration)&&v.duration>" + target + "+10&&v.currentTime<=10)"
+                + "v.currentTime=" + target + ";};"
+                + "v.addEventListener('loadedmetadata',retry);}return 'wait';}"
+                + "if(v.currentTime>10)return 'already-playing';"
+                + "if(" + target + ">=v.duration-10)return 'invalid-position';"
+                + "v.currentTime=" + target + ";return 'seeked';})()";
+        view.evaluateJavascript(script, value -> {
+            String result = decodeJavascriptString(value);
+            if ("wait".equals(result)) {
+                handler.postDelayed(() -> attemptResumePlayback(view, playerUrl,
+                        target, attempt + 1), 1500L);
+            }
+        });
+    }
+
+    private String decodeJavascriptString(String value) {
+        if (value == null) return "";
+        try {
+            Object decoded = new org.json.JSONTokener(value).nextValue();
+            return decoded instanceof String ? (String) decoded : String.valueOf(decoded);
+        } catch (Exception ignored) {
+            return value;
         }
     }
 
