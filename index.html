@@ -132,7 +132,27 @@
     .profile-section-panel:not(.hidden) { animation: profile-panel-enter .24s cubic-bezier(.2,.75,.25,1); }
     .rating-modal-panel { animation: rating-modal-enter .24s cubic-bezier(.2,.75,.25,1); }
     .rating-modal-panel .poster-frame { border-radius: .75rem; }
-    .friends-score-pill { white-space: nowrap; }
+    .friends-score-details { display: inline-block; max-width: 100%; }
+    .friends-score-details > summary { list-style: none; }
+    .friends-score-details > summary::-webkit-details-marker { display: none; }
+    .friends-score-details > summary::marker { content: ''; }
+    .friends-score-popover {
+      display: none;
+      position: absolute;
+      top: calc(100% + .35rem);
+      right: 0;
+      z-index: 40;
+      width: min(18rem, calc(100vw - 2rem));
+      max-height: min(16rem, 45vh);
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
+    .friends-score-details:hover .friends-score-popover,
+    .friends-score-details:focus-within .friends-score-popover,
+    .friends-score-details[open] .friends-score-popover {
+      display: block;
+      animation: friend-score-popover-enter .14s ease-out;
+    }
     .friends-ratings-details > summary { list-style: none; }
     .friends-ratings-details > summary::-webkit-details-marker { display: none; }
     .friends-ratings-details > summary::after { content: '+'; float: right; color: #94a3b8; }
@@ -172,6 +192,7 @@
     @keyframes toast-enter { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
     @keyframes toast-leave { to { opacity: 0; transform: translateY(5px); } }
     @keyframes profile-panel-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes friend-score-popover-enter { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes rating-modal-enter { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
     /* Уважаем системную настройку доступности «Уменьшить движение». */

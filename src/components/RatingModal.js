@@ -526,17 +526,30 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
     const sharedRatings = allRatings;
     const friendRatings = sharedRatings.filter((r) => r.user_id !== currentUser.id);
-    const ownRatingIncluded = sharedRatings.some((r) => r.user_id === currentUser.id);
-    const scoreLabel = friendRatings.length
-      ? (ownRatingIncluded ? 'Друзья + вы' : 'Друзья')
-      : 'Ваша оценка';
+    const scoreLabel = friendRatings.length ? 'Друзья' : 'Ваша оценка';
     const averageRating = sharedRatings.length > 0
       ? (sharedRatings.reduce((sum, r) => sum + Number(r.rating), 0) / sharedRatings.length).toFixed(1)
       : null;
+    const friendRatingRows = sharedRatings.map((r) => {
+      const username = r.profiles?.username || 'Участник';
+      const score = Number(r.rating);
+      const scoreColor = score >= 8 ? 'text-green-300' : score >= 5 ? 'text-yellow-300' : 'text-red-300';
+      return `<li class="flex min-w-0 items-center gap-2 rounded-lg bg-slate-800/80 px-2 py-1.5">
+        <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, username))}" alt="" class="h-6 w-6 flex-shrink-0 rounded-full bg-slate-700 object-cover">
+        <span class="min-w-0 flex-1 truncate text-xs text-gray-200">${escapeHtml(username)}</span>
+        <b class="flex-shrink-0 text-xs ${scoreColor}">${escapeHtml(formatRating(score))}</b>
+      </li>`;
+    }).join('');
 
-    // Среднее включает собственную оценку; подпись всегда стоит перед числом.
+    // Подпись стоит перед средним баллом; по наведению/фокусу или нажатию
+    // можно посмотреть, чьи оценки вошли в среднее.
     const friendsBadge = averageRating
-      ? `<span class="friends-score-pill inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300" title="Средняя оценка друзей и ваша">${FRIENDS_ICON}<span class="text-gray-500">${scoreLabel}</span><b class="text-pink-300">${averageRating}</b><span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span></span>`
+      ? `<details class="friends-score-details relative">
+          <summary class="friends-score-pill inline-flex cursor-help items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}. Показать список оценок`)}" title="Наведите или нажмите, чтобы увидеть список оценок">${FRIENDS_ICON}<span class="text-gray-500">${scoreLabel}</span><b class="text-pink-300">${averageRating}</b><span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span></summary>
+          <div class="friends-score-popover rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl" aria-label="Список оценок друзей">
+            <ul class="space-y-1">${friendRatingRows}</ul>
+          </div>
+        </details>`
       : '';
 
     // Очередь внешних рейтингов: первые два доступных видны сразу,
@@ -661,7 +674,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       ${allRatings.length > 0 ? `
         <details class="friends-ratings-details border-t border-slate-700 pt-3">
           <summary class="cursor-pointer select-none rounded-xl px-2.5 py-2 text-sm text-gray-300 hover:bg-slate-800">
-            Оценки друзей и ваша <span class="text-gray-500">· ${formatRatingCount(allRatings.length)}</span>
+            Список оценок <span class="text-gray-500">· ${formatRatingCount(allRatings.length)}</span>
           </summary>
           <div class="mt-2 space-y-2 px-2">
             ${allRatings.map(r => `
@@ -680,6 +693,22 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         </details>
       ` : ''}
     `;
+
+    const friendScoreDetails = modal.querySelector('.friends-score-details');
+    if (friendScoreDetails) {
+      friendScoreDetails.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          friendScoreDetails.open = false;
+          friendScoreDetails.querySelector('summary')?.focus();
+        }
+      });
+      modal.addEventListener('click', (e) => {
+        if (friendScoreDetails.open && !friendScoreDetails.contains(e.target)) {
+          friendScoreDetails.open = false;
+        }
+      });
+    }
 
     // --- Постер: клик открывает крупный просмотр ---
     const posterBox = document.getElementById('poster-box');
