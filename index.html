@@ -127,6 +127,7 @@
     #ratings-list > .title-card:nth-child(n+2) { animation-fill-mode: backwards; }
 
     button:not(:disabled), a { transition: color .18s ease, background-color .18s ease, border-color .18s ease, box-shadow .18s ease, translate .18s ease, opacity .18s ease; }
+    button:not(:disabled) { -webkit-tap-highlight-color: transparent; }
     input, select, textarea { transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
     @media (hover: hover) {
       button:not(:disabled):hover { translate: 0 -1px; }
@@ -137,6 +138,17 @@
       .history-query:hover, .search-result-item:hover { translate: 3px 0; }
     }
     button:not(:disabled):active { translate: 0 1px; scale: .98; }
+    .button-ripple-host { isolation: isolate; }
+    .button-ripple-mask {
+      position: absolute; inset: 0; overflow: hidden; border-radius: inherit;
+      pointer-events: none; z-index: 0;
+    }
+    .button-ripple {
+      position: absolute; display: block; border-radius: 50%;
+      background: currentColor; opacity: .18; transform: scale(0);
+      animation: button-ripple .52s cubic-bezier(.18,.68,.32,1) forwards;
+      pointer-events: none;
+    }
     button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
       outline: 2px solid rgb(var(--p-rgb) / .8);
       outline-offset: 2px;
@@ -225,6 +237,7 @@
     @keyframes nav-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes toast-enter { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
     @keyframes toast-leave { to { opacity: 0; transform: translateY(5px); } }
+    @keyframes button-ripple { 0% { opacity: .18; transform: scale(0); } 100% { opacity: 0; transform: scale(1); } }
     @keyframes profile-panel-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes rating-modal-enter { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 

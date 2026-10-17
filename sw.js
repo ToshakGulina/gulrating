@@ -9,7 +9,7 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v22';
+const CACHE_VERSION = 'gulrating-v24';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -48,6 +48,7 @@ const SHELL_ASSETS = [
   '/src/lib/date.js',
   '/src/lib/dom.js',
   '/src/lib/theme.js',
+  '/src/lib/buttonRipple.js',
   '/src/lib/history.js',
   '/src/lib/offline.js',
   '/src/lib/offlineCatalog.js',
