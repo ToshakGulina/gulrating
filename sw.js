@@ -9,7 +9,7 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v32';
+const CACHE_VERSION = 'gulrating-v33';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -114,18 +114,34 @@ self.addEventListener('fetch', (event) => {
     || url.pathname === '/sw.js'
     || url.pathname.startsWith('/src/');
 
+  const cachedShellFallback = async () => {
+    const exact = await caches.match(request);
+    if (exact) return exact;
+    // Навигация с параметрами (например, ссылка на тайтл) всё равно должна
+    // открывать закэшированную оболочку, даже если URL с query не кэшировался.
+    if (request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
+      return await caches.match('/index.html') || await caches.match('/');
+    }
+    return null;
+  };
+
   if (isCode) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
-          }
+    event.respondWith((async () => {
+      const cached = await cachedShellFallback();
+      try {
+        const response = await fetch(request);
+        if (response && response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
           return response;
-        })
-        .catch(() => caches.match(request))
-    );
+        }
+        // Геоблоки и фильтры иногда возвращают 403/5xx как HTTP-ответ,
+        // а не сетевую ошибку. В таком случае тоже отдаём сохранённую оболочку.
+        return cached || response;
+      } catch (error) {
+        return cached;
+      }
+    })());
     return;
   }
 
@@ -137,8 +153,9 @@ self.addEventListener('fetch', (event) => {
           if (response && response.ok) {
             const copy = response.clone();
             caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+            return response;
           }
-          return response;
+          return cached || response;
         })
         .catch(() => cached);
       return cached || network;

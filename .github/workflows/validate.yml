@@ -27,6 +27,8 @@ jobs:
         run: node scripts/test-kinobox-function.mjs
       - name: Test TMDb HTTP geo-block fallback
         run: node scripts/test-tmdb-fallback.mjs
+      - name: Test offline service-worker fallback
+        run: node scripts/test-service-worker-offline.mjs
       - name: Test franchise movie and TV tabs
         run: node scripts/test-franchise-tabs.mjs
       - name: Test main-tab state preservation

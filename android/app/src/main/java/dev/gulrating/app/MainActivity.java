@@ -60,11 +60,12 @@ public class MainActivity extends Activity {
     // Идёт сеанс плеера: после входа на хост плеера держим внутри WebView
     // любые редиректы и смежные домены, пока пользователь не вернётся на сайт
     private volatile boolean inPlayerSession = false;
-    // При сетевом сбое главной страницы переключаем запросы pages.dev
-    // на копию веб-приложения, встроенную в APK. URL/ origin остаётся тем же,
-    // поэтому localStorage, Supabase-сессия и кэш не теряются.
-    private volatile boolean useBundledWebApp = false;
+    // APK всегда запускается с локальной копии оболочки: для первого кадра
+    // и офлайн-старта не требуется доступ к pages.dev. Origin URL при этом
+    // остаётся прежним, поэтому сохраняются localStorage и Supabase-сессия.
+    private volatile boolean useBundledWebApp = true;
     private volatile boolean triedBundledFallback = false;
+    private volatile boolean remoteBuildCheckStarted = false;
     // Автофуллскрин с тапа по озвучке: ландшафт + иммерсив сразу;
     // выход — Back или возврат домой
     private boolean cinema = false;
@@ -208,6 +209,7 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (!isPlayerHost(url)) {
+                    if (useBundledWebApp && isHomeShellUrl(url)) checkRemoteBuildAndUpdate();
                     scheduleBundledBootCheck(url);
                     return;
                 }
@@ -341,6 +343,86 @@ public class MainActivity extends Activity {
                         }
                     });
         }, 13000);
+    }
+
+    private boolean isHomeShellUrl(String url) {
+        Uri uri = Uri.parse(url == null ? "" : url);
+        String path = uri.getPath();
+        return HOME_HOST.equals(uri.getHost()) && (path == null || path.isEmpty()
+                || "/".equals(path) || "/index.html".equals(path));
+    }
+
+    // Обновление сайта проверяем в фоне уже после запуска локальной оболочки.
+    // Если pages.dev недоступен, пользователь остаётся в рабочем APK и не
+    // ждёт сеть; если на сайте другая сборка — переключаемся на неё без потери
+    // сессии и локальных данных (host/origin остаётся тем же).
+    private void checkRemoteBuildAndUpdate() {
+        if (remoteBuildCheckStarted || !useBundledWebApp || isFinishing()) return;
+        remoteBuildCheckStarted = true;
+        new Thread(() -> {
+            String localBuild = readBundledBuild();
+            String remoteBuild = fetchRemoteBuild();
+            if (remoteBuild != null && localBuild != null && !remoteBuild.equals(localBuild)) {
+                handler.post(() -> {
+                    if (isFinishing() || !useBundledWebApp || web == null) return;
+                    useBundledWebApp = false;
+                    web.loadUrl(HOME);
+                });
+            } else if (remoteBuild == null) {
+                // Сеть могла восстановиться позже; повторяем проверку редко,
+                // не мешая офлайн-работе и не дёргая батарею.
+                handler.postDelayed(() -> {
+                    if (!isFinishing() && useBundledWebApp) {
+                        remoteBuildCheckStarted = false;
+                        checkRemoteBuildAndUpdate();
+                    }
+                }, 60_000);
+            }
+        }, "gulrating-build-check").start();
+    }
+
+    private String readBundledBuild() {
+        try (java.io.InputStream input = getAssets().open("web/src/config.js")) {
+            return extractBuild(readUtf8(input));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String fetchRemoteBuild() {
+        java.net.HttpURLConnection connection = null;
+        try {
+            java.net.URL url = new java.net.URL(HOME + "src/config.js?build-check=1");
+            connection = (java.net.HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(2500);
+            connection.setReadTimeout(2500);
+            connection.setUseCaches(false);
+            connection.setRequestProperty("Cache-Control", "no-cache");
+            if (connection.getResponseCode() != 200) return null;
+            try (java.io.InputStream input = connection.getInputStream()) {
+                return extractBuild(readUtf8(input));
+            }
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private String readUtf8(java.io.InputStream input) throws java.io.IOException {
+        java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[4096];
+        int count;
+        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+        return output.toString("UTF-8");
+    }
+
+    private String extractBuild(String source) {
+        if (source == null) return null;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("APP_BUILD\\s*=\\s*\\\"([^\\\"]+)\\\"")
+                .matcher(source);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private WebResourceResponse bundledWebResponse(String requestPath) {
