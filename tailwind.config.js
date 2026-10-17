@@ -6,9 +6,9 @@ module.exports = {
     extend: {
       colors: {
         primary: 'rgb(var(--p-rgb) / <alpha-value>)',
-        secondary: '#ec4899',
-        dark: '#0f172a',
-        card: '#1e293b',
+        secondary: '#9d6326',
+        dark: '#120e0d',
+        card: '#211918',
       },
     },
   },

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>ГульРейтинг</title>
   <meta name="description" content="ГульРейтинг: общие оценки фильмов и сериалов с друзьями — лента, комментарии, список «хочу посмотреть».">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#120e0d">
 
   <!-- PWA: установка на главный экран -->
   <link rel="manifest" href="manifest.json">
@@ -31,17 +31,17 @@
        загружалось вовсе). Пересборка: ./scripts/build-css.sh -->
   <link rel="stylesheet" href="/assets/tw.css">
   <style>
-    :root { --p-rgb: 99 102 241; }
+    :root { --p-rgb: 189 72 47; }
     html.skip-entry-motion *, html.skip-entry-motion *::before, html.skip-entry-motion *::after {
       animation: none !important;
       transition: none !important;
     }
 
     /* Тонкие скроллбары: горизонтальные ленты не выглядят тяжеловесно */
-    * { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    * { scrollbar-width: thin; scrollbar-color: #62483f transparent; }
     *::-webkit-scrollbar { width: 6px; height: 6px; }
     *::-webkit-scrollbar-track { background: transparent; }
-    *::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    *::-webkit-scrollbar-thumb { background: #62483f; border-radius: 999px; }
 
     /* Нижняя навигация не наезжает на домашний индикатор iPhone */
     nav.fixed { padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
@@ -74,7 +74,7 @@
     /* Заставка до загрузки JS — чтобы не было пустого белого экрана */
     #boot-splash {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: #0f172a; color: #94a3b8; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #120e0d; color: #c7a99a; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 14px; z-index: 100;
     }
     #boot-splash .dot { animation: blink 1.2s infinite; }
@@ -92,9 +92,9 @@
       z-index: -1;
       pointer-events: none;
       background:
-        radial-gradient(640px 420px at 12% -6%, rgba(99, 102, 241, .20), transparent 62%),
-        radial-gradient(720px 520px at 88% 8%, rgba(236, 72, 153, .13), transparent 62%),
-        radial-gradient(900px 640px at 50% 112%, rgba(56, 189, 248, .10), transparent 64%);
+        radial-gradient(720px 440px at 10% -8%, rgba(226, 88, 59, .16), transparent 64%),
+        radial-gradient(660px 520px at 90% 10%, rgba(242, 184, 102, .10), transparent 64%),
+        radial-gradient(900px 640px at 50% 112%, rgba(122, 64, 53, .12), transparent 68%);
     }
 
     /* Лёгкая системная анимация интерфейса. Вступительные эффекты используют
@@ -264,6 +264,128 @@
       height: 10px;
       border-radius: 9999px;
       background: linear-gradient(90deg, #ef4444 0%, #eab308 45%, #22c55e 75%);
+    }
+
+    /* Новый арт-дирекшн: кинозал после титров — угольный фон, тёплая бумага,
+       коралловый свет и медовые акценты. Цвета собраны в роли, а не по месту. */
+    :root {
+--p-rgb: 189 72 47;
+      --ink: #f6eee7;
+      --ink-muted: #c3b2a6;
+      --ink-soft: #a28d82;
+      --accent-text: color-mix(in srgb, rgb(var(--p-rgb)) 58%, var(--ink));
+      --gold-text: #f2b866;
+      --surface-base: #120e0d;
+      --surface-inset: #171211;
+      --surface-raised: #2a211e;
+      --surface-hover: #3b2c28;
+      --line-warm: #4b3934;
+      --accent-glow: rgb(189 72 47 / .24);
+      color-scheme: dark;
+    }
+    body { background: var(--surface-base); color: var(--ink); }
+    h1, h2, h3 { font-family: Georgia, "Times New Roman", serif; letter-spacing: -.025em; }
+    #boot-splash { background: var(--surface-base); color: var(--ink-muted); }
+    body::before {
+      background:
+        radial-gradient(760px 480px at 8% -8%, rgb(226 88 59 / .17), transparent 66%),
+        radial-gradient(700px 520px at 94% 12%, rgb(242 184 102 / .10), transparent 66%),
+        radial-gradient(1000px 700px at 50% 112%, rgb(124 66 54 / .12), transparent 68%);
+    }
+    * { scrollbar-color: #62483f transparent; }
+    *::-webkit-scrollbar-thumb { background: #62483f; }
+
+    /* Старые utility-классы переводятся на новую тёплую шкалу поверх Tailwind. */
+    [class~="bg-slate-950"] { background-color: #0d0a09 !important; }
+    [class~="bg-slate-900"] { background-color: var(--surface-inset) !important; }
+    [class~="bg-slate-900/40"] { background-color: rgb(23 18 17 / .58) !important; }
+    [class~="bg-slate-900/70"] { background-color: rgb(23 18 17 / .82) !important; }
+    [class~="bg-slate-900/95"] { background-color: rgb(23 18 17 / .97) !important; }
+    [class~="bg-slate-800"] { background-color: var(--surface-raised) !important; }
+    [class~="bg-slate-800/40"] { background-color: rgb(42 33 30 / .54) !important; }
+    [class~="bg-slate-800/50"] { background-color: rgb(42 33 30 / .64) !important; }
+    [class~="bg-slate-800/60"] { background-color: rgb(42 33 30 / .72) !important; }
+    [class~="bg-slate-800/70"] { background-color: rgb(42 33 30 / .78) !important; }
+    [class~="bg-slate-800/80"] { background-color: rgb(42 33 30 / .88) !important; }
+    [class~="bg-slate-700"] { background-color: var(--surface-hover) !important; }
+    [class~="bg-slate-700/50"] { background-color: rgb(59 44 40 / .58) !important; }
+    [class~="bg-slate-700/70"] { background-color: rgb(59 44 40 / .78) !important; }
+    [class~="bg-slate-600"] { background-color: #59413a !important; }
+    [class~="hover:bg-slate-700"]:hover { background-color: var(--surface-hover) !important; }
+    [class~="hover:bg-slate-600"]:hover { background-color: #59413a !important; }
+    [class~="border-slate-800"], [class~="border-slate-700"],
+    [class~="border-slate-700/50"], [class~="border-slate-700/60"],
+    [class~="border-slate-700/70"], [class~="border-slate-600"], [class~="border-slate-500"] { border-color: var(--line-warm) !important; }
+    [class~="text-gray-100"] { color: var(--ink) !important; }
+    [class~="text-gray-200"] { color: #eee2d8 !important; }
+    [class~="text-gray-300"] { color: #ddcfc3 !important; }
+    [class~="text-gray-400"] { color: var(--ink-muted) !important; }
+    [class~="text-gray-500"] { color: var(--ink-soft) !important; }
+    [class~="text-gray-600"] { color: #a28d82 !important; }
+    [class~="text-gray-700"] { color: #9f887d !important; }
+    [class~="text-primary"] { color: var(--accent-text); }
+    [class~="text-secondary"] { color: var(--gold-text); }
+    [class~="hover:text-primary"]:hover { color: var(--accent-text) !important; }
+    [class~="hover:bg-primary/90"]:hover { background-color: #a93b28 !important; }
+    [class~="focus-visible:outline-primary"]:focus-visible { outline-color: var(--gold-text) !important; }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline-color: var(--gold-text);
+    }
+
+    .sticky.top-0.z-20 {
+      background-color: rgb(18 14 13 / .92) !important;
+      border-color: rgb(75 57 52 / .8) !important;
+      box-shadow: 0 12px 32px rgb(0 0 0 / .18);
+    }
+    #ratings-list .title-card, #profile-content .title-card,
+    #watch-history [data-key], #watched-history [data-key], .auth-panel {
+      border: 1px solid rgb(196 151 127 / .18);
+      border-radius: 1rem;
+      background: linear-gradient(145deg, rgb(42 33 30 / .98), rgb(31 24 22 / .98));
+      box-shadow: 0 8px 26px rgb(0 0 0 / .13);
+    }
+    #ratings-list .title-card:hover, #profile-content .title-card:hover,
+    #watch-history [data-key]:hover, #watched-history [data-key]:hover {
+      border-color: rgb(226 128 93 / .48);
+      box-shadow: 0 12px 30px rgb(0 0 0 / .24), 0 0 0 1px rgb(189 72 47 / .08);
+    }
+    #search-input, input, select, textarea { caret-color: rgb(var(--p-rgb)); }
+    input, select, textarea { border-color: var(--line-warm); }
+    .rating-modal-panel { border: 1px solid rgb(196 151 127 / .22); box-shadow: 0 30px 90px rgb(0 0 0 / .55); }
+    .group-average-badge { box-shadow: 0 6px 22px rgb(0 0 0 / .3), inset 0 1px rgb(255 255 255 / .16); }
+    .profile-section-switch { background: rgb(23 18 17 / .78); border: 1px solid rgb(75 57 52 / .7); }
+    .profile-section-tab[aria-selected="true"] { box-shadow: 0 5px 18px var(--accent-glow); }
+    .friends-score-popover { border-color: var(--line-warm); background: #1b1513; }
+    nav.fixed.bottom-0 {
+      left: 50%; right: auto; width: min(calc(100% - 1.5rem), 48rem);
+      transform: translateX(-50%);
+      border: 1px solid rgb(196 151 127 / .22);
+      border-bottom: 0;
+      border-radius: 1.25rem 1.25rem 0 0;
+      background: rgb(23 18 17 / .96) !important;
+      box-shadow: 0 -12px 44px rgb(0 0 0 / .32);
+    }
+    @media (min-width: 1280px) {
+      #app > .max-w-4xl { max-width: 80rem; }
+    }
+    .nav-btn { min-height: 3.75rem; }
+    .nav-btn.text-primary { color: var(--accent-text); }
+    .poster-frame { background-color: #342723; }
+    .history-title .poster-frame, .catalog-item .poster-frame, .rec-card .poster-frame { box-shadow: 0 8px 20px rgb(0 0 0 / .24); }
+    .brand-mark {
+      display: grid; place-items: center; width: 3.5rem; height: 3.5rem;
+      margin-inline: auto; border: 1px solid rgb(242 184 102 / .5); border-radius: 1.2rem;
+      background: linear-gradient(145deg, #b9432b, #8f3124); color: #fff5eb;
+      box-shadow: 0 12px 34px rgb(226 88 59 / .24), inset 0 1px rgb(255 255 255 / .22);
+      font: 700 1.75rem Georgia, "Times New Roman", serif;
+    }
+    .section-kicker, .feed-kicker {
+      color: #e4a777; font: 700 .65rem/1.2 ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: .16em; text-transform: uppercase;
+    }
+    @media (max-width: 640px) {
+      h1, h2, h3 { letter-spacing: -.015em; }
+      nav.fixed.bottom-0 { width: calc(100% - 1rem); }
     }
   </style>
 </head>

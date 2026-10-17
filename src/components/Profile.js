@@ -21,6 +21,9 @@ window.addEventListener('gulrating:pages-cleared', () => {
 });
 
 const ACCENTS = [
+  { name: 'Коралл', rgb: '189 72 47' },
+  { name: 'Терракота', rgb: '226 88 59' },
+  { name: 'Мёд', rgb: '242 184 102' },
   { name: 'Индиго', rgb: '99 102 241' },
   { name: 'Малиновый', rgb: '225 29 72' },
   { name: 'Изумруд', rgb: '16 185 129' },
@@ -58,7 +61,10 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
       <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
         <div class="flex items-center justify-between">
-          <h1 class="text-2xl font-bold">Профиль</h1>
+          <div>
+            <p class="section-kicker mb-1">ГульРейтинг · участник клуба</p>
+            <h1 class="text-2xl font-bold">Профиль</h1>
+          </div>
           <button id="logout-btn" class="text-sm text-gray-400 hover:text-white px-3 py-1.5 rounded-lg bg-card hover:bg-slate-700">Выйти</button>
         </div>
       </div>
@@ -731,7 +737,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   paintFeedLayoutEditor();
 
   // Акцент: сохраняем RGB-тройку и сразу применяем к CSS-переменной
-  const currentAccent = localStorage.getItem('gulrating:accent') || '99 102 241';
+  const currentAccent = localStorage.getItem('gulrating:accent') || '189 72 47';
   pageRoot.querySelectorAll('.accent-swatch').forEach(sw => {
     sw.classList.toggle('border-white', sw.dataset.rgb === currentAccent);
     sw.classList.toggle('border-transparent', sw.dataset.rgb !== currentAccent);

@@ -4,7 +4,7 @@ import { escapeHtml, showToast } from '../lib/dom.js';
 
 function shell(inner) {
   return `
-    <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-dark to-slate-900">
+    <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-dark to-card">
       <div class="w-full max-w-lg">
         <div class="text-center mb-6">
           <div class="text-5xl mb-4">🎬</div>

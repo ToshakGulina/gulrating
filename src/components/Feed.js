@@ -170,6 +170,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
           <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
             class="w-10 h-10 rounded-full bg-slate-700 border border-slate-600">
           <div class="min-w-0 flex-1">
+            <p class="feed-kicker mb-1">ГульРейтинг · киноклуб</p>
             <h1 class="text-xl font-bold leading-tight truncate">Привет, ${escapeHtml(currentUser.profile.username)}! 👋</h1>
             <p class="text-xs text-gray-400">${escapeHtml(todayCaption())}</p>
           </div>
