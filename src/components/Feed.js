@@ -170,7 +170,6 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
           <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
             class="w-10 h-10 rounded-full bg-slate-700 border border-slate-600">
           <div class="min-w-0 flex-1">
-            <p class="feed-kicker mb-1">ГульРейтинг · киноклуб</p>
             <h1 class="text-xl font-bold leading-tight truncate">Привет, ${escapeHtml(currentUser.profile.username)}! 👋</h1>
             <p class="text-xs text-gray-400">${escapeHtml(todayCaption())}</p>
           </div>
@@ -231,7 +230,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
               <button id="pending-flush" class="ml-auto px-2 py-1 bg-primary hover:bg-primary/90 text-white rounded-lg flex-shrink-0">Отправить сейчас</button>
             </div>
 
-            <div id="ratings-list" class="ratings-grid grid grid-cols-1 items-start gap-2 lg:grid-cols-2">
+            <div id="ratings-list" class="space-y-4">
               ${skeletonCards(3)}
             </div>
           </div>

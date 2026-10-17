@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase.js';
 
 export function renderAccessDenied(app) {
   app.innerHTML = `
-    <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-dark to-card">
+    <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-dark to-slate-900">
       <div class="w-full max-w-md text-center">
         <div class="text-5xl mb-4">🔒</div>
         <h1 class="text-2xl font-bold mb-3">Доступ ожидает подтверждения</h1>

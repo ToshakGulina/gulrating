@@ -10,8 +10,9 @@ import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullC
 import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, unmarkWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
 import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
+import { THEMES, getThemeId, setTheme } from '../lib/theme.js';
 
-// Акценты интерфейса: RGB-тройки для CSS-переменной --p-rgb (index.html)
+// Полная тема оформления задаётся data-theme на корне документа.
 let installBoxUpdateHandler = null;
 window.addEventListener('gulrating:pages-cleared', () => {
   if (!installBoxUpdateHandler) return;
@@ -19,17 +20,6 @@ window.addEventListener('gulrating:pages-cleared', () => {
   window.removeEventListener('gulrating:appinstalled', installBoxUpdateHandler);
   installBoxUpdateHandler = null;
 });
-
-const ACCENTS = [
-  { name: 'Коралл', rgb: '189 72 47' },
-  { name: 'Терракота', rgb: '226 88 59' },
-  { name: 'Мёд', rgb: '242 184 102' },
-  { name: 'Индиго', rgb: '99 102 241' },
-  { name: 'Малиновый', rgb: '225 29 72' },
-  { name: 'Изумруд', rgb: '16 185 129' },
-  { name: 'Синий', rgb: '59 130 246' },
-  { name: 'Оранжевый', rgb: '249 115 22' },
-];
 
 export async function renderProfilePage(app, currentUser, { force = false } = {}) {
   const page = mountPage(app, 'profile');
@@ -61,10 +51,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
       <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
         <div class="flex items-center justify-between">
-          <div>
-            <p class="section-kicker mb-1">ГульРейтинг · участник клуба</p>
-            <h1 class="text-2xl font-bold">Профиль</h1>
-          </div>
+          <h1 class="text-2xl font-bold">Профиль</h1>
           <button id="logout-btn" class="text-sm text-gray-400 hover:text-white px-3 py-1.5 rounded-lg bg-card hover:bg-slate-700">Выйти</button>
         </div>
       </div>
@@ -125,7 +112,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
           <button class="tab-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-tab="watchlist">Хочу посмотреть</button>
         </div>
 
-        <div id="profile-content" class="grid grid-cols-1 items-start gap-2 lg:grid-cols-2">
+        <div id="profile-content" class="space-y-3">
           ${renderMyRatings(myRatingsList)}
         </div>
         </section>
@@ -221,10 +208,20 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
               <p class="text-xs text-gray-500 mt-1 mb-3">Отметьте нужные разделы и задайте их порядок. Управление находится только здесь.</p>
               <div id="feed-layout-editor" class="space-y-2"></div>
             </div>
-            <div class="flex items-center justify-between gap-3">
-              <span class="text-gray-300">Акцент интерфейса</span>
-              <div id="accent-swatches" class="flex gap-2">
-                ${ACCENTS.map(a => `<button class="accent-swatch w-6 h-6 rounded-full border-2" data-rgb="${a.rgb}" style="background: rgb(${a.rgb})" title="${a.name}" aria-label="${a.name}"></button>`).join('')}
+            <div>
+              <h4 class="font-medium text-gray-200">Тема оформления</h4>
+              <p class="text-xs text-gray-500 mt-1 mb-3">Тема меняет фон, карточки, текст и акценты. Выбор сохраняется на устройстве и синхронизируется с аккаунтом.</p>
+              <div id="theme-options" class="theme-options">
+                ${THEMES.map(theme => `<button type="button" class="theme-option" data-theme-id="${theme.id}" aria-pressed="false" aria-label="${theme.name}: ${theme.description}">
+                  <span class="theme-preview" aria-hidden="true">
+                    <span style="background-color:rgb(${theme.preview.bg})"></span>
+                    <span style="background-color:rgb(${theme.preview.card})"></span>
+                    <span style="background-color:rgb(${theme.preview.primary})"></span>
+                    <span style="background-color:rgb(${theme.preview.secondary})"></span>
+                  </span>
+                  <span class="text-sm font-semibold">${theme.name}</span>
+                  <span class="text-xs text-gray-500">${theme.description}</span>
+                </button>`).join('')}
               </div>
             </div>
           </div>
@@ -736,21 +733,19 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   }
   paintFeedLayoutEditor();
 
-  // Акцент: сохраняем RGB-тройку и сразу применяем к CSS-переменной
-  const currentAccent = localStorage.getItem('gulrating:accent') || '189 72 47';
-  pageRoot.querySelectorAll('.accent-swatch').forEach(sw => {
-    sw.classList.toggle('border-white', sw.dataset.rgb === currentAccent);
-    sw.classList.toggle('border-transparent', sw.dataset.rgb !== currentAccent);
-    sw.addEventListener('click', () => {
-      localStorage.setItem('gulrating:accent', sw.dataset.rgb);
-      document.documentElement.style.setProperty('--p-rgb', sw.dataset.rgb);
-      pageRoot.querySelectorAll('.accent-swatch').forEach(x => {
-        x.classList.toggle('border-white', x === sw);
-        x.classList.toggle('border-transparent', x !== sw);
-      });
-      showToast('Акцент применён', 'success');
-    });
-  });
+  // Применяем полную тему и держим состояние кнопок доступным для скринридера.
+  const themeOptions = [...pageRoot.querySelectorAll('.theme-option')];
+  const paintSelectedTheme = () => {
+    const selectedTheme = getThemeId();
+    themeOptions.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.themeId === selectedTheme)));
+  };
+  themeOptions.forEach(button => button.addEventListener('click', () => {
+    const selected = setTheme(button.dataset.themeId);
+    paintSelectedTheme();
+    const theme = THEMES.find(item => item.id === selected);
+    showToast(`Тема «${theme?.name || 'Классическая'}» применена`, 'success');
+  }));
+  paintSelectedTheme();
 
   function setActivityTab(tab) {
     pageRoot.querySelectorAll('.tab-btn').forEach(button => {

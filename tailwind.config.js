@@ -5,10 +5,13 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        primary: 'rgb(var(--p-rgb) / <alpha-value>)',
-        secondary: '#9d6326',
-        dark: '#120e0d',
-        card: '#211918',
+        primary: 'rgb(var(--p-rgb, 99 102 241) / <alpha-value>)',
+        secondary: 'rgb(var(--theme-secondary, 236 72 153) / <alpha-value>)',
+        dark: 'rgb(var(--theme-bg, 15 23 42) / <alpha-value>)',
+        card: 'rgb(var(--theme-card, 30 41 59) / <alpha-value>)',
+      },
+      fontFamily: {
+        inter: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
     },
   },

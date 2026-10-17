@@ -7,8 +7,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#120e0d",
-  "theme_color": "#120e0d",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
   "lang": "ru",
   "categories": ["entertainment", "social"],
   "icons": [

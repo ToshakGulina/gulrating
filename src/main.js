@@ -4,13 +4,11 @@ import { checkNewSeasons } from './lib/watchHistory.js';
 import { configIsComplete, APP_BUILD } from './config.js';
 import { setSyncUser, syncUserData } from './lib/userSync.js';
 import { activePageKey, clearPageState } from './lib/pageState.js';
+import { applyTheme, getThemeId } from './lib/theme.js';
 
 // Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
-// Акцент интерфейса из настроек профиля применяем до первой отрисовки
-try {
-  const accent = localStorage.getItem('gulrating:accent');
-  if (accent) document.documentElement.style.setProperty('--p-rgb', accent);
-} catch (e) { /* приватный режим и т.п. */ }
+// Тема из локальных настроек применяется до первой отрисовки.
+applyTheme(getThemeId());
 
 console.info(`🎬 ГульРейтинг — сборка ${APP_BUILD}`);
 import { showToast } from './lib/dom.js';
@@ -102,6 +100,8 @@ async function renderApp() {
       // Быстрый pull/merge настроек на старте; таймаут не должен блокировать
       // офлайн-вход. Неудача остаётся локально и повторится при сети/изменениях.
       await syncUserData(currentUser, 1600);
+      // Синхронизация могла загрузить тему с другого устройства.
+      applyTheme(getThemeId());
     }
 
     if (!currentUser) {
