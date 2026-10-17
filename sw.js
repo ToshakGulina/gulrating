@@ -9,7 +9,7 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v24';
+const CACHE_VERSION = 'gulrating-v27';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -74,13 +74,18 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
-        keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key))
-      ))
-      .then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys
+      .filter((key) => key !== CACHE_VERSION)
+      .map((key) => caches.delete(key)));
+
+    // Сразу переключаем уже открытые вкладки на новый код. Иначе старый
+    // модуль поиска продолжает жить в памяти, даже после успешного деплоя.
+    await self.clients.claim();
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    await Promise.all(windows.map((client) => client.navigate(client.url).catch(() => null)));
+  })());
 });
 
 self.addEventListener('fetch', (event) => {

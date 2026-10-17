@@ -1,11 +1,17 @@
 import { CONFIG } from '../config.js';
 
-// Если задан прокси (optional/tmdb-proxy-worker.js) — ходим через него,
-// иначе напрямую в TMDb с ключом в параметрах запроса.
-const USE_PROXY = Boolean(CONFIG.TMDB_PROXY_URL);
-const API_BASE = USE_PROXY
+// На Cloudflare Pages используем собственную Pages Function как основной
+// источник: она обходит геоблок TMDb для российских IP. Для локальной сборки
+// без Pages Functions оставляем прямой запрос; внешний прокси из config имеет
+// высший приоритет.
+const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+const IS_PAGES_HOST = hostname === 'gulrating.pages.dev' || hostname.endsWith('.gulrating.pages.dev');
+const PAGES_PROXY_URL = IS_PAGES_HOST ? '/tmdb' : '';
+const PROXY_URL = CONFIG.TMDB_PROXY_URL
   ? CONFIG.TMDB_PROXY_URL.replace(/\/+$/, '')
-  : 'https://api.themoviedb.org/3';
+  : PAGES_PROXY_URL;
+const USE_PROXY = Boolean(PROXY_URL);
+const API_BASE = USE_PROXY ? PROXY_URL : 'https://api.themoviedb.org/3';
 
 const API_PARAMS = new URLSearchParams({
   language: 'ru-RU',
@@ -14,21 +20,31 @@ const API_PARAMS = new URLSearchParams({
 if (!USE_PROXY) API_PARAMS.set('api_key', CONFIG.TMDB_API_KEY);
 
 // Запрос к TMDb с таймаутом и понятными сообщениями об ошибках.
-// Сначала напрямую; если сеть недоступна (в том числе гео-блок TMDb для
-// российских IP — GeoDNS отдаёт 127.0.0.1), прозрачно уходим на серверный
-// прокси /tmdb на собственном домене (Pages Functions): там запрос идёт с
-// края Cloudflare, которому TMDb отвечает.
+// На Cloudflare Pages основной путь — серверный /tmdb proxy, поскольку
+// прямой TMDb может вернуть геоблок 530 для российских IP. В локальной
+// сборке сперва пробуем прямой API и переключаемся на /tmdb при сетевой
+// ошибке или HTTP 403/5xx.
 async function tmdbFetch(path) {
+  const query = `${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`;
   let res;
   try {
-    res = await tmdbRaw(`${API_BASE}${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`);
+    res = await tmdbRaw(`${API_BASE}${query}`);
   } catch (e) {
     if (USE_PROXY) throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
     try {
-      res = await tmdbRaw(`/tmdb${path}${path.includes('?') ? '&' : '?'}${API_PARAMS}`);
+      res = await tmdbRaw(`/tmdb${query}`);
     } catch (e2) {
       throw new Error('Нет соединения с базой фильмов (TMDb). Проверьте интернет и попробуйте снова.');
     }
+  }
+
+  // При блокировке по географии / ошибке CDN запрос может завершиться HTTP
+  // 530, 52x или другим 5xx, а не reject-нуться. Повторяем его через Pages
+  // Function, если изначально не задан отдельный прокси.
+  if (!USE_PROXY && (!res.ok && (res.status === 403 || res.status >= 500))) {
+    try {
+      res = await tmdbRaw(`/tmdb${query}`);
+    } catch (e) { /* ниже покажем исходную ошибку прямого запроса */ }
   }
 
   if (!res.ok) {
