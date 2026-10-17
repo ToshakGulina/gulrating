@@ -19,6 +19,8 @@ jobs:
           node-version: '20'
       - name: Check syntax and local module exports
         run: node scripts/check-modules.mjs
+      - name: Test button ripple geometry
+        run: node scripts/test-button-ripple.mjs
       - name: Check helper scripts
         run: sh -n scripts/build-css.sh && sh -n scripts/release-notes.sh
       - name: Test Kinobox Pages Function proxy
