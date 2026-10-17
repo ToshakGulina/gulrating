@@ -1,3 +1,17 @@
+export const RIPPLE_TARGET_SELECTOR = [
+  'button:not(:disabled)',
+  'input[type="button"]:not(:disabled)',
+  'input[type="submit"]:not(:disabled)',
+  'input[type="reset"]:not(:disabled)',
+  'a[href]',
+  '[role="button"]',
+  '[role="tab"]',
+  '[role="menuitem"]',
+  '[role="option"]',
+  'summary',
+  '.cursor-pointer',
+].join(',');
+
 const activeRipples = new WeakMap();
 
 function prefersReducedMotion() {
@@ -62,8 +76,8 @@ function createRipple(button, clientX, clientY) {
   window.setTimeout(cleanup, 700);
 }
 
-function getButton(target) {
-  return target instanceof Element ? target.closest('button:not(:disabled)') : null;
+function getRippleTarget(target) {
+  return target instanceof Element ? target.closest(RIPPLE_TARGET_SELECTOR) : null;
 }
 
 export function installButtonRipple() {
@@ -71,7 +85,7 @@ export function installButtonRipple() {
 
   document.addEventListener('pointerdown', event => {
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
-    const button = getButton(event.target);
+    const button = getRippleTarget(event.target);
     if (button) createRipple(button, event.clientX, event.clientY);
   }, true);
 
@@ -79,7 +93,7 @@ export function installButtonRipple() {
   // из центра кнопки. Нативные click после касания сюда не попадают (detail > 0).
   document.addEventListener('click', event => {
     if (event.detail !== 0) return;
-    const button = getButton(event.target);
+    const button = getRippleTarget(event.target);
     if (!button) return;
     const rect = button.getBoundingClientRect();
     createRipple(button, rect.left + rect.width / 2, rect.top + rect.height / 2);
