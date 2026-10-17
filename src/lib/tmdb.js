@@ -161,6 +161,13 @@ export async function getPopularPage(mediaType, page) {
   }));
 }
 
+// Данные JustWatch, которые TMDb агрегирует по стране. Это каталог по региону,
+// не проверка персональной подписки или фактического доступа к аккаунту.
+export async function getTitleWatchProviders(id, mediaType) {
+  const data = await tmdbFetch(`/${mediaType}/${id}/watch/providers`);
+  return data.results || {};
+}
+
 export async function getTitleDetails(id, mediaType) {
   let data;
   try {

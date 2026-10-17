@@ -37,14 +37,21 @@ window.addEventListener('appinstalled', () => {
   window.dispatchEvent(new Event('gulrating:appinstalled'));
 });
 
+let rendering = false;
+let offlineOnlySession = false;
+let onlineRefreshPending = false;
+
 // Сеть пропала/вернулась: интерфейс живёт из кэша, объясняем состояние
 window.addEventListener('offline', () => {
   showToast('Нет сети: интерфейс из кэша, данные обновятся при появлении интернета', 'info', 4000);
 });
 window.addEventListener('online', () => {
   showToast('Снова в сети', 'success', 2000);
-  // Обновляем сессию/профиль с сервера после локального офлайн-старта.
-  renderApp();
+  // Полная перерисовка ленты здесь сбрасывала видимый экран и запускала
+  // анимации заново при возврате во вкладку. Обновляем приложение только
+  // если оно действительно было запущено без сети.
+  if (rendering) onlineRefreshPending = true;
+  else if (offlineOnlySession) renderApp();
   // Дозакачиваем офлайн-базу фильмов (только в приложении)
   if (isAppContext()) syncOfflineCatalog().catch(() => {});
 });
@@ -57,14 +64,13 @@ function hideSplash() {
   setTimeout(() => splash.remove(), 220);
 }
 
-let rendering = false;
-
 async function renderApp() {
   // Защита от параллельных перерисовок (события авторизации могут прийти пачкой)
   if (rendering) return;
   rendering = true;
   try {
     const currentUser = await getCurrentUser();
+    offlineOnlySession = Boolean(currentUser && currentUser.offlineOnly);
     setSyncUser(currentUser);
     if (currentUser) {
       // Быстрый pull/merge настроек на старте; таймаут не должен блокировать
@@ -102,6 +108,12 @@ async function renderApp() {
   } finally {
     rendering = false;
     hideSplash();
+    if (onlineRefreshPending) {
+      onlineRefreshPending = false;
+      // Если онлайн восстановился во время определения сессии, повторяем
+      // загрузку только для офлайн-профиля — без лишнего рендера обычного входа.
+      if (offlineOnlySession) queueMicrotask(() => renderApp());
+    }
   }
 }
 
