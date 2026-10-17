@@ -224,6 +224,75 @@ export async function getMovieCollection(collectionId) {
   };
 }
 
+// Похожие названия из TMDb помогают показать рядом фильмы и сериалы франшизы.
+// Для фильмов сначала берём официальную коллекцию TMDb, затем дополняем её
+// результатами поиска по корню франшизы (так в ряду могут появиться и сериалы).
+function franchiseRoot(title, collectionName = '') {
+  const source = collectionName || String(title || '').split(/[:(]/, 1)[0];
+  return String(source)
+    .replace(/\b(collection|franchise|коллекция|франшиза)\b/gi, '')
+    .replace(/\b(part|chapter|volume|часть|том)\s*\d+\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function franchiseTokens(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(word => word.length > 2 && !/^\d+$/.test(word));
+}
+
+export async function getFranchiseTitles(id, mediaType) {
+  const current = await getTitleDetails(id, mediaType);
+  const titleRoot = franchiseRoot(current.title);
+  const [collection, initialMatches] = await Promise.all([
+    mediaType === 'movie' && current.collection_id
+      ? getMovieCollection(current.collection_id).catch(() => null)
+      : Promise.resolve(null),
+    searchTitles(titleRoot).catch(() => [])
+  ]);
+  const root = franchiseRoot(current.title, collection?.name);
+  const rootWords = [...new Set(franchiseTokens(root))];
+  if (!rootWords.length) return [{ ...current, media_type: mediaType }];
+
+  const matches = root === titleRoot
+    ? initialMatches
+    : [...initialMatches, ...await searchTitles(root).catch(() => [])];
+  const byKey = new Map();
+  for (const part of collection?.parts || []) {
+    byKey.set(`movie:${part.id}`, {
+      ...part,
+      media_type: 'movie',
+      poster_path: null
+    });
+  }
+
+  const minOverlap = rootWords.length === 1 ? 1 : 2;
+  for (const match of matches) {
+    if (!match || (Number(match.id) === Number(id) && match.media_type === mediaType)) continue;
+    const words = new Set(franchiseTokens(match.title));
+    const overlap = rootWords.reduce((count, word) => count + (words.has(word) ? 1 : 0), 0);
+    if (overlap < minOverlap) continue;
+    const key = `${match.media_type}:${match.id}`;
+    byKey.set(key, { ...byKey.get(key), ...match });
+  }
+
+  const currentKey = `${mediaType}:${id}`;
+  byKey.set(currentKey, { ...current, media_type: mediaType });
+  return [...byKey.values()]
+    .sort((a, b) => {
+      if (`${a.media_type}:${a.id}` === currentKey) return -1;
+      if (`${b.media_type}:${b.id}` === currentKey) return 1;
+      const dateA = a.release_date || '';
+      const dateB = b.release_date || '';
+      return dateA.localeCompare(dateB) || a.title.localeCompare(b.title, 'ru');
+    })
+    .slice(0, 12);
+}
+
 // Приводим ответ TMDb к общему виду карточки рекомендации
 function mapResults(results, limit) {
   return (results || [])

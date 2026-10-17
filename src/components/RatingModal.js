@@ -1,5 +1,5 @@
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
-import { getTitleDetails } from '../lib/tmdb.js';
+import { getTitleDetails, getFranchiseTitles } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
@@ -587,6 +587,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     modal.querySelector('h2').textContent = title.title || 'Фильм';
 
     document.getElementById('modal-content').innerHTML = `
+      <div id="franchise-tabs" class="hidden -mx-4 -mt-4 mb-4 border-b border-slate-700 bg-slate-900/70 px-4 py-2.5">
+        <div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Франшиза</div>
+        <div class="franchise-tabs-list flex gap-1.5 overflow-x-auto scrollbar-hide" role="tablist" aria-label="Другие части франшизы"></div>
+      </div>
       <div class="flex gap-4 mb-4">
         <div id="poster-box" class="flex-shrink-0 w-28 ${title.poster_path ? 'cursor-zoom-in' : ''}" title="${title.poster_path ? 'Открыть постер' : ''}">
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-xl')}
@@ -692,7 +696,26 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           </div>
         </details>
       ` : ''}
-    `;
+      `;
+
+    // Рядом с заголовком показываем вкладки других частей франшизы.
+    // TMDb-коллекцию фильмов дополняем точными совпадениями поиска сериалов.
+    const franchiseBox = modal.querySelector('#franchise-tabs');
+    getFranchiseTitles(titleId, mediaType).then(parts => {
+      if (!modal.isConnected || !franchiseBox || !Array.isArray(parts) || parts.length < 2) return;
+      franchiseBox.classList.remove('hidden');
+      const tabs = franchiseBox.querySelector('.franchise-tabs-list');
+      tabs.innerHTML = parts.map(part => {
+        const selected = Number(part.id) === Number(titleId) && part.media_type === mediaType;
+        const partYear = releaseYear(part.release_date);
+        return `<button type="button" role="tab" aria-selected="${selected}" data-title-id="${escapeHtml(part.id)}" data-media-type="${escapeHtml(part.media_type)}" class="franchise-tab max-w-[210px] flex-shrink-0 truncate rounded-full border px-3 py-1.5 text-xs transition-colors ${selected ? 'border-primary bg-primary text-white' : 'border-slate-700 bg-slate-800 text-gray-300 hover:bg-slate-700'}">${escapeHtml(part.title || 'Тайтл')}${partYear ? ` · ${escapeHtml(partYear)}` : ''}</button>`;
+      }).join('');
+      tabs.querySelectorAll('.franchise-tab').forEach(tab => tab.addEventListener('click', () => {
+        if (Number(tab.dataset.titleId) === Number(titleId) && tab.dataset.mediaType === mediaType) return;
+        closeModal();
+        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback);
+      }));
+    }).catch(() => {});
 
     const friendScoreDetails = modal.querySelector('.friends-score-details');
     const friendScoreTrigger = modal.querySelector('#friends-score-trigger');
@@ -906,6 +929,15 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         notifyTelegram(currentUser, title, selectedScore);
         if (onSaveCallback) onSaveCallback();
       } catch (e) {
+        if (e && e.ratingSaved) {
+          // Рейтинг уже сохранён, но очистка watchlist не завершилась: не ставим
+          // ту же оценку в офлайн-очередь и сразу обновляем вид карточки.
+          closeModal();
+          showToast(e.message, 'error', 6000);
+          notifyTelegram(currentUser, title, selectedScore);
+          if (onSaveCallback) onSaveCallback();
+          return;
+        }
         if (networkLikeError(e)) {
           // Офлайн: оценка не теряется, а встаёт в очередь на устройстве
           enqueueRating({

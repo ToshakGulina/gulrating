@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase.js';
+import { addToWatchlist, removeFromWatchlist } from '../lib/ratings.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { searchTitles, getTrending, getRecommendations, primeTitleCache } from '../lib/tmdb.js';
 import { openRatingModal } from './RatingModal.js';
@@ -467,6 +468,13 @@ async function loadRatings(currentUser, filter = 'all') {
     data = applySort(data);
   }
 
+  const pendingTitleIds = new Set(getPendingRatings().map(item => String(item.title_id)));
+  if (filter === 'watchlist' && pendingTitleIds.size) {
+    // Офлайн-оценка сразу считается просмотренной и скрывает личную запись
+    // из кэшированного списка «Смотреть позже» до синхронизации.
+    data = data.filter(item => item.user_id !== currentUser.id || !pendingTitleIds.has(String(item.title_id)));
+  }
+
   const shouldAnimateCards = !ratingsHavePainted
     || filter !== lastRenderedRatingsFilter
     || activeSort !== lastRenderedRatingsSort;
@@ -505,6 +513,34 @@ async function loadRatings(currentUser, filter = 'all') {
   }
 
   const isWatchlistView = filter === 'watchlist';
+  const ownRatedIds = new Set();
+  const ownWatchlistIds = new Set();
+
+  // Сначала используем данные уже загруженной ленты, чтобы статус не пропадал
+  // при офлайне; затем обновляем его точными личными списками из Supabase.
+  for (const item of data || []) {
+    const rows = item.groupedRatings || [item];
+    if (rows.some(row => row.user_id === currentUser.id)) ownRatedIds.add(String(item.title_id || item.titles?.id));
+    if (filter === 'watchlist' && item.user_id === currentUser.id) ownWatchlistIds.add(String(item.title_id || item.titles?.id));
+  }
+  if (!offlineCopy && !currentUser.offlineOnly) {
+    const [ratingsState, watchlistState] = await Promise.all([
+      feedRequest(supabase.from('ratings').select('title_id').eq('user_id', currentUser.id)),
+      feedRequest(supabase.from('watchlist').select('title_id').eq('user_id', currentUser.id))
+    ]);
+    if (!ratingsState.error && Array.isArray(ratingsState.data)) {
+      ownRatedIds.clear();
+      ratingsState.data.forEach(row => ownRatedIds.add(String(row.title_id)));
+    }
+    if (!watchlistState.error && Array.isArray(watchlistState.data)) {
+      ownWatchlistIds.clear();
+      watchlistState.data.forEach(row => ownWatchlistIds.add(String(row.title_id)));
+    }
+  }
+  pendingTitleIds.forEach(id => {
+    ownRatedIds.add(id);
+    ownWatchlistIds.delete(id);
+  });
 
   listEl.innerHTML = data.map(item => {
     const title = item.titles;
@@ -524,6 +560,11 @@ async function loadRatings(currentUser, filter = 'all') {
         <div class="p-2.5 sm:p-3 flex gap-3">
           <div class="feed-card-poster flex-shrink-0">
             ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
+            <select class="feed-status-select mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[10px] leading-tight text-gray-200 focus:outline-none focus:ring-1 focus:ring-primary" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${ownRatedIds.has(String(title.id)) ? 'watched' : ownWatchlistIds.has(String(title.id)) ? 'watchlist' : ''}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled title="Недоступно офлайн"' : ''}>
+              <option value="" ${!ownRatedIds.has(String(title.id)) && !ownWatchlistIds.has(String(title.id)) ? 'selected' : ''}>Статус</option>
+              <option value="watchlist" ${ownWatchlistIds.has(String(title.id)) && !ownRatedIds.has(String(title.id)) ? 'selected' : ''} ${ownRatedIds.has(String(title.id)) ? 'disabled' : ''}>Смотреть позже</option>
+              <option value="watched" ${ownRatedIds.has(String(title.id)) ? 'selected' : ''}>Просмотрено</option>
+            </select>
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-start justify-between gap-2">
@@ -585,6 +626,62 @@ async function loadRatings(currentUser, filter = 'all') {
       </div>`);
   }
   paintPending();
+
+  // Статус из списка фильмов выбирается отдельно от открытия карточки.
+  listEl.querySelectorAll('.feed-status-select').forEach(select => {
+    const stopCardOpen = event => event.stopPropagation();
+    select.addEventListener('click', stopCardOpen);
+    select.addEventListener('keydown', stopCardOpen);
+    select.addEventListener('change', async event => {
+      event.stopPropagation();
+      const titleId = Number(select.dataset.titleId);
+      const mediaType = select.dataset.mediaType;
+      const selected = select.value;
+      const current = select.dataset.currentStatus || '';
+      const idKey = String(titleId);
+
+      if (selected === current) return;
+      if (selected === 'watched') {
+        // Статус «Просмотрено» ставится вместе с пользовательской оценкой.
+        select.value = current;
+        openRatingModal(titleId, mediaType, currentUser, () => loadRatings(currentUser, activeFilter));
+        return;
+      }
+      if (selected === 'watchlist' && ownRatedIds.has(idKey)) {
+        select.value = current;
+        showToast('Уже оценённый тайтл считается просмотренным. Чтобы изменить это, сначала удалите оценку в карточке.', 'info', 5000);
+        return;
+      }
+
+      select.disabled = true;
+      try {
+        if (selected === 'watchlist') {
+          await addToWatchlist(currentUser.id, titleId, mediaType);
+          ownWatchlistIds.add(idKey);
+          select.dataset.currentStatus = 'watchlist';
+          showToast('Добавили в «Смотреть позже»', 'success');
+        } else if (selected === '') {
+          if (ownRatedIds.has(idKey)) {
+            select.value = current;
+            showToast('Оценка сохраняет статус «Просмотрено». Удалить её можно в карточке.', 'info', 5000);
+            return;
+          }
+          if (ownWatchlistIds.has(idKey)) {
+            await removeFromWatchlist(currentUser.id, titleId);
+            ownWatchlistIds.delete(idKey);
+            select.dataset.currentStatus = '';
+            showToast('Убрали из «Смотреть позже»', 'success');
+          }
+        }
+        await loadRatings(currentUser, activeFilter);
+      } catch (error) {
+        select.value = current;
+        showToast(`Не удалось изменить статус: ${error.message}`, 'error', 5000);
+      } finally {
+        select.disabled = false;
+      }
+    });
+  });
 
   // Обработчик клика по карточке тайтла
   feedAll('.title-card').forEach(card => {
