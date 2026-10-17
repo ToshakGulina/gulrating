@@ -7,34 +7,34 @@ export function renderAuthPage(app) {
   app.innerHTML = `
     <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-dark to-slate-900">
       <div class="w-full max-w-md">
-        <div class="text-center mb-8">
-          <div class="text-5xl mb-4">🎬</div>
+        <div class="text-center mb-6">
+          <div class="text-4xl mb-3">🎬</div>
           <h1 class="text-3xl font-bold mb-2 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">ГульРейтинг</h1>
-          <p class="text-gray-400">Оценки фильмов и сериалов вашей компании</p>
+          <p class="text-gray-400">Оценки фильмов и сериалов вместе с друзьями</p>
         </div>
 
-        <div class="bg-card rounded-2xl p-6 shadow-xl">
-          <div class="flex rounded-xl bg-slate-800 p-1 mb-5 text-sm font-medium">
+        <div class="bg-card rounded-xl border border-slate-700/60 p-5 shadow-xl">
+          <div class="flex rounded-xl bg-slate-800 p-1 mb-4 text-sm font-medium">
             <button id="tab-password" class="flex-1 py-2 rounded-lg bg-primary text-white">Пароль</button>
             <button id="tab-otp" class="flex-1 py-2 rounded-lg text-gray-400">Ссылка на почту</button>
           </div>
 
           <div id="auth-form-container">
-            <div class="space-y-4">
+            <div class="space-y-3">
               <div id="name-row" class="hidden">
-                <label class="block text-sm font-medium text-gray-300 mb-2" for="name-input">Имя (как видеть друзьям)</label>
+                <label class="block text-sm font-medium text-gray-300 mb-1.5" for="name-input">Имя (как видеть друзьям)</label>
                 <input type="text" id="name-input" placeholder="Например, Антон" autocomplete="nickname"
-                  class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
+                  class="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2" for="email-input">Email</label>
+                <label class="block text-sm font-medium text-gray-300 mb-1.5" for="email-input">Email</label>
                 <input type="email" id="email-input" placeholder="your@email.com" autocomplete="email"
-                  class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
+                  class="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
               </div>
               <div id="pass-row">
-                <label class="block text-sm font-medium text-gray-300 mb-2" for="pass-input">Пароль</label>
+                <label class="block text-sm font-medium text-gray-300 mb-1.5" for="pass-input">Пароль</label>
                 <input type="password" id="pass-input" placeholder="Минимум 6 символов" autocomplete="current-password"
-                  class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
+                  class="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
               </div>
 
               <button id="login-btn" class="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 px-4 rounded-xl transition-all transform hover:scale-[1.02]">
@@ -230,9 +230,9 @@ export function openRecoveryPasswordModal() {
       <h3 class="text-lg font-bold mb-1">Задайте новый пароль</h3>
       <p class="text-xs text-gray-400 mb-4">Вы вошли по ссылке из письма. Придумайте пароль — дальше вход будет по нему, без одноразовых ссылок.</p>
       <input type="password" id="recovery-pass" placeholder="Минимум 6 символов" autocomplete="new-password"
-        class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
+        class="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
       <input type="password" id="recovery-pass2" placeholder="Повторите пароль" autocomplete="new-password"
-        class="w-full mt-3 px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
+        class="w-full mt-3 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500">
       <button id="recovery-save" class="w-full mt-4 bg-primary hover:bg-primary/90 text-white font-semibold py-3 px-4 rounded-xl">Сохранить пароль</button>
       <button id="recovery-cancel" class="w-full mt-2 text-xs text-gray-400 hover:underline">Позже</button>
     </div>

@@ -28,8 +28,14 @@ try {
 
   const invalid = await onRequestGet({ request: new Request('https://gulrating.pages.dev/kinobox') });
   assert.equal(invalid.status, 400);
+
+  const clientSource = await readFile(new URL('../src/lib/kinobox.js', import.meta.url), 'utf8');
+  const clientUrl = `data:text/javascript;base64,${Buffer.from(clientSource).toString('base64')}`;
+  const { qualityRank } = await import(clientUrl);
+  assert.deepEqual(['4K', '2160p', '1080p', 'HD', 'unknown'].map(qualityRank), [2160, 2160, 1080, 720, 0]);
+  assert.equal(qualityRank('4К'), 2160);
 } finally {
   globalThis.fetch = originalFetch;
 }
 
-console.log('Kinobox Pages Function proxy mapping: OK');
+console.log('Kinobox proxy and maximum advertised quality selection: OK');

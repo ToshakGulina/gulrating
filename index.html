@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="classic">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>ГульРейтинг</title>
-  <meta name="description" content="ГульРейтинг: общие оценки фильмов и сериалов для своей компании — лента, комментарии, список «хочу посмотреть».">
+  <meta name="description" content="ГульРейтинг: общие оценки фильмов и сериалов с друзьями — лента, комментарии, список «хочу посмотреть».">
   <meta name="theme-color" content="#0f172a">
 
   <!-- PWA: установка на главный экран -->
@@ -15,16 +15,38 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ГульРейтинг">
+  <script>
+    // Если браузер выгрузил вкладку из памяти, восстановление не должно
+    // переигрывать анимации входа поверх уже знакомого интерфейса.
+    try {
+      const navigation = performance.getEntriesByType('navigation')[0];
+      if (document.wasDiscarded || (navigation && navigation.type === 'back_forward')) {
+        document.documentElement.classList.add('skip-entry-motion');
+      }
+      const savedTheme = localStorage.getItem('gulrating:theme');
+      const themeColors = { classic: '#0f172a', ocean: '#07131d', forest: '#0c1714', light: '#f8fafc' };
+      if (Object.prototype.hasOwnProperty.call(themeColors, savedTheme)) {
+        document.documentElement.dataset.theme = savedTheme;
+        document.querySelector('meta[name="theme-color"]').content = themeColors[savedTheme];
+        if (savedTheme === 'light') document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = 'default';
+      }
+    } catch (_) {}
+  </script>
+
+  <link rel="preload" href="/assets/fonts/files/inter-cyrillic-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/files/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/assets/fonts/inter.css">
 
   <!-- Tailwind собран в статический CSS (assets/tw.css): сайту не нужен
        внешний CDN, чтобы стартовать (CDN блокировался — приложение не
        загружалось вовсе). Пересборка: ./scripts/build-css.sh -->
   <link rel="stylesheet" href="/assets/tw.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root { --p-rgb: 99 102 241; }
+    html.skip-entry-motion *, html.skip-entry-motion *::before, html.skip-entry-motion *::after {
+      animation: none !important;
+      transition: none !important;
+    }
 
     /* Тонкие скроллбары: горизонтальные ленты не выглядят тяжеловесно */
     * { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
@@ -48,26 +70,30 @@
     /* Размеры постеров задаём явно: одинаковый макет в браузере, PWA и APK. */
     .poster-frame { position: relative; aspect-ratio: 2 / 3; overflow: hidden; }
     .poster-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-    .feed-card-poster { width: clamp(68px, 18vw, 96px); flex: 0 0 clamp(68px, 18vw, 96px); }
+    .feed-card-poster { width: clamp(76px, 20vw, 112px); flex: 0 0 clamp(76px, 20vw, 112px); }
     .profile-card-poster { width: clamp(64px, 16vw, 80px); flex: 0 0 clamp(64px, 16vw, 80px); }
-    #poster-box { width: clamp(84px, 25vw, 112px); flex: 0 0 clamp(84px, 25vw, 112px); }
+    #poster-box { width: clamp(104px, 28vw, 144px); flex: 0 0 clamp(104px, 28vw, 144px); }
     #poster-box > .poster-frame { width: 100%; aspect-ratio: 2 / 3; }
-    .history-title { width: 56px; flex: 0 0 56px; }
+    .history-title { width: clamp(96px, 26vw, 128px); flex: 0 0 clamp(96px, 26vw, 128px); }
     .history-title > .poster-frame { width: 100%; aspect-ratio: 2 / 3; }
+    .history-title .poster-frame { border-radius: 0.75rem; }
+    .history-title > div:last-child { font-size: 11px; line-height: 1.25; }
     @media (min-width: 640px) {
-      #poster-box { width: 112px; flex-basis: 112px; }
+      #poster-box { width: 144px; flex-basis: 144px; }
     }
 
     /* Заставка до загрузки JS — чтобы не было пустого белого экрана */
     #boot-splash {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: #0f172a; color: #94a3b8; font-family: Inter, system-ui, sans-serif;
+      background: #0f172a; color: #94a3b8; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 14px; z-index: 100;
     }
     #boot-splash .dot { animation: blink 1.2s infinite; }
     #boot-splash .dot:nth-child(2) { animation-delay: .2s; }
     #boot-splash .dot:nth-child(3) { animation-delay: .4s; }
+    #boot-splash.splash-leaving { animation: splash-leave .2s ease-in forwards; }
     @keyframes blink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
+    @keyframes splash-leave { to { opacity: 0; visibility: hidden; } }
 
     /* Живой фон: мягкие цветные свечения вместо плоского тёмного полотна */
     body::before {
@@ -80,6 +106,137 @@
         radial-gradient(640px 420px at 12% -6%, rgba(99, 102, 241, .20), transparent 62%),
         radial-gradient(720px 520px at 88% 8%, rgba(236, 72, 153, .13), transparent 62%),
         radial-gradient(900px 640px at 50% 112%, rgba(56, 189, 248, .10), transparent 64%);
+    }
+
+    /* Лёгкая системная анимация интерфейса. Вступительные эффекты используют
+       transform/opacity без скачков раскладки и безопасны для мобильных/PWA. */
+    html { scroll-behavior: smooth; }
+    #app:not(:empty) { animation: app-enter .32s cubic-bezier(.2,.75,.25,1); }
+    #blocks-wrap > * { animation: section-enter .34s cubic-bezier(.2,.75,.25,1); }
+    #blocks-wrap > :nth-child(2) { animation-delay: 45ms; }
+    #blocks-wrap > :nth-child(3) { animation-delay: 90ms; }
+    #blocks-wrap > :nth-child(2), #blocks-wrap > :nth-child(3) { animation-fill-mode: backwards; }
+    #ratings-list.suppress-card-animation > .title-card,
+    #trends-grid.suppress-card-animation > .rec-card { animation: none !important; }
+    #ratings-list > .title-card:nth-child(2) { animation-delay: 25ms; }
+    #ratings-list > .title-card:nth-child(3) { animation-delay: 50ms; }
+    #ratings-list > .title-card:nth-child(4) { animation-delay: 75ms; }
+    #ratings-list > .title-card:nth-child(5) { animation-delay: 100ms; }
+    #ratings-list > .title-card:nth-child(6) { animation-delay: 125ms; }
+    #ratings-list > .title-card:nth-child(n+7) { animation-delay: 150ms; }
+    #ratings-list > .title-card:nth-child(n+2) { animation-fill-mode: backwards; }
+
+    button:not(:disabled), a { transition: color .18s ease, background-color .18s ease, border-color .18s ease, box-shadow .18s ease, translate .18s ease, opacity .18s ease; }
+    input, select, textarea { transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
+    @media (hover: hover) {
+      button:not(:disabled):hover { translate: 0 -1px; }
+      .title-card:hover, .rec-card:hover, .history-title:hover, .catalog-item:hover { translate: 0 -3px; }
+      .title-card:hover, .catalog-item:hover { box-shadow: 0 14px 34px rgb(0 0 0 / .22); }
+      .title-card:hover .poster-frame img, .catalog-item:hover .poster-frame img { transform: scale(1.045); }
+      .rec-card:hover { filter: brightness(1.06); }
+      .history-query:hover, .search-result-item:hover { translate: 3px 0; }
+    }
+    button:not(:disabled):active { translate: 0 1px; scale: .98; }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline: 2px solid rgb(var(--p-rgb) / .8);
+      outline-offset: 2px;
+    }
+
+    .title-card, .rec-card, .history-title, .history-query, .catalog-item, .search-result-item {
+      transition: translate .2s cubic-bezier(.2,.75,.25,1), scale .2s ease, box-shadow .2s ease, border-color .2s ease, background-color .2s ease, filter .2s ease;
+    }
+    .poster-frame img { transition: transform .4s cubic-bezier(.2,.75,.25,1); }
+    .group-average-badge { box-shadow: 0 5px 16px rgb(0 0 0 / .18), inset 0 1px rgb(255 255 255 / .14); }
+    .watch-action-btn { box-shadow: 0 3px 12px rgb(var(--p-rgb) / .12); }
+    .watch-action-btn:active { scale: .98; }
+    .profile-section-switch { box-shadow: inset 0 1px rgb(255 255 255 / .04); }
+    .profile-section-tab { transition: color .2s ease, background-color .2s ease, box-shadow .2s ease, translate .2s ease; }
+    .profile-section-tab[aria-selected="true"] { box-shadow: 0 4px 14px rgb(var(--p-rgb) / .22); }
+    .profile-section-tab:active { translate: 0 1px; }
+    .profile-section-panel:not(.hidden) { animation: profile-panel-enter .24s cubic-bezier(.2,.75,.25,1); }
+    .rating-modal-panel { animation: rating-modal-enter .24s cubic-bezier(.2,.75,.25,1); }
+    .rating-modal-panel .poster-frame { border-radius: .75rem; }
+    .friends-score-details { display: inline-block; max-width: 100%; }
+    .friends-score-popover {
+      position: absolute;
+      top: calc(100% + .35rem);
+      right: 0;
+      z-index: 40;
+      width: min(18rem, calc(100vw - 2rem));
+      max-height: min(16rem, 45vh);
+      overflow: auto;
+      overscroll-behavior: contain;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(-3px);
+      transition: opacity .14s ease, transform .14s ease, visibility .14s;
+    }
+    @media (hover: hover) {
+      .friends-score-details:hover .friends-score-popover {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transform: translateY(0);
+      }
+    }
+    .friends-score-details:focus-within .friends-score-popover,
+    .friends-score-details[data-open="true"] .friends-score-popover {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+    .friends-ratings-details > summary { list-style: none; }
+    .friends-ratings-details > summary::-webkit-details-marker { display: none; }
+    .friends-ratings-details > summary::after { content: '+'; float: right; color: #94a3b8; }
+    .friends-ratings-details[open] > summary::after { content: '−'; }
+    .title-card, .rec-card, .history-title, .catalog-item { animation: card-enter .3s cubic-bezier(.2,.75,.25,1); }
+    .search-result-item { animation: item-enter .22s ease-out; }
+    #catalog-grid > .catalog-item { animation-fill-mode: backwards; }
+    #trends-grid > .rec-card { animation-fill-mode: backwards; }
+    #catalog-grid > .catalog-item:nth-child(2) { animation-delay: 25ms; }
+    #catalog-grid > .catalog-item:nth-child(3) { animation-delay: 50ms; }
+    #catalog-grid > .catalog-item:nth-child(4) { animation-delay: 75ms; }
+    #catalog-grid > .catalog-item:nth-child(5) { animation-delay: 100ms; }
+    #catalog-grid > .catalog-item:nth-child(6) { animation-delay: 125ms; }
+    #catalog-grid > .catalog-item:nth-child(n+7) { animation-delay: 150ms; }
+    #trends-grid > .rec-card:nth-child(2) { animation-delay: 25ms; }
+    #trends-grid > .rec-card:nth-child(3) { animation-delay: 50ms; }
+    #trends-grid > .rec-card:nth-child(4) { animation-delay: 75ms; }
+    #trends-grid > .rec-card:nth-child(5) { animation-delay: 100ms; }
+    #trends-grid > .rec-card:nth-child(6) { animation-delay: 125ms; }
+    #trends-grid > .rec-card:nth-child(7) { animation-delay: 150ms; }
+    #trends-grid > .rec-card:nth-child(8) { animation-delay: 175ms; }
+    #trends-grid > .rec-card:nth-child(n+9) { animation-delay: 200ms; }
+
+    .fixed.inset-0 { animation: overlay-enter .2s ease-out; }
+    #search-results:not(.hidden) { animation: dropdown-enter .16s ease-out; transform-origin: top center; }
+    nav.fixed { animation: nav-enter .3s cubic-bezier(.2,.75,.25,1); }
+    #toast-container > * { animation: toast-enter .24s cubic-bezier(.2,.75,.25,1); }
+    #toast-container > *.toast-leaving { animation: toast-leave .18s ease-in both; }
+
+    @keyframes app-enter { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes section-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes card-enter { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes item-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes overlay-enter { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes dropdown-enter { from { opacity: 0; transform: translateY(-4px) scaleY(.98); } to { opacity: 1; transform: translateY(0) scaleY(1); } }
+    @keyframes nav-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-enter { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes toast-leave { to { opacity: 0; transform: translateY(5px); } }
+    @keyframes profile-panel-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes rating-modal-enter { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+    /* Уважаем системную настройку доступности «Уменьшить движение». */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-delay: 0ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+      }
     }
 
     /* Слайдер оценки «как яркость на телефоне»: градиентная дорожка и крупный бегунок */
@@ -119,6 +276,92 @@
       border-radius: 9999px;
       background: linear-gradient(90deg, #ef4444 0%, #eab308 45%, #22c55e 75%);
     }
+
+    /* Переменные полной темы: поверхности, текст, границы и акценты. */
+    :root {
+      --theme-bg: 15 23 42;
+      --theme-deep: 11 17 32;
+      --theme-card: 30 41 59;
+      --theme-raised: 51 65 85;
+      --theme-hover: 71 85 105;
+      --theme-border: 51 65 85;
+      --theme-text-100: 243 244 246;
+      --theme-text-200: 229 231 235;
+      --theme-text-300: 209 213 219;
+      --theme-text-400: 156 163 175;
+      --theme-text-500: 107 114 128;
+      --theme-text-600: 75 85 99;
+      --theme-text-700: 55 65 81;
+      --theme-secondary: 236 72 153;
+      --p-rgb: 99 102 241;
+      color-scheme: dark;
+    }
+    :root[data-theme="classic"] {
+      --theme-bg: 15 23 42; --theme-deep: 11 17 32; --theme-card: 30 41 59;
+      --theme-raised: 51 65 85; --theme-hover: 71 85 105; --theme-border: 51 65 85;
+      --theme-text-100: 243 244 246; --theme-text-200: 229 231 235; --theme-text-300: 209 213 219;
+      --theme-text-400: 156 163 175; --theme-text-500: 107 114 128; --theme-text-600: 75 85 99; --theme-text-700: 55 65 81;
+      --theme-secondary: 236 72 153; --p-rgb: 99 102 241; color-scheme: dark;
+    }
+    :root[data-theme="ocean"] {
+      --theme-bg: 7 19 29; --theme-deep: 4 12 19; --theme-card: 16 37 52;
+      --theme-raised: 22 54 72; --theme-hover: 29 72 90; --theme-border: 41 75 89;
+      --theme-text-100: 244 249 251; --theme-text-200: 224 237 241; --theme-text-300: 191 215 222;
+      --theme-text-400: 145 178 188; --theme-text-500: 115 151 163; --theme-text-600: 100 133 146; --theme-text-700: 86 118 131;
+      --theme-secondary: 3 105 161; --p-rgb: 14 116 144; color-scheme: dark;
+    }
+    :root[data-theme="forest"] {
+      --theme-bg: 12 23 20; --theme-deep: 8 16 14; --theme-card: 24 42 35;
+      --theme-raised: 34 60 48; --theme-hover: 48 81 63; --theme-border: 53 84 68;
+      --theme-text-100: 242 247 243; --theme-text-200: 224 235 225; --theme-text-300: 195 216 198;
+      --theme-text-400: 158 187 162; --theme-text-500: 130 160 135; --theme-text-600: 110 140 115; --theme-text-700: 90 120 95;
+      --theme-secondary: 161 98 7; --p-rgb: 21 128 61; color-scheme: dark;
+    }
+    :root[data-theme="light"] {
+      --theme-bg: 248 250 252; --theme-deep: 226 232 240; --theme-card: 255 255 255;
+      --theme-raised: 241 245 249; --theme-hover: 226 232 240; --theme-border: 203 213 225;
+      --theme-text-100: 15 23 42; --theme-text-200: 30 41 59; --theme-text-300: 51 65 85;
+      --theme-text-400: 71 85 105; --theme-text-500: 100 116 139; --theme-text-600: 71 85 105; --theme-text-700: 51 65 81;
+      --theme-secondary: 37 99 235; --p-rgb: 79 70 229; color-scheme: light;
+    }
+    body { background-color: rgb(var(--theme-bg)); }
+    body::before {
+      background:
+        radial-gradient(680px 460px at 10% -8%, rgb(var(--p-rgb) / .17), transparent 65%),
+        radial-gradient(760px 520px at 90% 10%, rgb(var(--theme-secondary) / .10), transparent 68%);
+    }
+    #boot-splash { background-color: rgb(var(--theme-bg)); color: rgb(var(--theme-text-400)); }
+    * { scrollbar-color: rgb(var(--theme-border)) transparent; }
+    *::-webkit-scrollbar-thumb { background: rgb(var(--theme-border)); }
+    #ratings-list .title-card { border-color: rgb(var(--theme-border) / .65); }
+    #ratings-list .title-card:hover { border-color: rgb(var(--p-rgb) / .75); }
+
+    [class~="focus-visible:outline-primary"]:focus-visible { outline-color: rgb(var(--p-rgb)) !important; }
+    [data-theme="light"] [class~="text-white"] { color: rgb(var(--theme-text-100)) !important; }
+    [data-theme="light"] [class~="text-white"][class~="bg-primary"],
+    [data-theme="light"] [class~="text-white"][class~="bg-secondary"],
+    [data-theme="light"] [class~="text-white"][class~="bg-green-600"],
+    [data-theme="light"] [class~="text-white"][class~="bg-red-600"],
+    [data-theme="light"] [class~="text-white"][class~="bg-yellow-600"],
+    [data-theme="light"] [class~="text-white"][class~="bg-pink-600"] { color: #fff !important; }
+    [data-theme="light"] [class~="hover:text-white"]:hover { color: rgb(var(--theme-text-100)) !important; }
+    [data-theme="light"] [class~="bg-yellow-600"] { background-color: #946200 !important; }
+    [data-theme="light"] input[class~="text-white"], [data-theme="light"] select[class~="text-white"],
+    [data-theme="light"] textarea[class~="text-white"] { color: rgb(var(--theme-text-100)) !important; }
+
+    .theme-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .625rem; }
+    .theme-option {
+      display: flex; min-width: 0; flex-direction: column; gap: .5rem; padding: .625rem;
+      border: 1px solid rgb(var(--theme-border)); border-radius: .875rem;
+      background: rgb(var(--theme-card)); color: rgb(var(--theme-text-200)); text-align: left;
+      transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+    }
+    .theme-option:hover { border-color: rgb(var(--p-rgb) / .65); }
+    .theme-option[aria-pressed="true"] { border-color: rgb(var(--p-rgb)); box-shadow: 0 0 0 1px rgb(var(--p-rgb) / .35); }
+    .theme-preview { display: flex; gap: .25rem; width: 100%; height: 2rem; overflow: hidden; border-radius: .5rem; }
+    .theme-preview span { flex: 1; border: 1px solid rgb(255 255 255 / .08); border-radius: .35rem; }
+    @media (min-width: 640px) { .theme-options { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    @media (prefers-reduced-motion: reduce) { .theme-option { transition: none; } }
   </style>
 </head>
 <body class="bg-dark text-gray-100 font-inter min-h-screen">

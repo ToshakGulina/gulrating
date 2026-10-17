@@ -9,6 +9,7 @@ import { getPendingRatings, flushPendingRatings } from '../lib/offline.js';
 import { searchOfflineCatalog, getPopularOffline, getOfflineCatalogStats } from '../lib/offlineCatalog.js';
 import { isFullCatalogInstalled, searchFullCatalog } from '../lib/fullCatalog.js';
 import { getNotifications, markNotificationsRead, unreadNotifications } from '../lib/watchHistory.js';
+import { mountPage } from '../lib/pageState.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -37,6 +38,15 @@ function saveSort(value) {
 }
 
 let activeFilter = 'all';
+let feedRoot = null;
+let lastTrendColumns = 0;
+let trendsHavePainted = false;
+let lastRenderedTrendTab = null;
+let ratingsHavePainted = false;
+let lastRenderedRatingsFilter = null;
+let lastRenderedRatingsSort = null;
+const feedEl = (id) => feedRoot?.querySelector(`#${id}`) || null;
+const feedAll = (selector) => feedRoot?.querySelectorAll(selector) || [];
 let activeSort = readSort();   // сортировка ленты: new | rating_desc | rating_asc
 let feedChannel = null;
 let realtimeTimer = null;
@@ -53,7 +63,7 @@ let trendsActive = 'week';
 const recsCache = { trends: {}, personal: null, personalKey: '', personalSub: '', db: null, dbAt: 0 };
 
 // Подписи пустых рядов рекомендаций — объясняют, при каком условии ряд наполнится
-const FRIENDS_EMPTY_HINT = 'Появится, когда кто-то из компании поставит оценки.';
+const FRIENDS_EMPTY_HINT = 'Появится, когда друзья поставят оценки.';
 const WANT_EMPTY_HINT = 'Появится, когда друзья добавят тайтлы в списки «хочу посмотреть».';
 const PERSONAL_EMPTY_HINT = 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших оценок.';
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
@@ -61,6 +71,8 @@ let searchDocClickHandler = null; // document-обработчик клика и
 let onlineFlushHandler = null;    // автосинк отложенных оценок при появлении сети
 let filtersResizeHandler = null;  // пересчёт отступа липких фильтров
 let notifChangedHandler = null;   // обновление бейджа колокольчика
+let feedLayoutHandler = null;
+let mergeRatingsHandler = null;
 
 // Офлайн-копия ленты: последний успешный срез по каждому фильтру
 const FEED_CACHE_KEY = 'gulrating:feed_cache';
@@ -117,14 +129,41 @@ export function cleanupFeed() {
     window.removeEventListener('gulrating:notifications-changed', notifChangedHandler);
     notifChangedHandler = null;
   }
+  if (feedLayoutHandler) {
+    window.removeEventListener('gulrating:feed-layout-changed', feedLayoutHandler);
+    feedLayoutHandler = null;
+  }
+  if (mergeRatingsHandler) {
+    window.removeEventListener('gulrating:merge-ratings-changed', mergeRatingsHandler);
+    mergeRatingsHandler = null;
+  }
 }
 
-export async function renderFeed(app, currentUser) {
+export async function renderFeed(app, currentUser, { refresh = false } = {}) {
+  const page = mountPage(app, 'feed');
+  feedRoot = page.root;
+  if (!page.isNew) {
+    applyFeedOrder();
+    if (refresh) {
+      activeSort = readSort();
+      await loadRatings(currentUser, activeFilter);
+      recsCache.dbAt = 0;
+      loadRecs(currentUser);
+    }
+    return;
+  }
+
   cleanupFeed();
+  lastTrendColumns = 0;
+  trendsHavePainted = false;
+  lastRenderedTrendTab = null;
+  ratingsHavePainted = false;
+  lastRenderedRatingsFilter = null;
+  lastRenderedRatingsSort = null;
   activeFilter = 'all';
   activeSort = readSort(); // сортировку могли поменять из профиля
 
-  app.innerHTML = `
+  page.root.innerHTML = `
     <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
       <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800 safe-top">
         <div class="flex items-center gap-3 mb-3">
@@ -176,11 +215,11 @@ export async function renderFeed(app, currentUser) {
         </div>
         </div>
 
-        <div id="feed-note" class="hidden text-xs text-gray-500 mt-3 mb-3">Показан список «хочу посмотреть» всей вашей компании</div>
+        <div id="feed-note" class="hidden text-xs text-gray-500 mt-3 mb-3">Показаны списки «хочу посмотреть» друзей и ваш</div>
 
-        <div id="blocks-wrap" class="mt-4 space-y-6">
+        <div id="blocks-wrap" class="mt-3 space-y-3">
 
-          <div id="blk-feed" class="space-y-3 ${getVisibleFeedSections().includes('feed') ? '' : 'hidden'}">
+          <div id="blk-feed" class="space-y-2 ${getVisibleFeedSections().includes('feed') ? '' : 'hidden'}">
             <div class="flex items-center gap-2">
               <h3 class="font-semibold">Оценки</h3>
             </div>
@@ -229,7 +268,7 @@ export async function renderFeed(app, currentUser) {
 
   // Уведомления: колокол с бейджем и список в оверлее
   function paintNotifBadge() {
-    const badge = document.getElementById('notif-badge');
+    const badge = feedEl('notif-badge');
     if (!badge) return;
     const n = unreadNotifications();
     badge.textContent = n ? String(n) : '';
@@ -237,7 +276,11 @@ export async function renderFeed(app, currentUser) {
   }
   notifChangedHandler = paintNotifBadge;
   window.addEventListener('gulrating:notifications-changed', notifChangedHandler);
-  document.getElementById('notif-btn').addEventListener('click', () => {
+  feedLayoutHandler = applyFeedOrder;
+  window.addEventListener('gulrating:feed-layout-changed', feedLayoutHandler);
+  mergeRatingsHandler = () => loadRatings(currentUser, activeFilter);
+  window.addEventListener('gulrating:merge-ratings-changed', mergeRatingsHandler);
+  feedEl('notif-btn').addEventListener('click', () => {
     const list = getNotifications();
     const ov = document.createElement('div');
     ov.className = 'fixed inset-0 z-40 bg-black/60 p-4';
@@ -269,7 +312,7 @@ export async function renderFeed(app, currentUser) {
   paintNotifBadge();
 
   // Липкие фильтры: отступ сверху = высота шапки (меняется с размером окна)
-  const filtersBar = document.getElementById('feed-filters');
+  const filtersBar = feedEl('feed-filters');
   const feedHeader = app.querySelector('.sticky.top-0');
   const setFiltersTop = () => {
     if (filtersBar && feedHeader) filtersBar.style.top = `${feedHeader.offsetHeight}px`;
@@ -277,13 +320,16 @@ export async function renderFeed(app, currentUser) {
   setFiltersTop();
   filtersResizeHandler = () => {
     setFiltersTop();
-    if (document.getElementById('trends-grid')) renderTrendsGrid(currentUser);
+    const trendsGrid = feedEl('trends-grid');
+    if (trendsGrid && trendColumnCount(trendsGrid) !== lastTrendColumns) {
+      renderTrendsGrid(currentUser);
+    }
   };
   window.addEventListener('resize', filtersResizeHandler);
 
   // Очередь офлайн-оценок: баннер, ручная отправка
   paintPending();
-  document.getElementById('pending-flush').addEventListener('click', async (e) => {
+  feedEl('pending-flush').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
     const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
@@ -293,12 +339,14 @@ export async function renderFeed(app, currentUser) {
     loadRatings(currentUser, activeFilter);
   });
 
-  // Сеть появилась: отложенные оценки улетают сами
+  // Сеть появилась: отложенные оценки улетают сами. Ничего не перерисовываем,
+  // если очереди не было: браузеры могут прислать online при возврате во вкладку.
   onlineFlushHandler = async () => {
     const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
-    if (sent) showToast(`Отложенные оценки отправлены в базу: ${sent}`, 'success');
+    if (!sent) return;
+    showToast(`Отложенные оценки отправлены в базу: ${sent}`, 'success');
     paintPending();
-    if (document.getElementById('ratings-list')) {
+    if (feedEl('ratings-list')) {
       loadRatings(currentUser, activeFilter);
       recsCache.dbAt = 0;
       loadRecs(currentUser);
@@ -307,7 +355,7 @@ export async function renderFeed(app, currentUser) {
   window.addEventListener('online', onlineFlushHandler);
 
   // Каталог: полноценный просмотр с жанрами и фильтрами
-  document.getElementById('catalog-btn').addEventListener('click', () => {
+  feedEl('catalog-btn').addEventListener('click', () => {
     openCatalog(currentUser, (id, type) => {
       openRatingModal(id, type, currentUser, () => loadRatings(currentUser, activeFilter));
     });
@@ -338,7 +386,7 @@ export async function renderFeed(app, currentUser) {
 function scheduleReload(currentUser) {
   clearTimeout(realtimeTimer);
   realtimeTimer = setTimeout(() => {
-    if (document.getElementById('ratings-list')) {
+    if (feedEl('ratings-list')) {
       loadRatings(currentUser, activeFilter);
       recsCache.dbAt = 0; // событие из базы — обновляем ряды без троттла
       loadRecs(currentUser);
@@ -346,9 +394,15 @@ function scheduleReload(currentUser) {
   }, 400);
 }
 
+function rememberRatingsPaint(filter) {
+  ratingsHavePainted = true;
+  lastRenderedRatingsFilter = filter;
+  lastRenderedRatingsSort = activeSort;
+}
+
 async function loadRatings(currentUser, filter = 'all') {
-  const listEl = document.getElementById('ratings-list');
-  const noteEl = document.getElementById('feed-note');
+  const listEl = feedEl('ratings-list');
+  const noteEl = feedEl('feed-note');
   if (!listEl) return;
 
   // Примечание для режима «хочу посмотреть» (показываем всю компанию)
@@ -413,6 +467,11 @@ async function loadRatings(currentUser, filter = 'all') {
     data = applySort(data);
   }
 
+  const shouldAnimateCards = !ratingsHavePainted
+    || filter !== lastRenderedRatingsFilter
+    || activeSort !== lastRenderedRatingsSort;
+  listEl.classList.toggle('suppress-card-animation', !shouldAnimateCards);
+
   if (!data || data.length === 0) {
     if (filter === 'all') {
       // Первое впечатление: не пустое полотно, а онбординг + живые постеры трендов
@@ -425,8 +484,9 @@ async function loadRatings(currentUser, filter = 'all') {
           </button>
         </div>
       `;
-      const focusBtn = document.getElementById('focus-search-btn');
-      if (focusBtn) focusBtn.addEventListener('click', () => document.getElementById('search-input').focus());
+      rememberRatingsPaint(filter);
+      const focusBtn = feedEl('focus-search-btn');
+      if (focusBtn) focusBtn.addEventListener('click', () => feedEl('search-input').focus());
       return;
     }
 
@@ -440,6 +500,7 @@ async function loadRatings(currentUser, filter = 'all') {
         <p>${emptyText}</p>
       </div>
     `;
+    rememberRatingsPaint(filter);
     return;
   }
 
@@ -454,10 +515,13 @@ async function loadRatings(currentUser, filter = 'all') {
 
     const year = releaseYear(title.release_date);
     const ratingColor = item.rating >= 8 ? 'bg-green-600' : item.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+    const groupRows = item.groupedRatings || [];
+    const visibleGroupRows = groupRows.slice(0, 4);
+    const hiddenGroupCount = Math.max(0, groupRows.length - visibleGroupRows.length);
 
     return `
-      <div class="title-card bg-card rounded-2xl overflow-hidden hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
-        <div class="p-4 flex gap-4">
+      <div class="title-card bg-card rounded-xl overflow-hidden hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
+        <div class="p-2.5 sm:p-3 flex gap-3">
           <div class="feed-card-poster flex-shrink-0">
             ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
           </div>
@@ -467,11 +531,17 @@ async function loadRatings(currentUser, filter = 'all') {
                 <h3 class="font-semibold text-lg leading-tight">${escapeHtml(title.title)}</h3>
                 <p class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${title.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
               </div>
-              ${!isWatchlistView ? `
+              ${!isWatchlistView ? (item.groupedRatings ? `
+                <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
+                  <span class="text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
+                  <strong class="text-lg leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
+                  <span class="text-[10px] opacity-80">${ratingCountLabel(groupRows.length)}</span>
+                </div>
+              ` : `
                 <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
                   ${escapeHtml(formatRating(item.rating))}
                 </div>
-              ` : `
+              `) : `
                 <div class="px-2 py-1 rounded-lg bg-slate-700 text-yellow-400 font-medium text-sm">
                   Хочу посмотреть
                 </div>
@@ -479,19 +549,20 @@ async function loadRatings(currentUser, filter = 'all') {
             </div>
             
             ${item.groupedRatings ? `
-              <div class="mt-2 text-xs text-gray-300">
-                <span class="font-medium">Средняя ${escapeHtml(formatRating(item.rating))} · ${item.groupedRatings.length} оценок</span>
-                <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                  ${item.groupedRatings.map(r => `
-                    <span class="inline-flex items-center gap-1">
-                      <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="w-5 h-5 rounded-full bg-slate-700">
-                      ${escapeHtml(r.profiles?.username || 'Участник')}: ${escapeHtml(formatRating(r.rating))}
-                    </span>`).join('')}
-                </div>
+              <div class="grouped-ratings-list mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2" aria-label="Оценки друзей и ваша">
+                ${visibleGroupRows.map((r, index) => {
+                  const score = Number(r.rating || 0);
+                  const scoreColor = score >= 8 ? 'text-green-300' : score >= 5 ? 'text-yellow-300' : 'text-red-300';
+                  return `<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg bg-slate-900/40 px-2 py-1">
+                    <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="h-5 w-5 flex-shrink-0 rounded-full bg-slate-700 object-cover">
+                    <span class="max-w-[160px] truncate text-xs font-medium text-gray-200">${escapeHtml(r.profiles?.username || 'Участник')}</span>
+                    <span class="text-gray-500" aria-hidden="true">·</span>
+                    <b class="flex-shrink-0 text-xs ${scoreColor}">${escapeHtml(formatRating(score))}</b>
+                    ${r.comment && index < 2 ? `<span class="basis-full pl-7 line-clamp-2 whitespace-normal break-words text-xs leading-snug text-gray-400" title="${escapeHtml(r.comment)}">${escapeHtml(r.comment)}</span>` : ''}
+                  </div>`;
+                }).join('')}
+                ${hiddenGroupCount ? `<span class="pl-2 text-[10px] text-gray-500">и ещё ${ratingCountLabel(hiddenGroupCount)}</span>` : ''}
               </div>
-              ${item.groupedRatings.filter(r => r.comment).slice(0, 3).map(r => `
-                <p class="mt-1 text-gray-400 text-xs line-clamp-2"><b>${escapeHtml(r.profiles?.username || 'Участник')}:</b> ${escapeHtml(r.comment)}</p>
-              `).join('')}
             ` : `
               <div class="mt-2 flex items-center gap-2">
                 <img src="${escapeHtml(safeAvatarUrl(user.avatar_url, user.username))}" alt="" class="w-6 h-6 rounded-full bg-slate-700">
@@ -505,6 +576,7 @@ async function loadRatings(currentUser, filter = 'all') {
       </div>
     `;
   }).join('');
+  rememberRatingsPaint(filter);
 
   if (offlineCopy) {
     listEl.insertAdjacentHTML('afterbegin', `
@@ -515,7 +587,7 @@ async function loadRatings(currentUser, filter = 'all') {
   paintPending();
 
   // Обработчик клика по карточке тайтла
-  document.querySelectorAll('.title-card').forEach(card => {
+  feedAll('.title-card').forEach(card => {
     card.addEventListener('click', () => {
       const titleId = card.dataset.titleId;
       const mediaType = card.dataset.mediaType;
@@ -532,7 +604,7 @@ const FEED_VISIBLE_KEY = 'gulrating:feed_visible';
 const FEED_ORDER_DEFAULT = ['trends', 'recs', 'feed'];
 export const FEED_SECTIONS = [
   { id: 'trends', label: 'Тренды' },
-  { id: 'recs', label: 'Подборки по вкусам компании' },
+  { id: 'recs', label: 'Подборки по вкусам друзей' },
   { id: 'feed', label: 'Оценки' }
 ];
 
@@ -576,23 +648,35 @@ export function saveVisibleFeedSections(sections) {
 }
 
 function applyFeedOrder() {
-  const wrap = document.getElementById('blocks-wrap');
+  const wrap = feedEl('blocks-wrap');
   if (!wrap) return;
+  const visible = new Set(getVisibleFeedSections());
   for (const id of getFeedOrder()) {
-    const el = document.getElementById('blk-' + id);
-    if (el) wrap.appendChild(el);
+    const el = feedEl('blk-' + id);
+    if (!el) continue;
+    el.classList.toggle('hidden', !visible.has(id));
+    wrap.appendChild(el);
   }
 }
 
 // Баннер очереди отложенных оценок
 function paintPending() {
-  const banner = document.getElementById('pending-banner');
+  const banner = feedEl('pending-banner');
   if (!banner) return;
   const pending = getPendingRatings();
   banner.classList.toggle('hidden', pending.length === 0);
   if (!pending.length) return;
-  const textEl = document.getElementById('pending-text');
+  const textEl = feedEl('pending-text');
   if (textEl) textEl.textContent = `📴 Отложенных оценок: ${pending.length} — отправятся в базу при появлении сети`;
+}
+
+function ratingCountLabel(count) {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  const word = last === 1 && lastTwo !== 11 ? 'оценка'
+    : last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? 'оценки'
+    : 'оценок';
+  return `${count} ${word}`;
 }
 
 // Объединяем несколько пользовательских оценок одного тайтла в одну карточку.
@@ -623,11 +707,11 @@ function applySort(list) {
 }
 
 function initSort(currentUser) {
-  document.querySelectorAll('.sort-btn').forEach(btn => {
+  feedAll('.sort-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       activeSort = btn.dataset.sort;
       saveSort(activeSort);
-      document.querySelectorAll('.sort-btn').forEach(b => {
+      feedAll('.sort-btn').forEach(b => {
         const active = b.dataset.sort === activeSort;
         b.classList.toggle('bg-secondary', active);
         b.classList.toggle('text-white', active);
@@ -648,8 +732,8 @@ function todayCaption() {
 // Скелетоны карточек на время загрузки вместо текста «Загружаем...»
 function skeletonCards(count = 3) {
   return Array.from({ length: count }).map(() => `
-    <div class="bg-card rounded-2xl p-4 flex gap-4 animate-pulse">
-      <div class="flex-shrink-0 w-20 aspect-[2/3] bg-slate-700 rounded-lg"></div>
+    <div class="bg-card rounded-xl p-3 flex gap-3 animate-pulse">
+      <div class="flex-shrink-0 w-16 aspect-[2/3] bg-slate-700 rounded-lg"></div>
       <div class="flex-1 space-y-3 py-1">
         <div class="h-5 bg-slate-700 rounded w-2/3"></div>
         <div class="h-4 bg-slate-700 rounded w-1/3"></div>
@@ -665,7 +749,7 @@ function skeletonCards(count = 3) {
 // (TMDb recommendations от вашего топ-тайтла). Ряды кликабельны целиком.
 async function loadRecs(currentUser) {
   // Блоки трендов и подборок живут в общем контейнере порядка секций
-  const section = document.getElementById('blocks-wrap');
+  const section = feedEl('blocks-wrap');
   if (!section) return;
   section.querySelectorAll('#blk-trends, #blk-recs').forEach(n => n.remove());
   const visibleSections = getVisibleFeedSections();
@@ -680,11 +764,11 @@ async function loadRecs(currentUser) {
         <h3 class="font-semibold mr-1">Тренды</h3>
         ${TREND_TABS.map(t => `<button class="trend-tab px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap ${t.key === trendsActive ? 'bg-primary text-white' : 'bg-card hover:bg-slate-700 text-gray-300'}" data-key="${t.key}">${t.label}</button>`).join('')}
       </div>
-      <div id="trends-grid" class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2 sm:gap-3"></div>
+      <div id="trends-grid" class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2"></div>
     </div>
     </div>
-    <div id="blk-recs" class="${showRecs ? 'space-y-4' : 'hidden'}">
-      <h3 class="font-semibold">Подборки по вкусам компании</h3>
+    <div id="blk-recs" class="${showRecs ? 'space-y-3' : 'hidden'}">
+      <h3 class="font-semibold">Подборки по вкусам друзей</h3>
       ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
       ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
       ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}
@@ -743,8 +827,12 @@ function trendColumnCount(grid) {
 }
 
 function renderTrendsGrid(currentUser) {
-  const grid = document.getElementById('trends-grid');
+  const grid = feedEl('trends-grid');
   if (!grid) return;
+  const columns = trendColumnCount(grid);
+  const shouldAnimate = !trendsHavePainted || lastRenderedTrendTab !== trendsActive;
+  grid.classList.toggle('suppress-card-animation', !shouldAnimate);
+
   let items = recsCache.trends[trendsActive];
   let offlineTrends = false;
   if (!items) {
@@ -755,7 +843,7 @@ function renderTrendsGrid(currentUser) {
       offlineTrends = true;
     }
   }
-  document.querySelectorAll('.trend-tab').forEach(btn => {
+  feedAll('.trend-tab').forEach(btn => {
     const active = btn.dataset.key === trendsActive;
     btn.classList.toggle('bg-primary', active);
     btn.classList.toggle('text-white', active);
@@ -765,14 +853,17 @@ function renderTrendsGrid(currentUser) {
   });
   if (!items) {
     grid.innerHTML = '<p class="col-span-full text-sm text-gray-500 py-6">Тренды недоступны — проверьте соединение с TMDb.</p>';
+    lastTrendColumns = columns;
+    lastRenderedTrendTab = trendsActive;
     return;
   }
   if (!items.length) {
     grid.innerHTML = '<p class="col-span-full text-sm text-gray-500 py-6">В этой выборке пусто.</p>';
+    lastTrendColumns = columns;
+    lastRenderedTrendTab = trendsActive;
     return;
   }
   // Оставляем только полные ряды карточек: число столбцов адаптируется к экрану.
-  const columns = trendColumnCount(grid);
   const completeCount = Math.floor(items.length / columns) * columns;
   if (completeCount > 0) items = items.slice(0, completeCount);
   grid.innerHTML = (offlineTrends
@@ -793,13 +884,17 @@ function renderTrendsGrid(currentUser) {
       </div>
     `;
   }).join('');
+  trendsHavePainted = true;
+  lastRenderedTrendTab = trendsActive;
+  lastTrendColumns = columns;
 }
 
 function paintTrendsSkeleton() {
-  const grid = document.getElementById('trends-grid');
+  const grid = feedEl('trends-grid');
   if (!grid) return;
   const columns = trendColumnCount(grid);
   const count = Math.max(columns, Math.floor(20 / columns) * columns);
+  lastTrendColumns = columns;
   grid.innerHTML = Array.from({ length: count }).map(() => `
     <div class="animate-pulse"><div class="w-full aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-1.5"></div></div>
   `).join('');
@@ -923,7 +1018,7 @@ function recRowSkeleton(id, titleText) {
   return `
     <div id="${id}" class="rec-row">
       <h3 class="font-semibold mb-3">${escapeHtml(titleText)}</h3>
-      <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+      <div class="flex gap-2 overflow-x-auto scrollbar-hide pb-2">
         ${Array.from({ length: 6 }).map(() => `<div class="flex-shrink-0 w-24 animate-pulse"><div class="w-24 aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-2"></div></div>`).join('')}
       </div>
     </div>
@@ -949,7 +1044,7 @@ function fillRecRow(section, id, titleText, subtitle, items, badgeClass, emptyHi
   row.innerHTML = `
     <h3 class="font-semibold mb-1">${escapeHtml(titleText)}</h3>
     <p class="text-xs text-gray-500 mb-3">${escapeHtml(subtitle || '')}</p>
-    <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+    <div class="flex gap-2 overflow-x-auto scrollbar-hide pb-2">
       ${items.map(item => {
         const year = releaseYear(item.release_date);
         primeTitleCache(item.media_type, item.id, item);
@@ -969,8 +1064,8 @@ function fillRecRow(section, id, titleText, subtitle, items, badgeClass, emptyHi
 }
 
 function initSearch(currentUser) {
-  const searchInput = document.getElementById('search-input');
-  const resultsContainer = document.getElementById('search-results');
+  const searchInput = feedEl('search-input');
+  const resultsContainer = feedEl('search-results');
   let searchTimeout;
 
   // При фокусе на пустом поле показываем историю поиска
@@ -1019,20 +1114,20 @@ function initSearch(currentUser) {
     `;
     resultsContainer.classList.remove('hidden');
 
-    document.getElementById('clear-history-btn').addEventListener('click', (e) => {
+    feedEl('clear-history-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       clearHistory();
       resultsContainer.classList.add('hidden');
       showToast('История очищена', 'success');
     });
-    document.querySelectorAll('.history-query').forEach(el => {
+    feedAll('.history-query').forEach(el => {
       el.addEventListener('click', () => {
         searchInput.value = el.dataset.query;
         searchInput.dispatchEvent(new Event('input'));
         searchInput.focus();
       });
     });
-    document.querySelectorAll('.history-title').forEach(el => {
+    feedAll('.history-title').forEach(el => {
       el.addEventListener('click', () => {
         resultsContainer.classList.add('hidden');
         openRatingModal(el.dataset.id, el.dataset.type, currentUser, () => {
@@ -1106,7 +1201,7 @@ function initSearch(currentUser) {
         }).join('');
 
         // Обработчик клика по результату поиска
-        document.querySelectorAll('.search-result-item').forEach(item => {
+        feedAll('.search-result-item').forEach(item => {
           item.addEventListener('click', () => {
             const titleId = item.dataset.id;
             const mediaType = item.dataset.type;
@@ -1148,9 +1243,9 @@ function initSearch(currentUser) {
   });
 
   // Обработчики фильтров
-  document.querySelectorAll('.filter-btn').forEach(btn => {
+  feedAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.filter-btn').forEach(b => {
+      feedAll('.filter-btn').forEach(b => {
         b.classList.remove('bg-primary', 'text-white');
         b.classList.add('bg-card', 'hover:bg-slate-700');
       });
@@ -1163,7 +1258,7 @@ function initSearch(currentUser) {
 }
 
 function initNav(currentUser) {
-  document.querySelectorAll('.nav-btn').forEach(btn => {
+  feedAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (btn.dataset.page === 'profile') {
         const { renderProfilePage } = await import('./Profile.js');

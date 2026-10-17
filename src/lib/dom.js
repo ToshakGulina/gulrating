@@ -65,13 +65,13 @@ export function showToast(message, type = 'info', timeout = 3500) {
     success: 'bg-green-900/90 border-green-600',
     error: 'bg-red-900/90 border-red-600',
   };
-  toast.className = `pointer-events-auto max-w-sm px-4 py-3 rounded-xl border text-sm shadow-xl ${colors[type] || colors.info}`;
+  toast.className = `toast-item pointer-events-auto max-w-sm px-4 py-3 rounded-xl border text-sm shadow-xl ${colors[type] || colors.info}`;
   toast.textContent = message;
   container.appendChild(toast);
   setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transition = 'opacity .3s';
-    setTimeout(() => toast.remove(), 300);
+    if (!toast.isConnected) return;
+    toast.classList.add('toast-leaving');
+    setTimeout(() => toast.remove(), 200);
   }, timeout);
 }
 

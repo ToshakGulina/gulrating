@@ -3,13 +3,12 @@ import { syncOfflineCatalog, isAppContext } from './lib/offlineCatalog.js';
 import { checkNewSeasons } from './lib/watchHistory.js';
 import { configIsComplete, APP_BUILD } from './config.js';
 import { setSyncUser, syncUserData } from './lib/userSync.js';
+import { activePageKey, clearPageState } from './lib/pageState.js';
+import { applyTheme, getThemeId } from './lib/theme.js';
 
 // Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
-// Акцент интерфейса из настроек профиля применяем до первой отрисовки
-try {
-  const accent = localStorage.getItem('gulrating:accent');
-  if (accent) document.documentElement.style.setProperty('--p-rgb', accent);
-} catch (e) { /* приватный режим и т.п. */ }
+// Тема из локальных настроек применяется до первой отрисовки.
+applyTheme(getThemeId());
 
 console.info(`🎬 ГульРейтинг — сборка ${APP_BUILD}`);
 import { showToast } from './lib/dom.js';
@@ -36,24 +35,57 @@ window.addEventListener('appinstalled', () => {
   window.dispatchEvent(new Event('gulrating:appinstalled'));
 });
 
+let rendering = false;
+let offlineOnlySession = false;
+let onlineRefreshPending = false;
+let networkWasOffline = false;
+let renderedAuthUserSignature = null;
+
+function authUserSignature(user) {
+  if (!user) return null;
+  return JSON.stringify([
+    user.id,
+    user.email || '',
+    user.phone || '',
+    user.user_metadata || {},
+    user.app_metadata || {},
+  ]);
+}
+
 // Сеть пропала/вернулась: интерфейс живёт из кэша, объясняем состояние
 window.addEventListener('offline', () => {
+  networkWasOffline = true;
   showToast('Нет сети: интерфейс из кэша, данные обновятся при появлении интернета', 'info', 4000);
 });
 window.addEventListener('online', () => {
-  showToast('Снова в сети', 'success', 2000);
-  // Обновляем сессию/профиль с сервера после локального офлайн-старта.
-  renderApp();
+  const genuinelyReconnected = networkWasOffline || offlineOnlySession;
+  networkWasOffline = false;
+  if (genuinelyReconnected) showToast('Снова в сети', 'success', 2000);
+  // Полная перерисовка ленты здесь сбрасывала видимый экран и запускала
+  // анимации заново при возврате во вкладку. Обновляем приложение только
+  // если оно действительно было запущено без сети.
+  if (rendering) onlineRefreshPending = true;
+  else if (offlineOnlySession) renderApp();
   // Дозакачиваем офлайн-базу фильмов (только в приложении)
   if (isAppContext()) syncOfflineCatalog().catch(() => {});
 });
 
 function hideSplash() {
+  const html = document.documentElement;
+  if (html.classList.contains('skip-entry-motion')) {
+    // Не дать отключённым на время загрузки CSS-анимациям стартовать заново
+    // именно в момент снятия временного класса; новые элементы оживут штатно.
+    document.querySelectorAll(
+      '#app:not(:empty), #blocks-wrap > *, #ratings-list > .title-card, #trends-grid > .rec-card, .profile-section-panel:not(.hidden), .rating-modal-panel, .fixed.inset-0:not(#boot-splash), #search-results:not(.hidden), nav.fixed, #toast-container > *'
+    ).forEach((element) => { element.style.animation = 'none'; });
+    html.classList.remove('skip-entry-motion');
+  }
   const splash = document.getElementById('boot-splash');
-  if (splash) splash.remove();
+  if (!splash || splash.classList.contains('splash-leaving')) return;
+  splash.classList.add('splash-leaving');
+  // Keep a fallback for browsers that do not dispatch animationend.
+  setTimeout(() => splash.remove(), 220);
 }
-
-let rendering = false;
 
 async function renderApp() {
   // Защита от параллельных перерисовок (события авторизации могут прийти пачкой)
@@ -61,34 +93,53 @@ async function renderApp() {
   rendering = true;
   try {
     const currentUser = await getCurrentUser();
+    renderedAuthUserSignature = authUserSignature(currentUser);
+    offlineOnlySession = Boolean(currentUser && currentUser.offlineOnly);
     setSyncUser(currentUser);
     if (currentUser) {
       // Быстрый pull/merge настроек на старте; таймаут не должен блокировать
       // офлайн-вход. Неудача остаётся локально и повторится при сети/изменениях.
       await syncUserData(currentUser, 1600);
+      // Синхронизация могла загрузить тему с другого устройства.
+      applyTheme(getThemeId());
     }
 
     if (!currentUser) {
       cleanupFeed();
+      clearPageState(app);
       renderAuthPage(app);
     } else if (!currentUser.profile) {
       // Вошли, но профиля в базе нет: не запущен supabase-schema.sql
       // или аккаунт создан до запуска схемы
       cleanupFeed();
+      clearPageState(app);
       renderProfileMissing(app, currentUser);
     } else if (!currentUser.profile.is_approved) {
       cleanupFeed();
+      clearPageState(app);
       renderAccessDenied(app);
     } else {
-      await renderFeed(app, currentUser);
+      if (activePageKey(app) === 'profile') {
+        const { renderProfilePage } = await import('./components/Profile.js');
+        await renderProfilePage(app, currentUser);
+      } else {
+        await renderFeed(app, currentUser, { refresh: activePageKey(app) === 'feed' });
+      }
       await handleDeepLink(currentUser);
     }
   } catch (e) {
     cleanupFeed();
+    clearPageState(app);
     renderFatalError(app, e);
   } finally {
     rendering = false;
     hideSplash();
+    if (onlineRefreshPending) {
+      onlineRefreshPending = false;
+      // Если онлайн восстановился во время определения сессии, повторяем
+      // загрузку только для офлайн-профиля — без лишнего рендера обычного входа.
+      if (offlineOnlySession) queueMicrotask(() => renderApp());
+    }
   }
 }
 
@@ -115,9 +166,16 @@ async function init() {
   }
 
   // Реагируем на вход/выход (в том числе на возврат по магической ссылке)
-  supabase.auth.onAuthStateChange((event) => {
-    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
-      renderApp();
+  supabase.auth.onAuthStateChange((event, session) => {
+    const nextSignature = authUserSignature(session && session.user);
+    if (event === 'SIGNED_IN') {
+      // Supabase пересылает auth-события между вкладками. Повторный SIGNED_IN
+      // того же аккаунта не должен заново собирать экран и мигать лентой.
+      if (nextSignature !== renderedAuthUserSignature) renderApp();
+    } else if (event === 'SIGNED_OUT') {
+      if (renderedAuthUserSignature !== null) renderApp();
+    } else if (event === 'USER_UPDATED') {
+      if (nextSignature !== renderedAuthUserSignature) renderApp();
     } else if (event === 'PASSWORD_RECOVERY') {
       // Вход по ссылке восстановления: перерисовываем app и сразу просим задать пароль
       renderApp();

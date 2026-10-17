@@ -23,6 +23,8 @@ jobs:
         run: sh -n scripts/build-css.sh && sh -n scripts/release-notes.sh
       - name: Test Kinobox Pages Function proxy
         run: node scripts/test-kinobox-function.mjs
+      - name: Test main-tab state preservation
+        run: node scripts/test-page-state.mjs
       - name: Verify release notes can be generated
         run: scripts/release-notes.sh v1.0.20 > /dev/null
       - name: Verify compiled Tailwind CSS

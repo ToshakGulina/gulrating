@@ -13,6 +13,22 @@
 
 const DIRECT_BASES = ['https://playcdnfb.top', 'https://api.kinobox.tv'];
 
+// Kinobox sometimes reports several iframe variants for one voice. Prefer the
+// highest advertised resolution; this does not inspect a provider's cross-origin
+// iframe or its private adaptive-stream menu.
+export function qualityRank(value) {
+  const quality = String(value || '').toLowerCase().replace(/к/g, 'k');
+  if (/\b8k\b|4320/.test(quality)) return 4320;
+  if (/\b4k\b|\buhd\b|2160/.test(quality)) return 2160;
+  if (/\b2k\b|1440/.test(quality)) return 1440;
+  const match = quality.match(/(?:^|[^0-9])(1080|960|720|576|540|480|360|240)(?:p|i)?(?:$|[^0-9])/);
+  if (match) return Number(match[1]);
+  if (/\b(?:full hd|fhd)\b/.test(quality)) return 1080;
+  if (/\bhd\b/.test(quality)) return 720;
+  if (/\bsd\b/.test(quality)) return 480;
+  return 0;
+}
+
 function flatten(j) {
   if (!j) throw new Error('kinobox: пустой ответ');
   if (j.error) throw new Error(typeof j.error === 'string' ? j.error : (j.error.title || 'kinobox: ошибка'));

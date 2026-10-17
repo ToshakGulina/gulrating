@@ -9,11 +9,28 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v5';
+const CACHE_VERSION = 'gulrating-v22';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
   '/assets/tw.css',
+  '/assets/fonts/inter.css',
+  '/assets/fonts/files/inter-cyrillic-ext-400-normal.woff2',
+  '/assets/fonts/files/inter-cyrillic-400-normal.woff2',
+  '/assets/fonts/files/inter-latin-ext-400-normal.woff2',
+  '/assets/fonts/files/inter-latin-400-normal.woff2',
+  '/assets/fonts/files/inter-cyrillic-ext-500-normal.woff2',
+  '/assets/fonts/files/inter-cyrillic-500-normal.woff2',
+  '/assets/fonts/files/inter-latin-ext-500-normal.woff2',
+  '/assets/fonts/files/inter-latin-500-normal.woff2',
+  '/assets/fonts/files/inter-cyrillic-ext-600-normal.woff2',
+  '/assets/fonts/files/inter-cyrillic-600-normal.woff2',
+  '/assets/fonts/files/inter-latin-ext-600-normal.woff2',
+  '/assets/fonts/files/inter-latin-600-normal.woff2',
+  '/assets/fonts/files/inter-cyrillic-ext-700-normal.woff2',
+  '/assets/fonts/files/inter-cyrillic-700-normal.woff2',
+  '/assets/fonts/files/inter-latin-ext-700-normal.woff2',
+  '/assets/fonts/files/inter-latin-700-normal.woff2',
   '/vendor/supabase.js',
   '/manifest.json',
   '/icons/icon-192.png',
@@ -30,6 +47,7 @@ const SHELL_ASSETS = [
   '/src/lib/ratings.js',
   '/src/lib/date.js',
   '/src/lib/dom.js',
+  '/src/lib/theme.js',
   '/src/lib/history.js',
   '/src/lib/offline.js',
   '/src/lib/offlineCatalog.js',

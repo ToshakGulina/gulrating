@@ -4,7 +4,7 @@
 import { supabase } from './supabase.js';
 
 const SETTING_KEYS = [
-  'gulrating:accent', 'gulrating:feed_sort', 'gulrating:feed_order',
+  'gulrating:theme', 'gulrating:feed_sort', 'gulrating:feed_order',
   'gulrating:friends_threshold', 'gulrating:want_min', 'gulrating:my_min',
   'gulrating:merge_title_ratings',
   'gulrating:kp_cache_days', 'gulrating:show_recs', 'gulrating:feed_visible', 'gulrating:last_dub',
