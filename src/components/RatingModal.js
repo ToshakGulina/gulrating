@@ -83,6 +83,7 @@ export function openWatchOverlay(opts) {
     <div id="watch-dubs" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pb-1 flex-shrink-0 content-start"></div>
     <div class="watch-footer flex items-center gap-2 flex-shrink-0">
       <button id="watch-bad" class="rounded-full bg-slate-800/70 px-3 py-1.5 text-xs text-gray-400 hover:bg-slate-700 hover:text-gray-200">не играет</button>
+      <button id="watch-mode" class="hidden rounded-full bg-primary/20 px-3 py-1.5 text-xs text-gray-200 hover:bg-primary/30" aria-label="Переключить на зеркало">Зеркало</button>
       <p id="watch-hint" class="text-xs text-gray-500 flex-1"></p>
     </div>`;
   document.body.appendChild(ov);
@@ -93,7 +94,12 @@ export function openWatchOverlay(opts) {
   const hint = ov.querySelector('#watch-hint');
   const cropBtn = ov.querySelector('#watch-crop');
   const expandBtn = ov.querySelector('#watch-expand');
+  const modeBtn = ov.querySelector('#watch-mode');
+  const badBtn = ov.querySelector('#watch-bad');
   let cropVertical = true;
+  let mirrorMode = false;
+  let loadGeneration = 0;
+  if (!apk && mirrorUrl) modeBtn.classList.remove('hidden');
   const removeOverlayListeners = () => document.removeEventListener('keydown', ov._onKey);
 
   function updateViewButtons() {
@@ -115,7 +121,7 @@ export function openWatchOverlay(opts) {
   const CHIP_IDLE = CHIP + 'bg-slate-800 hover:bg-slate-700 text-gray-200';
   const CHIP_ON = CHIP + 'bg-primary text-white';
 
-  function showFrame(url) {
+  function showFrame(url, provider = '') {
     stage.innerHTML = '';
     const frame = document.createElement('iframe');
     frame.id = 'watch-frame';
@@ -124,8 +130,9 @@ export function openWatchOverlay(opts) {
     frame.setAttribute('allowfullscreen', '');
     frame.setAttribute('webkitallowfullscreen', '');
     stage.classList.toggle('crop-vertical', cropVertical);
-    // Плеерные CDN сверяют встраивающую страницу со списком зеркал:
-    // без referer мы выглядим как прямой заход, а не как чужой сайт
+    // Большинство источников ожидает origin; по данным ShikiPlayer только
+    // Gendit/Gencit и Flixcdn требуют no-referrer.
+    frame.referrerPolicy = /^(gencit|gendit|flixcdn)$/i.test(provider) ? 'no-referrer' : 'origin';
     frame.src = url;
     stage.appendChild(frame);
   }
@@ -157,7 +164,7 @@ export function openWatchOverlay(opts) {
       // документом они отказываются работать. Остальные — верхним
       // документом через мост: так нативно пишутся прогресс и продолжение
       if (isEmbedOnly(dub.url)) {
-        showFrame(dub.url);
+        showFrame(dub.url, group && group.type);
         // Автофуллскрин с тапа по озвучке и во фреймовом режиме
         if (autoFs && window.GulRatingBridge && window.GulRatingBridge.enterCinema) {
           window.GulRatingBridge.enterCinema();
@@ -171,7 +178,7 @@ export function openWatchOverlay(opts) {
       }
       return;
     }
-    showFrame(dub.url);
+    showFrame(dub.url, group && group.type);
     if (autoFs) {
       // Вместо скрытия браузерной панели раскрываем плеер внутри GulRating;
       // крестик остаётся на месте, а серые поля iframe уже подрезаны.
@@ -277,6 +284,25 @@ export function openWatchOverlay(opts) {
     ov.classList.toggle('watch-theater-mode');
     updateViewButtons();
   });
+  modeBtn.addEventListener('click', () => {
+    if (!mirrorUrl || apk) return;
+    mirrorMode = !mirrorMode;
+    modeBtn.textContent = mirrorMode ? 'Источники' : 'Зеркало';
+    modeBtn.setAttribute('aria-label', mirrorMode ? 'Вернуться к прямым источникам' : 'Переключить на зеркало');
+    if (mirrorMode) {
+      loadGeneration += 1;
+      playersBox.style.display = 'none';
+      dubsBox.style.display = 'none';
+      badBtn.style.display = 'none';
+      hint.textContent = 'Открыто зеркало внутри GulRating. Закройте оверлей или нажмите «Источники», чтобы вернуться.';
+      showFrame(mirrorUrl);
+    } else {
+      playersBox.style.display = '';
+      dubsBox.style.display = '';
+      badBtn.style.display = '';
+      load();
+    }
+  });
   ov.querySelector('#watch-close').addEventListener('click', () => {
     removeOverlayListeners();
     ov.remove();
@@ -299,11 +325,14 @@ export function openWatchOverlay(opts) {
   document.addEventListener('keydown', ov._onKey);
 
   function load() {
+    const generation = ++loadGeneration;
+    badBtn.style.display = '';
     stage.innerHTML = '<p id="watch-status" class="text-sm text-gray-400 px-4 text-center">Ищем доступные плееры…</p>';
     playersBox.innerHTML = '';
     dubsBox.innerHTML = '';
     fetchKinoboxPlayers({ kpId, imdbId, query })
       .then((list) => {
+        if (generation !== loadGeneration || mirrorMode) return;
         if (!list.length) return fallback('пустой список от API');
         groups = [];
         // Группируем по источнику, сохраняя порядок ответа
@@ -336,13 +365,18 @@ export function openWatchOverlay(opts) {
         }
         hint.textContent = apk
           ? 'Тап по источнику — только выбор; тап по озвучке — запуск сразу во весь экран (ландшафт). Back — обычный вид. У источников с одной кнопкой озвучки переключает меню самого плеера.'
-          : 'Тап по источнику — только выбор; тап по озвучке — запуск и разворот плеера внутри GulRating. Esc свернёт его или закроет окно. У источников с одной кнопкой озвучки переключает меню самого плеера. «Не играет» спрячет источник и включит следующий.';
+          : 'Тап по источнику — только выбор; тап по озвучке — запуск и разворот плеера внутри GulRating. Если источник не откроется, нажмите «Зеркало». Esc свернёт его или закроет окно. «Не играет» переключит источник.';
       })
-      .catch((err) => fallback((err && err.message) || String(err)));
+      .catch((err) => {
+        if (generation === loadGeneration && !mirrorMode) {
+          fallback((err && err.message) || String(err));
+        }
+      });
   }
 
   function fallback(reason) {
     groups = [];
+    badBtn.style.display = 'none';
     playersBox.innerHTML = '';
     dubsBox.innerHTML = '';
     stage.innerHTML = '';
@@ -382,17 +416,9 @@ export function openWatchOverlay(opts) {
       : 'Останьтесь в GulRating и повторите поиск позже; источник не открывается во вкладке браузера.';
   }
 
-  if (!apk && mirrorUrl) {
-    // В браузере зеркало показываем ВНУТРИ нашего оверлея: сохраняется
-    // полный виджет со всеми источниками (включая Alloha и Turbo) и крестик.
-    playersBox.style.display = 'none';
-    dubsBox.style.display = 'none';
-    ov.querySelector('#watch-bad').style.display = 'none';
-    hint.textContent = 'Плеер открыт в окне. Закройте его крестиком, чтобы вернуться к ГульРейтингу.';
-    showFrame(mirrorUrl);
-  } else {
-    load();
-  }
+  // Сначала пробуем прямые Kinobox iframeUrl с referrerPolicy=origin.
+  // Кнопка «Зеркало» оставляет прежний рабочий сценарий рядом как резерв.
+  load();
 }
 
 // «105 936 голосов» с правильным склонением
