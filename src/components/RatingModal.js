@@ -72,6 +72,7 @@ export function openWatchOverlay(opts) {
   ov.innerHTML = `
     <div class="flex items-center gap-2">
       <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
+      <button id="watch-picker-toggle" class="hidden rounded-xl bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-slate-700" aria-controls="watch-pickers" aria-expanded="false">Сменить</button>
       <button id="watch-crop" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-slate-700" title="Показать всё окно источника" aria-label="Переключить обрезку серых полей" aria-pressed="true">Показать целиком</button>
       <button id="watch-expand" class="rounded-xl bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-slate-700" title="Развернуть плеер в GulRating" aria-label="Развернуть плеер" aria-pressed="false">Развернуть</button>
       <button id="watch-close" class="rounded-xl px-2 py-1 text-2xl leading-none text-gray-300 hover:bg-slate-800 hover:text-white" aria-label="Закрыть плеер">&times;</button>
@@ -79,11 +80,15 @@ export function openWatchOverlay(opts) {
     <div id="watch-stage" class="flex-1 relative min-h-0 rounded-xl overflow-hidden bg-black/60 flex items-center justify-center">
       <p id="watch-status" class="text-sm text-gray-400 px-4 text-center">Ищем доступные плееры…</p>
     </div>
-    <div id="watch-players" class="flex flex-wrap gap-1.5 flex-shrink-0 content-start"></div>
-    <div id="watch-dubs" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pb-1 flex-shrink-0 content-start"></div>
+    <div id="watch-pickers" class="flex flex-col gap-1.5 flex-shrink-0">
+      <div class="flex min-w-0 items-center gap-1.5">
+        <div id="watch-players" class="flex min-w-0 flex-1 flex-wrap gap-1.5 content-start"></div>
+        <button id="watch-mode" class="hidden flex-shrink-0 rounded-full bg-primary/20 px-3 py-1.5 text-xs text-gray-200 hover:bg-primary/30" aria-label="Переключить на зеркало">Зеркало</button>
+      </div>
+      <div id="watch-dubs" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pb-1 content-start"></div>
+    </div>
     <div class="watch-footer flex items-center gap-2 flex-shrink-0">
       <button id="watch-bad" class="rounded-full bg-slate-800/70 px-3 py-1.5 text-xs text-gray-400 hover:bg-slate-700 hover:text-gray-200">не играет</button>
-      <button id="watch-mode" class="hidden rounded-full bg-primary/20 px-3 py-1.5 text-xs text-gray-200 hover:bg-primary/30" aria-label="Переключить на зеркало">Зеркало</button>
       <p id="watch-hint" class="text-xs text-gray-500 flex-1"></p>
     </div>`;
   document.body.appendChild(ov);
@@ -94,10 +99,12 @@ export function openWatchOverlay(opts) {
   const hint = ov.querySelector('#watch-hint');
   const cropBtn = ov.querySelector('#watch-crop');
   const expandBtn = ov.querySelector('#watch-expand');
+  const pickerBtn = ov.querySelector('#watch-picker-toggle');
   const modeBtn = ov.querySelector('#watch-mode');
   const badBtn = ov.querySelector('#watch-bad');
   let cropVertical = true;
   let mirrorMode = false;
+  let hasPlayed = false;
   let loadGeneration = 0;
   if (!apk && mirrorUrl) modeBtn.classList.remove('hidden');
   const removeOverlayListeners = () => document.removeEventListener('keydown', ov._onKey);
@@ -110,6 +117,12 @@ export function openWatchOverlay(opts) {
     expandBtn.textContent = expanded ? 'Свернуть' : 'Развернуть';
     expandBtn.title = expanded ? 'Вернуть список источников' : 'Развернуть плеер внутри GulRating';
     expandBtn.setAttribute('aria-pressed', String(expanded));
+  }
+
+  function updatePickerButton() {
+    const opened = ov.classList.contains('watch-picker-open');
+    pickerBtn.textContent = opened ? 'Готово' : 'Сменить';
+    pickerBtn.setAttribute('aria-expanded', String(opened));
   }
 
   let groups = [];        // [{ type, embed, dubs: [{name, quality, url}] }]
@@ -159,6 +172,9 @@ export function openWatchOverlay(opts) {
 
   function play(dub, group, autoFs) {
     if (!dub) return;
+    hasPlayed = true;
+    ov.classList.remove('watch-picker-open');
+    updatePickerButton();
     if (apk) {
       // Embed-only (Alloha, Turbo) — во фрейм, как в браузере: верхним
       // документом они отказываются работать. Остальные — верхним
@@ -203,14 +219,21 @@ export function openWatchOverlay(opts) {
       b.textContent = g.type;
       b.title = '';
       b.addEventListener('click', () => {
-        // Смена источника НИКОГДА не запускает playback (в том числе у
-        // источников с одной озвучкой): лишь подставляет список
-        // его озвучек (ту же озвучку, если она есть и здесь). Запуск —
-        // отдельным тапом по озвучке, как просил пользователь
+        // До первого запуска источник лишь меняет список озвучек. Во время
+        // просмотра выбор другого источника сразу перезапускает текущую
+        // (если доступна) озвучку и возвращает в режим большого плеера.
         curType = g.type;
         curName = (g.dubs.find((d) => d.name === curName) || g.dubs[0] || {}).name || null;
         renderPlayers();
         renderDubs();
+        if (hasPlayed) {
+          const nextGroup = curGroup();
+          const nextDub = curDub();
+          if (nextDub) {
+            play(nextDub, nextGroup, true);
+            remember();
+          }
+        }
       });
       playersBox.appendChild(b);
     });
@@ -282,11 +305,21 @@ export function openWatchOverlay(opts) {
   });
   expandBtn.addEventListener('click', () => {
     ov.classList.toggle('watch-theater-mode');
+    if (!ov.classList.contains('watch-theater-mode')) {
+      ov.classList.remove('watch-picker-open');
+      updatePickerButton();
+    }
     updateViewButtons();
+  });
+  pickerBtn.addEventListener('click', () => {
+    ov.classList.toggle('watch-picker-open');
+    updatePickerButton();
   });
   modeBtn.addEventListener('click', () => {
     if (!mirrorUrl || apk) return;
     mirrorMode = !mirrorMode;
+    ov.classList.remove('watch-picker-open');
+    updatePickerButton();
     modeBtn.textContent = mirrorMode ? 'Источники' : 'Зеркало';
     modeBtn.setAttribute('aria-label', mirrorMode ? 'Вернуться к прямым источникам' : 'Переключить на зеркало');
     if (mirrorMode) {
@@ -310,6 +343,11 @@ export function openWatchOverlay(opts) {
   ov._onKey = (e) => {
     if (!ov.isConnected) {
       removeOverlayListeners();
+      return;
+    }
+    if (e.key === 'Escape' && ov.classList.contains('watch-picker-open')) {
+      ov.classList.remove('watch-picker-open');
+      updatePickerButton();
       return;
     }
     if (e.key === 'Escape' && ov.classList.contains('watch-theater-mode')) {
@@ -359,13 +397,16 @@ export function openWatchOverlay(opts) {
         curName = (last && startG.dubs.find((d) => d.name === last.name) ? last.name : (startG.dubs[0] || {}).name) || null;
         renderPlayers();
         renderDubs();
-        if (!apk) play(curDub(), startG);
-        else {
+        if (!apk && hasPlayed) {
+          play(curDub(), startG, true);
+        } else if (!apk) {
+          stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Выберите озвучку ниже — плеер сразу откроется в режиме просмотра.</p>';
+        } else {
           stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Выберите источник и озвучку — плеер откроется внутри приложения.<br>Кнопка ⛶ внутри плеера развернёт видео на весь экран.</p>';
         }
         hint.textContent = apk
           ? 'Тап по источнику — только выбор; тап по озвучке — запуск сразу во весь экран (ландшафт). Back — обычный вид. У источников с одной кнопкой озвучки переключает меню самого плеера.'
-          : 'Тап по источнику — только выбор; тап по озвучке — запуск и разворот плеера внутри GulRating. Если источник не откроется, нажмите «Зеркало». Esc свернёт его или закроет окно. «Не играет» переключит источник.';
+          : 'Выберите озвучку для запуска. Во время просмотра кнопка «Сменить» позволяет переключить плеер или озвучку без закрытия окна.';
       })
       .catch((err) => {
         if (generation === loadGeneration && !mirrorMode) {
