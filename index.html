@@ -24,7 +24,7 @@
         document.documentElement.classList.add('skip-entry-motion');
       }
       const savedTheme = localStorage.getItem('gulrating:theme');
-      const themeColors = { classic: '#0f172a', ocean: '#07131d', forest: '#0c1714', light: '#f8f6f2' };
+      const themeColors = { classic: '#0f172a', ocean: '#07131d', forest: '#0c1714', light: '#f8fafc' };
       if (Object.prototype.hasOwnProperty.call(themeColors, savedTheme)) {
         document.documentElement.dataset.theme = savedTheme;
         document.querySelector('meta[name="theme-color"]').content = themeColors[savedTheme];
@@ -318,11 +318,11 @@
       --theme-secondary: 161 98 7; --p-rgb: 21 128 61; color-scheme: dark;
     }
     :root[data-theme="light"] {
-      --theme-bg: 248 246 242; --theme-deep: 234 229 221; --theme-card: 255 253 249;
-      --theme-raised: 239 234 226; --theme-hover: 225 217 205; --theme-border: 209 198 184;
-      --theme-text-100: 33 28 25; --theme-text-200: 52 44 39; --theme-text-300: 70 60 53;
-      --theme-text-400: 88 76 68; --theme-text-500: 104 90 81; --theme-text-600: 96 82 73; --theme-text-700: 83 71 63;
-      --theme-secondary: 146 76 10; --p-rgb: 177 58 43; color-scheme: light;
+      --theme-bg: 248 250 252; --theme-deep: 226 232 240; --theme-card: 255 255 255;
+      --theme-raised: 241 245 249; --theme-hover: 226 232 240; --theme-border: 203 213 225;
+      --theme-text-100: 15 23 42; --theme-text-200: 30 41 59; --theme-text-300: 51 65 85;
+      --theme-text-400: 71 85 105; --theme-text-500: 100 116 139; --theme-text-600: 71 85 105; --theme-text-700: 51 65 81;
+      --theme-secondary: 37 99 235; --p-rgb: 79 70 229; color-scheme: light;
     }
     body { background-color: rgb(var(--theme-bg)); }
     body::before {

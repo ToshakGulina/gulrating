@@ -32,6 +32,13 @@ assert.equal(metas['meta[name="apple-mobile-web-app-status-bar-style"]'].content
 assert.equal(setTheme('not-a-theme'), 'classic');
 assert.equal(getThemeId(), 'classic');
 
+const lightTheme = THEMES.find(theme => theme.id === 'light');
+assert.equal(lightTheme.themeColor, '#f8fafc');
+assert.equal(lightTheme.preview.primary, '79 70 229');
+const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+assert.ok(indexHtml.includes('--theme-bg: 248 250 252; --theme-deep: 226 232 240; --theme-card: 255 255 255;'));
+assert.ok(indexHtml.includes('--theme-secondary: 37 99 235; --p-rgb: 79 70 229; color-scheme: light;'));
+
 const generatedCss = await readFile(new URL('../assets/tw.css', import.meta.url), 'utf8');
 assert.ok(generatedCss.includes('var(--theme-raised)/var(--tw-bg-opacity)'), 'slate surface utilities must use theme tokens');
 assert.ok(generatedCss.includes('var(--theme-card)/.7'), 'translucent card surfaces must use theme tokens');

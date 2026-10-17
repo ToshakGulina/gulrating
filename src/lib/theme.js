@@ -27,9 +27,9 @@ export const THEMES = [
   {
     id: 'light',
     name: 'Светлая',
-    description: 'Бумага · тёмный коралл',
-    themeColor: '#f8f6f2',
-    preview: { bg: '248 246 242', card: '255 253 249', primary: '177 58 43', secondary: '153 82 13' },
+    description: 'Чистый светлый · индиго и синий',
+    themeColor: '#f8fafc',
+    preview: { bg: '248 250 252', card: '255 255 255', primary: '79 70 229', secondary: '37 99 235' },
   },
 ];
 
