@@ -727,7 +727,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
             <select id="title-status-select" class="w-full rounded-lg border border-slate-600 bg-slate-800 px-1 py-1.5 text-[10px] font-medium text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary" data-current-status="${escapeHtml(status.currentStatus || '')}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false) ? 'disabled title="Недоступно офлайн"' : ''}>
               <option value="" ${!status.currentStatus ? 'selected' : ''}>Не отмечено</option>
-              <option value="watchlist" ${status.currentStatus === 'watchlist' ? 'selected' : ''} ${status.hasRating ? 'disabled' : ''}>Хочу посмотреть</option>
+              <option value="watchlist" ${status.currentStatus === 'watchlist' ? 'selected' : ''}>Хочу посмотреть</option>
               <option value="in_progress" ${status.currentStatus === 'in_progress' ? 'selected' : ''}>В процессе</option>
               <option value="watched" ${status.currentStatus === 'watched' ? 'selected' : ''}>Просмотрено</option>
               <option value="dropped" ${status.currentStatus === 'dropped' ? 'selected' : ''}>Заброшено</option>
@@ -878,7 +878,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         titleStatusSelect.disabled = true;
         try {
           await setUserTitleStatus(currentUser.id, titleId, mediaType, nextStatus);
-          status.currentStatus = nextStatus || (status.hasRating ? 'watched' : '');
+          status.currentStatus = nextStatus;
           status.isInWatchlist = status.currentStatus === 'watchlist';
           titleStatusSelect.dataset.currentStatus = status.currentStatus;
           titleStatusSelect.value = status.currentStatus;
@@ -1103,13 +1103,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const syncSavedRatingState = (score, comment) => {
       status.hasRating = true;
       status.rating = { ...(status.rating || {}), rating: score, comment };
-      status.currentStatus = 'watched';
       saveRatingButton.textContent = 'Обновить оценку';
-      const statusSelect = modal.querySelector('#title-status-select');
-      if (statusSelect) {
-        statusSelect.value = 'watched';
-        statusSelect.dataset.currentStatus = 'watched';
-      }
       deleteRatingButton?.classList.remove('hidden');
     };
 

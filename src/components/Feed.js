@@ -469,13 +469,6 @@ async function loadRatings(currentUser, filter = 'all') {
     data = applySort(data);
   }
 
-  const pendingTitleIds = new Set(getPendingRatings().map(item => String(item.title_id)));
-  if (filter === 'watchlist' && pendingTitleIds.size) {
-    // Офлайн-оценка сразу считается просмотренной и скрывает личную запись
-    // из кэшированного списка «Хочу посмотреть» до синхронизации.
-    data = data.filter(item => item.user_id !== currentUser.id || !pendingTitleIds.has(String(item.title_id)));
-  }
-
   const shouldAnimateCards = !ratingsHavePainted
     || filter !== lastRenderedRatingsFilter
     || activeSort !== lastRenderedRatingsSort;
@@ -514,27 +507,21 @@ async function loadRatings(currentUser, filter = 'all') {
   }
 
   const isWatchlistView = filter === 'watchlist';
-  const ownRatedIds = new Set();
   const ownWatchlistIds = new Set();
   const ownStatusById = new Map();
 
   // Сначала используем данные уже загруженной ленты, чтобы статус не пропадал
   // при офлайне; затем обновляем его точными личными списками из Supabase.
-  for (const item of data || []) {
-    const rows = item.groupedRatings || [item];
-    if (rows.some(row => row.user_id === currentUser.id)) ownRatedIds.add(String(item.title_id || item.titles?.id));
-    if (filter === 'watchlist' && item.user_id === currentUser.id) ownWatchlistIds.add(String(item.title_id || item.titles?.id));
+  if (filter === 'watchlist') {
+    for (const item of data || []) {
+      if (item.user_id === currentUser.id) ownWatchlistIds.add(String(item.title_id || item.titles?.id));
+    }
   }
   if (!offlineCopy && !currentUser.offlineOnly) {
-    const [ratingsState, watchlistState, statusState] = await Promise.all([
-      feedRequest(supabase.from('ratings').select('title_id').eq('user_id', currentUser.id)),
+    const [watchlistState, statusState] = await Promise.all([
       feedRequest(supabase.from('watchlist').select('title_id').eq('user_id', currentUser.id)),
       feedRequest(supabase.from('title_statuses').select('title_id,status').eq('user_id', currentUser.id))
     ]);
-    if (!ratingsState.error && Array.isArray(ratingsState.data)) {
-      ownRatedIds.clear();
-      ratingsState.data.forEach(row => ownRatedIds.add(String(row.title_id)));
-    }
     if (!watchlistState.error && Array.isArray(watchlistState.data)) {
       ownWatchlistIds.clear();
       watchlistState.data.forEach(row => ownWatchlistIds.add(String(row.title_id)));
@@ -543,13 +530,7 @@ async function loadRatings(currentUser, filter = 'all') {
       statusState.data.forEach(row => ownStatusById.set(String(row.title_id), row.status));
     }
   }
-  ownRatedIds.forEach(id => { if (!ownStatusById.has(id)) ownStatusById.set(id, 'watched'); });
   ownWatchlistIds.forEach(id => { if (!ownStatusById.has(id)) ownStatusById.set(id, 'watchlist'); });
-  pendingTitleIds.forEach(id => {
-    ownRatedIds.add(id);
-    ownWatchlistIds.delete(id);
-    ownStatusById.set(id, 'watched');
-  });
 
   listEl.innerHTML = data.map(item => {
     const title = item.titles;
@@ -574,7 +555,7 @@ async function loadRatings(currentUser, filter = 'all') {
               <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
               <select class="feed-status-select w-full rounded-xl border border-slate-600 bg-slate-800 px-1.5 py-1.5 text-[10px] font-medium leading-tight text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${escapeHtml(currentTitleStatus)}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled title="Недоступно офлайн"' : ''}>
                 <option value="" ${!currentTitleStatus ? 'selected' : ''}>Не отмечено</option>
-                <option value="watchlist" ${currentTitleStatus === 'watchlist' ? 'selected' : ''} ${ownRatedIds.has(String(title.id)) ? 'disabled' : ''}>Хочу посмотреть</option>
+                <option value="watchlist" ${currentTitleStatus === 'watchlist' ? 'selected' : ''}>Хочу посмотреть</option>
                 <option value="in_progress" ${currentTitleStatus === 'in_progress' ? 'selected' : ''}>В процессе</option>
                 <option value="watched" ${currentTitleStatus === 'watched' ? 'selected' : ''}>Просмотрено</option>
                 <option value="dropped" ${currentTitleStatus === 'dropped' ? 'selected' : ''}>Заброшено</option>
@@ -652,12 +633,6 @@ async function loadRatings(currentUser, filter = 'all') {
       const idKey = String(titleId);
 
       if (selected === current) return;
-      if (selected === 'watchlist' && ownRatedIds.has(idKey)) {
-        select.value = current;
-        showToast('Оценённый тайтл нельзя добавить в «Хочу посмотреть»; оценка сохранена.', 'info', 5000);
-        return;
-      }
-
       select.disabled = true;
       try {
         await setUserTitleStatus(currentUser.id, titleId, mediaType, selected);
@@ -667,9 +642,8 @@ async function loadRatings(currentUser, filter = 'all') {
           ownWatchlistIds.delete(idKey);
         }
         if (selected) ownStatusById.set(idKey, selected);
-        else if (ownRatedIds.has(idKey)) ownStatusById.set(idKey, 'watched');
         else ownStatusById.delete(idKey);
-        select.dataset.currentStatus = selected || (ownRatedIds.has(idKey) ? 'watched' : '');
+        select.dataset.currentStatus = selected;
         const labels = {
           watchlist: 'Хочу посмотреть',
           in_progress: 'В процессе',
