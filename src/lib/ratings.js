@@ -68,6 +68,21 @@ export async function saveRating(userId, tmdbId, mediaType, rating, comment = ''
     throw partialError;
   }
 
+  const { error: statusError } = await supabase
+    .from('title_statuses')
+    .upsert({
+      user_id: userId,
+      title_id: tmdbId,
+      status: 'watched',
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id,title_id' });
+
+  if (statusError) {
+    const partialError = new Error(`Оценка сохранена, но статус не обновлён: ${statusError.message}`);
+    partialError.ratingSaved = true;
+    throw partialError;
+  }
+
   return data;
 }
 
@@ -110,6 +125,68 @@ export async function removeFromWatchlist(userId, titleId) {
   if (error) throw error;
 }
 
+// Установить личный статус тайтла. Оценки не удаляются при смене статуса.
+export async function setUserTitleStatus(userId, tmdbId, mediaType, status) {
+  const allowed = new Set(['', 'watchlist', 'watched', 'in_progress', 'dropped']);
+  if (!allowed.has(status)) throw new Error('Неизвестный статус тайтла');
+
+  if (status === 'watchlist') {
+    const { data: rating, error: ratingError } = await supabase
+      .from('ratings')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('title_id', tmdbId)
+      .maybeSingle();
+    if (ratingError) throw ratingError;
+    if (rating) throw new Error('Оценённый тайтл остаётся «Просмотрено»; оценка не будет удалена.');
+
+    await addToWatchlist(userId, tmdbId, mediaType);
+    const { error: statusError } = await supabase
+      .from('title_statuses')
+      .delete()
+      .eq('user_id', userId)
+      .eq('title_id', tmdbId);
+    if (statusError) {
+      await removeFromWatchlist(userId, tmdbId).catch(() => {});
+      throw statusError;
+    }
+    return 'watchlist';
+  }
+
+  if (!status) {
+    const [statusResult, watchlistResult] = await Promise.all([
+      supabase.from('title_statuses').delete().eq('user_id', userId).eq('title_id', tmdbId),
+      supabase.from('watchlist').delete().eq('user_id', userId).eq('title_id', tmdbId)
+    ]);
+    if (statusResult.error) throw statusResult.error;
+    if (watchlistResult.error) throw watchlistResult.error;
+    return '';
+  }
+
+  await ensureTitle(tmdbId, mediaType);
+  const { error: statusError } = await supabase
+    .from('title_statuses')
+    .upsert({
+      user_id: userId,
+      title_id: tmdbId,
+      status,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id,title_id' });
+  if (statusError) throw statusError;
+
+  const { error: watchlistError } = await supabase
+    .from('watchlist')
+    .delete()
+    .eq('user_id', userId)
+    .eq('title_id', tmdbId);
+  if (watchlistError) {
+    const partialError = new Error(`Статус сохранён, но не удалось убрать запись из «Хочу посмотреть»: ${watchlistError.message}`);
+    partialError.statusSaved = true;
+    throw partialError;
+  }
+  return status;
+}
+
 // Получить watchlist пользователя
 export async function getWatchlist(userId) {
   const { data, error } = await supabase
@@ -127,7 +204,7 @@ export async function getWatchlist(userId) {
 
 // Проверить есть ли тайтл в watchlist или оценен пользователем
 export async function getUserTitleStatus(userId, titleId) {
-  const [{ data: rating }, { data: watchlistItem }] = await Promise.all([
+  const [ratingState, watchlistState, statusState] = await Promise.all([
     supabase
       .from('ratings')
       .select('*')
@@ -139,12 +216,26 @@ export async function getUserTitleStatus(userId, titleId) {
       .select('id')
       .eq('user_id', userId)
       .eq('title_id', titleId)
+      .maybeSingle(),
+    supabase
+      .from('title_statuses')
+      .select('status')
+      .eq('user_id', userId)
+      .eq('title_id', titleId)
       .maybeSingle()
   ]);
 
+  const error = ratingState.error || watchlistState.error || statusState.error;
+  if (error) throw error;
+  const rating = ratingState.data;
+  const watchlistItem = watchlistState.data;
+  const explicitStatus = statusState.data?.status || '';
+  const currentStatus = explicitStatus || (rating ? 'watched' : watchlistItem ? 'watchlist' : '');
+
   return {
     hasRating: !!rating,
-    rating: rating,
-    isInWatchlist: !!watchlistItem
+    rating,
+    isInWatchlist: !!watchlistItem,
+    currentStatus
   };
 }

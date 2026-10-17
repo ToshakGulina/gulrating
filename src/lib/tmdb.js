@@ -224,9 +224,9 @@ export async function getMovieCollection(collectionId) {
   };
 }
 
-// Похожие названия из TMDb помогают показать рядом фильмы и сериалы франшизы.
-// Для фильмов сначала берём официальную коллекцию TMDb, затем дополняем её
-// результатами поиска по корню франшизы (так в ряду могут появиться и сериалы).
+// Фильмы берутся только из официальной коллекции TMDb: совпадения по словам
+// из поиска не подтверждают, что они входят в одну франшизу. Сериалам достаточно
+// прямого совпадения названия с корнем франшизы.
 function franchiseRoot(title, collectionName = '') {
   const source = collectionName || String(title || '').split(/[:(]/, 1)[0];
   return String(source)
@@ -243,6 +243,16 @@ function franchiseTokens(value) {
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
     .filter(word => word.length > 2 && !/^\d+$/.test(word));
+}
+
+function hasDirectFranchiseName(title, franchiseName) {
+  const franchiseWords = franchiseTokens(franchiseName);
+  const titleWords = franchiseTokens(title);
+  if (!franchiseWords.length || titleWords.length < franchiseWords.length) return false;
+
+  // Для коротких названий допускаем подзаголовок, например «Alien: Earth».
+  if (franchiseWords.length === 1) return titleWords[0] === franchiseWords[0];
+  return franchiseWords.every((word, index) => titleWords[index] === word);
 }
 
 export async function getFranchiseTitles(id, mediaType) {
@@ -270,24 +280,56 @@ export async function getFranchiseTitles(id, mediaType) {
     });
   }
 
-  const minOverlap = rootWords.length === 1 ? 1 : 2;
-  for (const match of matches) {
-    if (!match || (Number(match.id) === Number(id) && match.media_type === mediaType)) continue;
-    const words = new Set(franchiseTokens(match.title));
-    const overlap = rootWords.reduce((count, word) => count + (words.has(word) ? 1 : 0), 0);
-    if (overlap < minOverlap) continue;
-    const key = `${match.media_type}:${match.id}`;
-    byKey.set(key, { ...byKey.get(key), ...match });
+  const relatedTvById = new Map(matches
+    .filter(match => match?.media_type === 'tv' && hasDirectFranchiseName(match.title, root))
+    .filter(match => !(Number(match.id) === Number(id) && mediaType === 'tv'))
+    .map(match => [String(match.id), match]));
+
+  // Если открыли сериал, ищем фильмы с прямым названием бренда и проверяем,
+  // что их официальная коллекция TMDb соответствует этому же корню.
+  if (mediaType === 'tv') {
+    const movieCandidates = matches
+      .filter(match => match?.media_type === 'movie' && hasDirectFranchiseName(match.title, root))
+      .slice(0, 8);
+    const movieDetails = await Promise.all(movieCandidates.map(match =>
+      getTitleDetails(match.id, 'movie').catch(() => null)
+    ));
+    const collectionIds = [...new Set(movieDetails.map(details => details?.collection_id).filter(Boolean))];
+    const relatedCollections = await Promise.all(collectionIds.map(collectionId =>
+      getMovieCollection(collectionId).catch(() => null)
+    ));
+    for (const relatedCollection of relatedCollections) {
+      if (!relatedCollection || !hasDirectFranchiseName(relatedCollection.name, root)) continue;
+      for (const part of relatedCollection.parts || []) {
+        byKey.set(`movie:${part.id}`, { ...part, media_type: 'movie', poster_path: null });
+      }
+    }
   }
 
-  const currentKey = `${mediaType}:${id}`;
-  byKey.set(currentKey, { ...current, media_type: mediaType });
+  for (const match of matches) {
+    if (!match) continue;
+    const key = `${match.media_type}:${match.id}`;
+
+    if (match.media_type === 'movie') {
+      // Поиск может лишь дополнить метаданные уже подтверждённого фильма,
+      // но никогда не добавляет фильм в коллекцию сам по себе.
+      if (byKey.has(key)) byKey.set(key, { ...byKey.get(key), ...match });
+      continue;
+    }
+
+    if (match.media_type !== 'tv') continue;
+    const verifiedSeries = relatedTvById.get(String(match.id));
+    if (!verifiedSeries) continue;
+    byKey.set(key, { ...match, ...verifiedSeries });
+  }
+
+  byKey.set(`${mediaType}:${id}`, { ...current, media_type: mediaType });
   return [...byKey.values()]
     .sort((a, b) => {
-      if (`${a.media_type}:${a.id}` === currentKey) return -1;
-      if (`${b.media_type}:${b.id}` === currentKey) return 1;
-      const dateA = a.release_date || '';
-      const dateB = b.release_date || '';
+      // Сначала по фактической дате выхода, без приоритета открытого тайтла.
+      // Для неизвестной даты оставляем элемент в конце списка.
+      const dateA = a.release_date || '9999-12-31';
+      const dateB = b.release_date || '9999-12-31';
       return dateA.localeCompare(dateB) || a.title.localeCompare(b.title, 'ru');
     })
     .slice(0, 12);

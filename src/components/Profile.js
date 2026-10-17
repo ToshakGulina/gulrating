@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase.js';
-import { removeFromWatchlist } from '../lib/ratings.js';
+import { setUserTitleStatus } from '../lib/ratings.js';
 import { mountPage } from '../lib/pageState.js';
 import { APP_BUILD } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
@@ -31,14 +31,16 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   if (page.isNew) pageRoot.innerHTML = '<div class="p-8 text-center text-sm text-gray-400">Загружаем профиль…</div>';
 
   // Загружаем статистику пользователя
-  const [{ data: myRatings, count: ratingsCount }, { data: watchlist }, { data: profiles }] = await Promise.all([
+  const [{ data: myRatings, count: ratingsCount }, { data: watchlist }, { data: titleStatuses }, { data: profiles }] = await Promise.all([
     supabase.from('ratings').select('*, titles!inner(*)', { count: 'exact' }).eq('user_id', currentUser.id).order('created_at', { ascending: false }),
     supabase.from('watchlist').select('*, titles!inner(*)').eq('user_id', currentUser.id).order('created_at', { ascending: false }),
+    supabase.from('title_statuses').select('title_id,status,titles!inner(*)').eq('user_id', currentUser.id),
     supabase.from('profiles').select('*').order('username', { ascending: true })
   ]);
 
   const myRatingsList = myRatings || [];
   const watchlistList = watchlist || [];
+  const statusByTitleId = new Map((titleStatuses || []).map(row => [String(row.title_id), row.status]));
   const profileList = profiles || [];
 
   const averageRating = myRatingsList.length > 0
@@ -109,12 +111,13 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
 
         <!-- Оценки и список просмотра -->
         <div class="flex gap-2 mb-2 overflow-x-auto scrollbar-hide">
-          <button class="tab-btn px-4 py-2 bg-primary text-white rounded-full text-sm font-medium whitespace-nowrap" data-tab="ratings">Мои оценки</button>
+          <button class="tab-btn px-4 py-2 bg-primary text-white rounded-full text-sm font-medium whitespace-nowrap" data-tab="ratings">Просмотрено</button>
           <button class="tab-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-tab="watchlist">Хочу посмотреть</button>
+          <button class="tab-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-tab="statuses">Другие статусы</button>
         </div>
 
         <div id="profile-content" class="space-y-3">
-          ${renderMyRatings(myRatingsList)}
+          ${renderMyRatings(myRatingsList, statusByTitleId, currentUser)}
         </div>
         </section>
         <section id="profile-settings-panel" class="profile-section-panel hidden space-y-3" role="tabpanel" aria-label="Настройки">
@@ -757,8 +760,10 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       button.classList.toggle('hover:bg-slate-700', !selected);
     });
     pageRoot.querySelector('#profile-content').innerHTML = tab === 'ratings'
-      ? renderMyRatings(myRatingsList)
-      : renderWatchlist(watchlistList, currentUser);
+      ? renderMyRatings(myRatingsList, statusByTitleId, currentUser)
+      : tab === 'watchlist'
+        ? renderWatchlist(watchlistList, currentUser)
+        : renderTitleStatuses(titleStatuses || [], myRatingsList, currentUser);
   }
   pageRoot.querySelectorAll('.tab-btn').forEach(button => {
     button.addEventListener('click', () => {
@@ -874,7 +879,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   }
 }
 
-function renderMyRatings(ratings) {
+function renderMyRatings(ratings, statusByTitleId, currentUser) {
   if (!ratings || ratings.length === 0) {
     return `
       <div class="col-span-full text-center py-12 text-gray-500">
@@ -889,14 +894,22 @@ function renderMyRatings(ratings) {
     if (!title) return '';
     const year = releaseYear(title.release_date);
     const ratingColor = r.rating >= 8 ? 'bg-green-600' : r.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+    const currentTitleStatus = statusByTitleId.get(String(title.id)) || 'watched';
 
     return `
       <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="profile-card-poster flex-shrink-0">
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
-          <select class="profile-title-status mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[10px] leading-tight text-gray-200" disabled aria-label="Статус: ${escapeHtml(title.title)}">
-            <option selected>Просмотрено</option>
-          </select>
+          <label class="mt-1 block">
+            <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
+            <select class="profile-status-select w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${escapeHtml(currentTitleStatus)}" data-has-rating="true" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
+              <option value="" ${!currentTitleStatus ? 'selected' : ''}>Не отмечено</option>
+              <option value="watchlist" ${currentTitleStatus === 'watchlist' ? 'selected' : ''} disabled>Хочу посмотреть</option>
+              <option value="in_progress" ${currentTitleStatus === 'in_progress' ? 'selected' : ''}>В процессе</option>
+              <option value="watched" ${currentTitleStatus === 'watched' ? 'selected' : ''}>Просмотрено</option>
+              <option value="dropped" ${currentTitleStatus === 'dropped' ? 'selected' : ''}>Заброшено</option>
+            </select>
+          </label>
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-start justify-between gap-2">
@@ -933,10 +946,12 @@ function renderWatchlist(items, currentUser) {
       <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="profile-card-poster flex-shrink-0">
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
-          <select class="profile-watch-status mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[10px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
-            <option value="watchlist" selected>Смотреть позже</option>
+          <select class="profile-status-select mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="watchlist" data-has-rating="false" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
+            <option value="watchlist" selected>Хочу посмотреть</option>
+            <option value="in_progress">В процессе</option>
             <option value="watched">Просмотрено</option>
-            <option value="none">Не отмечено</option>
+            <option value="dropped">Заброшено</option>
+            <option value="">Не отмечено</option>
           </select>
         </div>
         <div class="flex-1 min-w-0">
@@ -949,31 +964,64 @@ function renderWatchlist(items, currentUser) {
   }).join('');
 }
 
+function renderTitleStatuses(items, ratings, currentUser) {
+  const ratedIds = new Set((ratings || []).map(row => String(row.title_id)));
+  const visibleStatuses = (items || []).filter(item => !ratedIds.has(String(item.title_id)) && item.titles);
+  if (!visibleStatuses.length) {
+    return `<div class="col-span-full text-center py-10 text-sm text-gray-500">Нет тайтлов со статусами «В процессе», «Просмотрено» или «Заброшено» без оценки.</div>`;
+  }
+
+  return visibleStatuses.map(item => `
+    <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(item.titles.id)}" data-media-type="${escapeHtml(item.titles.media_type)}">
+      <div class="profile-card-poster flex-shrink-0">
+        ${posterImg(item.titles.poster_path, item.titles.title, 'w-full aspect-[2/3] rounded-lg')}
+        <label class="mt-1 block">
+          <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
+          <select class="profile-status-select w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(item.title_id)}" data-media-type="${escapeHtml(item.titles.media_type)}" data-current-status="${escapeHtml(item.status)}" data-has-rating="false" aria-label="Статус: ${escapeHtml(item.titles.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
+            <option value="">Не отмечено</option>
+            <option value="watchlist">Хочу посмотреть</option>
+            <option value="in_progress" ${item.status === 'in_progress' ? 'selected' : ''}>В процессе</option>
+            <option value="watched" ${item.status === 'watched' ? 'selected' : ''}>Просмотрено</option>
+            <option value="dropped" ${item.status === 'dropped' ? 'selected' : ''}>Заброшено</option>
+          </select>
+        </label>
+      </div>
+      <div class="flex-1 min-w-0">
+        <h3 class="font-semibold leading-tight">${escapeHtml(item.titles.title)}</h3>
+        <p class="text-sm text-gray-400">${releaseYear(item.titles.release_date)} · ${item.titles.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
+      </div>
+    </div>
+  `).join('');
+}
+
 function initTitleCards(pageRoot, currentUser) {
-  pageRoot.querySelectorAll('.profile-watch-status').forEach(select => {
+  pageRoot.querySelectorAll('.profile-status-select').forEach(select => {
     select.addEventListener('click', event => event.stopPropagation());
     select.addEventListener('keydown', event => event.stopPropagation());
     select.addEventListener('change', async event => {
       event.stopPropagation();
       const titleId = select.dataset.titleId;
       const mediaType = select.dataset.mediaType;
-      if (select.value === 'watched') {
-        select.value = 'watchlist';
-        openRatingModal(titleId, mediaType, currentUser, () => renderProfilePage(document.getElementById('app'), currentUser, { force: true }));
+      const nextStatus = select.value;
+      const previousStatus = select.dataset.currentStatus || '';
+      if (currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        select.value = previousStatus;
+        showToast('Для смены статуса нужно подключение к интернету', 'info');
         return;
       }
-      if (select.value === 'none') {
-        select.disabled = true;
-        try {
-          await removeFromWatchlist(currentUser.id, titleId);
-          showToast('Убрали из «Смотреть позже»', 'success');
-          renderProfilePage(document.getElementById('app'), currentUser, { force: true });
-        } catch (error) {
-          select.value = 'watchlist';
-          showToast(`Не удалось изменить статус: ${error.message}`, 'error', 5000);
-        } finally {
-          select.disabled = false;
-        }
+      select.disabled = true;
+      try {
+        await setUserTitleStatus(currentUser.id, titleId, mediaType, nextStatus);
+        const actualStatus = nextStatus || (select.dataset.hasRating === 'true' ? 'watched' : '');
+        select.dataset.currentStatus = actualStatus;
+        const labels = { watchlist: 'Хочу посмотреть', in_progress: 'В процессе', watched: 'Просмотрено', dropped: 'Заброшено', '': 'Не отмечено' };
+        showToast(`Статус: ${labels[actualStatus] || labels['']}`, 'success');
+        renderProfilePage(document.getElementById('app'), currentUser, { force: true });
+      } catch (error) {
+        select.value = previousStatus;
+        showToast(`Не удалось изменить статус: ${error.message}`, 'error', 5000);
+      } finally {
+        select.disabled = false;
       }
     });
   });

@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase.js';
-import { addToWatchlist, removeFromWatchlist } from '../lib/ratings.js';
+import { setUserTitleStatus } from '../lib/ratings.js';
 import { formatDistanceToNow } from '../lib/date.js';
 import { searchTitles, getTrending, getRecommendations, primeTitleCache } from '../lib/tmdb.js';
 import { openRatingModal } from './RatingModal.js';
@@ -380,6 +380,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
   feedChannel = supabase.channel('feed-changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ratings' }, onRemoteChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'watchlist' }, onRemoteChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'title_statuses' }, onRemoteChange)
     .subscribe();
 }
 
@@ -471,7 +472,7 @@ async function loadRatings(currentUser, filter = 'all') {
   const pendingTitleIds = new Set(getPendingRatings().map(item => String(item.title_id)));
   if (filter === 'watchlist' && pendingTitleIds.size) {
     // Офлайн-оценка сразу считается просмотренной и скрывает личную запись
-    // из кэшированного списка «Смотреть позже» до синхронизации.
+    // из кэшированного списка «Хочу посмотреть» до синхронизации.
     data = data.filter(item => item.user_id !== currentUser.id || !pendingTitleIds.has(String(item.title_id)));
   }
 
@@ -515,6 +516,7 @@ async function loadRatings(currentUser, filter = 'all') {
   const isWatchlistView = filter === 'watchlist';
   const ownRatedIds = new Set();
   const ownWatchlistIds = new Set();
+  const ownStatusById = new Map();
 
   // Сначала используем данные уже загруженной ленты, чтобы статус не пропадал
   // при офлайне; затем обновляем его точными личными списками из Supabase.
@@ -524,9 +526,10 @@ async function loadRatings(currentUser, filter = 'all') {
     if (filter === 'watchlist' && item.user_id === currentUser.id) ownWatchlistIds.add(String(item.title_id || item.titles?.id));
   }
   if (!offlineCopy && !currentUser.offlineOnly) {
-    const [ratingsState, watchlistState] = await Promise.all([
+    const [ratingsState, watchlistState, statusState] = await Promise.all([
       feedRequest(supabase.from('ratings').select('title_id').eq('user_id', currentUser.id)),
-      feedRequest(supabase.from('watchlist').select('title_id').eq('user_id', currentUser.id))
+      feedRequest(supabase.from('watchlist').select('title_id').eq('user_id', currentUser.id)),
+      feedRequest(supabase.from('title_statuses').select('title_id,status').eq('user_id', currentUser.id))
     ]);
     if (!ratingsState.error && Array.isArray(ratingsState.data)) {
       ownRatedIds.clear();
@@ -536,10 +539,16 @@ async function loadRatings(currentUser, filter = 'all') {
       ownWatchlistIds.clear();
       watchlistState.data.forEach(row => ownWatchlistIds.add(String(row.title_id)));
     }
+    if (!statusState.error && Array.isArray(statusState.data)) {
+      statusState.data.forEach(row => ownStatusById.set(String(row.title_id), row.status));
+    }
   }
+  ownRatedIds.forEach(id => { if (!ownStatusById.has(id)) ownStatusById.set(id, 'watched'); });
+  ownWatchlistIds.forEach(id => { if (!ownStatusById.has(id)) ownStatusById.set(id, 'watchlist'); });
   pendingTitleIds.forEach(id => {
     ownRatedIds.add(id);
     ownWatchlistIds.delete(id);
+    ownStatusById.set(id, 'watched');
   });
 
   listEl.innerHTML = data.map(item => {
@@ -554,6 +563,7 @@ async function loadRatings(currentUser, filter = 'all') {
     const groupRows = item.groupedRatings || [];
     const visibleGroupRows = groupRows.slice(0, 4);
     const hiddenGroupCount = Math.max(0, groupRows.length - visibleGroupRows.length);
+    const currentTitleStatus = ownStatusById.get(String(title.id)) || '';
 
     return `
       <div class="title-card bg-card rounded-xl overflow-hidden hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
@@ -562,10 +572,12 @@ async function loadRatings(currentUser, filter = 'all') {
             ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
             <label class="mt-1 block">
               <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
-              <select class="feed-status-select w-full rounded-xl border border-slate-600 bg-slate-800 px-1.5 py-1.5 text-[10px] font-medium leading-tight text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${ownRatedIds.has(String(title.id)) ? 'watched' : ownWatchlistIds.has(String(title.id)) ? 'watchlist' : ''}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled title="Недоступно офлайн"' : ''}>
-                <option value="" ${!ownRatedIds.has(String(title.id)) && !ownWatchlistIds.has(String(title.id)) ? 'selected' : ''}>Не отмечено</option>
-                <option value="watchlist" ${ownWatchlistIds.has(String(title.id)) && !ownRatedIds.has(String(title.id)) ? 'selected' : ''} ${ownRatedIds.has(String(title.id)) ? 'disabled' : ''}>Смотреть позже</option>
-                <option value="watched" ${ownRatedIds.has(String(title.id)) ? 'selected' : ''}>Просмотрено</option>
+              <select class="feed-status-select w-full rounded-xl border border-slate-600 bg-slate-800 px-1.5 py-1.5 text-[10px] font-medium leading-tight text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${escapeHtml(currentTitleStatus)}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled title="Недоступно офлайн"' : ''}>
+                <option value="" ${!currentTitleStatus ? 'selected' : ''}>Не отмечено</option>
+                <option value="watchlist" ${currentTitleStatus === 'watchlist' ? 'selected' : ''} ${ownRatedIds.has(String(title.id)) ? 'disabled' : ''}>Хочу посмотреть</option>
+                <option value="in_progress" ${currentTitleStatus === 'in_progress' ? 'selected' : ''}>В процессе</option>
+                <option value="watched" ${currentTitleStatus === 'watched' ? 'selected' : ''}>Просмотрено</option>
+                <option value="dropped" ${currentTitleStatus === 'dropped' ? 'selected' : ''}>Заброшено</option>
               </select>
             </label>
           </div>
@@ -640,38 +652,32 @@ async function loadRatings(currentUser, filter = 'all') {
       const idKey = String(titleId);
 
       if (selected === current) return;
-      if (selected === 'watched') {
-        // Статус «Просмотрено» ставится вместе с пользовательской оценкой.
-        select.value = current;
-        openRatingModal(titleId, mediaType, currentUser, () => loadRatings(currentUser, activeFilter));
-        return;
-      }
       if (selected === 'watchlist' && ownRatedIds.has(idKey)) {
         select.value = current;
-        showToast('Уже оценённый тайтл считается просмотренным. Чтобы изменить это, сначала удалите оценку в карточке.', 'info', 5000);
+        showToast('Оценённый тайтл нельзя добавить в «Хочу посмотреть»; оценка сохранена.', 'info', 5000);
         return;
       }
 
       select.disabled = true;
       try {
+        await setUserTitleStatus(currentUser.id, titleId, mediaType, selected);
         if (selected === 'watchlist') {
-          await addToWatchlist(currentUser.id, titleId, mediaType);
           ownWatchlistIds.add(idKey);
-          select.dataset.currentStatus = 'watchlist';
-          showToast('Добавили в «Смотреть позже»', 'success');
-        } else if (selected === '') {
-          if (ownRatedIds.has(idKey)) {
-            select.value = current;
-            showToast('Оценка сохраняет статус «Просмотрено». Удалить её можно в карточке.', 'info', 5000);
-            return;
-          }
-          if (ownWatchlistIds.has(idKey)) {
-            await removeFromWatchlist(currentUser.id, titleId);
-            ownWatchlistIds.delete(idKey);
-            select.dataset.currentStatus = '';
-            showToast('Убрали из «Смотреть позже»', 'success');
-          }
+        } else {
+          ownWatchlistIds.delete(idKey);
         }
+        if (selected) ownStatusById.set(idKey, selected);
+        else if (ownRatedIds.has(idKey)) ownStatusById.set(idKey, 'watched');
+        else ownStatusById.delete(idKey);
+        select.dataset.currentStatus = selected || (ownRatedIds.has(idKey) ? 'watched' : '');
+        const labels = {
+          watchlist: 'Хочу посмотреть',
+          in_progress: 'В процессе',
+          watched: 'Просмотрено',
+          dropped: 'Заброшено',
+          '': 'Не отмечено'
+        };
+        showToast(`Статус: ${labels[selected] || labels['']}`, 'success');
         await loadRatings(currentUser, activeFilter);
       } catch (error) {
         select.value = current;
@@ -1164,6 +1170,120 @@ function initSearch(currentUser) {
   const resultsContainer = feedEl('search-results');
   let searchTimeout;
 
+  async function searchForQuery(query, progressContainer = null) {
+    let results = [];
+    let errorText = null;
+    let offlineNote = null;
+    try {
+      if (navigator.onLine === false) throw new Error('Нет сети.');
+      results = await searchTitles(query);
+    } catch (err) {
+      const stats = getOfflineCatalogStats();
+      let local = searchOfflineCatalog(query);
+      let fullUsed = false;
+      if (isFullCatalogInstalled()) {
+        if (progressContainer) {
+          progressContainer.innerHTML = '<div class="p-4 text-gray-500 text-center text-sm">Ищем по полной базе на устройстве…</div>';
+          progressContainer.classList.remove('hidden');
+        }
+        const full = await searchFullCatalog(query, 20, local);
+        if (full.length) {
+          local = [...local, ...full];
+          fullUsed = true;
+        }
+      }
+      if (local.length) {
+        results = local;
+        offlineNote = `Офлайн-поиск по базе на устройстве (${stats.count} тайтлов${fullUsed ? ' + полная база' : ''})`;
+      } else if (stats.count) {
+        errorText = `${err.message} В базе на устройстве (${stats.count} тайтлов) ничего не нашлось.`;
+      } else {
+        errorText = `${err.message} База фильмов для офлайна ещё не скачана — она загружается автоматически, когда есть сеть.`;
+      }
+    }
+    return { results, errorText, offlineNote };
+  }
+
+  function openSearchResultsPage(query) {
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-40 overflow-y-auto bg-dark text-white';
+    overlay.innerHTML = `
+      <div class="min-h-full">
+        <header class="sticky top-0 z-10 border-b border-slate-700 bg-dark/95 px-4 py-3 backdrop-blur-card safe-top">
+          <div class="mx-auto flex max-w-6xl items-center gap-3">
+            <button id="search-page-back" class="rounded-xl bg-card px-3 py-2 text-sm text-gray-200 hover:bg-slate-700" aria-label="Назад к поиску">← Назад</button>
+            <div class="min-w-0">
+              <h1 class="truncate text-lg font-bold">Результаты поиска</h1>
+              <p class="truncate text-xs text-gray-400">${escapeHtml(query)}</p>
+            </div>
+            <span id="search-page-count" class="ml-auto shrink-0 text-xs text-gray-500"></span>
+          </div>
+        </header>
+        <main id="search-page-content" class="mx-auto max-w-6xl p-4">
+          <div class="py-12 text-center text-sm text-gray-400">Ищем…</div>
+        </main>
+      </div>
+    `;
+
+    const previousOverflow = document.body.style.overflow;
+    const close = () => {
+      document.removeEventListener('keydown', onKeydown);
+      overlay.remove();
+      document.body.style.overflow = previousOverflow;
+      searchInput.focus();
+    };
+    const onKeydown = event => {
+      if (event.key === 'Escape' && !document.querySelector('.rating-modal-panel')) close();
+    };
+    overlay.querySelector('#search-page-back').addEventListener('click', close);
+    document.addEventListener('keydown', onKeydown);
+    document.body.style.overflow = 'hidden';
+    document.body.appendChild(overlay);
+
+    searchForQuery(query).then(({ results, errorText, offlineNote }) => {
+      if (!overlay.isConnected) return;
+      const content = overlay.querySelector('#search-page-content');
+      const count = overlay.querySelector('#search-page-count');
+      if (errorText) {
+        count.textContent = '';
+        content.innerHTML = `<div class="py-12 text-center text-sm text-red-400">${escapeHtml(errorText)}</div>`;
+        return;
+      }
+      if (!results.length) {
+        count.textContent = '0 результатов';
+        content.innerHTML = `<div class="py-12 text-center text-sm text-gray-400">Ничего не найдено</div>`;
+        return;
+      }
+
+      count.textContent = `Найдено: ${results.length}`;
+      content.innerHTML = `${offlineNote ? `<p class="mb-4 text-xs text-gray-500">📴 ${escapeHtml(offlineNote)}</p>` : ''}
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          ${results.map(item => {
+            const year = releaseYear(item.release_date);
+            primeTitleCache(item.media_type, item.id, item);
+            return `<button type="button" class="search-page-result group min-w-0 text-left" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
+              ${posterImg(item.poster_path, item.title, 'mb-2 aspect-[2/3] w-full rounded-xl object-cover transition-opacity group-hover:opacity-80')}
+              <span class="block truncate text-sm font-medium">${escapeHtml(item.title)}</span>
+              <span class="block text-xs text-gray-400">${year ? `${escapeHtml(year)} · ` : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</span>
+            </button>`;
+          }).join('')}
+        </div>`;
+
+      content.querySelectorAll('.search-page-result').forEach(item => {
+        item.addEventListener('click', () => {
+          addSearchQuery(query);
+          openRatingModal(item.dataset.id, item.dataset.type, currentUser, () => {
+            loadRatings(currentUser, activeFilter);
+          });
+        });
+      });
+    }).catch(error => {
+      if (!overlay.isConnected) return;
+      overlay.querySelector('#search-page-count').textContent = '';
+      overlay.querySelector('#search-page-content').innerHTML = `<div class="py-12 text-center text-sm text-red-400">${escapeHtml(error.message || 'Не удалось выполнить поиск.')}</div>`;
+    });
+  }
+
   // При фокусе на пустом поле показываем историю поиска
   searchInput.addEventListener('focus', () => {
     if (searchInput.value.trim().length < 2) showHistoryDropdown();
@@ -1243,35 +1363,8 @@ function initSearch(currentUser) {
     }
 
     searchTimeout = setTimeout(async () => {
-      let results = [];
-      let errorText = null;
-      let offlineNote = null;
-      try {
-        if (navigator.onLine === false) throw new Error('Нет сети.');
-        results = await searchTitles(query);
-      } catch (err) {
-        // Без сети (или TMDb недоступен) ищем в текстовой базе на устройстве
-        const stats = getOfflineCatalogStats();
-        let local = searchOfflineCatalog(query);
-        let fullUsed = false;
-        if (isFullCatalogInstalled()) {
-          resultsContainer.innerHTML = '<div class="p-4 text-gray-500 text-center text-sm">Ищем по полной базе на устройстве…</div>';
-          resultsContainer.classList.remove('hidden');
-          const full = await searchFullCatalog(query, 20, local);
-          if (full.length) {
-            local = [...local, ...full];
-            fullUsed = true;
-          }
-        }
-        if (local.length) {
-          results = local;
-          offlineNote = `Офлайн-поиск по базе на устройстве (${stats.count} тайтлов${fullUsed ? ' + полная база' : ''})`;
-        } else if (stats.count) {
-          errorText = `${err.message} В базе на устройстве (${stats.count} тайтлов) ничего не нашлось.`;
-        } else {
-          errorText = `${err.message} База фильмов для офлайна ещё не скачана — она загружается автоматически, когда есть сеть.`;
-        }
-      }
+      const { results, errorText, offlineNote } = await searchForQuery(query, resultsContainer);
+      if (searchInput.value.trim() !== query) return;
 
       if (errorText) {
         resultsContainer.innerHTML = `<div class="p-4 text-red-400 text-center text-sm">${escapeHtml(errorText)}</div>`;
@@ -1331,10 +1424,14 @@ function initSearch(currentUser) {
   document.addEventListener('click', searchDocClickHandler);
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') resultsContainer.classList.add('hidden');
-    // Enter открывает первый результат — быстрее на телефоне
     if (e.key === 'Enter') {
-      const first = resultsContainer.querySelector('.search-result-item');
-      if (first) first.click();
+      e.preventDefault();
+      const query = searchInput.value.trim();
+      if (query.length < 2) return;
+      clearTimeout(searchTimeout);
+      addSearchQuery(query);
+      resultsContainer.classList.add('hidden');
+      openSearchResultsPage(query);
     }
   });
 
