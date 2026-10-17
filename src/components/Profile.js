@@ -556,12 +556,14 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
           : `${i.media_type === 'movie' ? 'фильм' : 'сериал'} • ${new Date(i.last_at).toLocaleDateString('ru-RU')}`;
         return `
           <div class="flex items-center gap-3 bg-slate-800/50 rounded-xl p-2" data-key="${escapeHtml(i.key)}">
-            ${posterImg(i.poster_path, i.title, 'w-10 aspect-[2/3] rounded-md')}
-            <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium truncate">${escapeHtml(i.title)}</div>
-              <div class="text-[11px] text-gray-500">${status}</div>
-              ${watched ? `<div class="text-[10px] text-gray-600">Отмечено ${new Date(i.done.at).toLocaleDateString('ru-RU')}</div>` : ''}
-              ${pct !== null ? `<div class="h-1 mt-1 rounded bg-slate-700 overflow-hidden"><div class="h-full bg-red-500" style="width:${pct}%"></div></div><div class="text-[10px] text-gray-500">просмотрено ${pct}%</div>` : ''}
+            <div class="watch-history-open flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" role="button" tabindex="0" aria-label="Открыть карточку: ${escapeHtml(i.title)}">
+              ${posterImg(i.poster_path, i.title, 'w-14 sm:w-16 flex-shrink-0 aspect-[2/3] rounded-md')}
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-sm font-medium">${escapeHtml(i.title)}</span>
+                <span class="block text-[11px] text-gray-500">${status}</span>
+                ${watched ? `<span class="block text-[10px] text-gray-600">Отмечено ${new Date(i.done.at).toLocaleDateString('ru-RU')}</span>` : ''}
+                ${pct !== null ? `<span class="mt-1 block h-1 overflow-hidden rounded bg-slate-700"><span class="block h-full bg-red-500" style="width:${pct}%"></span></span><span class="block text-[10px] text-gray-500">просмотрено ${pct}%</span>` : ''}
+              </span>
             </div>
             <div class="flex flex-col gap-1 flex-shrink-0 items-stretch">
               ${(i.kp_url || i.kpId || i.query) ? '<button class="wh-continue px-2 py-1 text-[11px] bg-primary hover:bg-primary/90 text-white rounded-lg">Продолжить</button>' : ''}
@@ -576,6 +578,22 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     watchedBox.innerHTML = rowsHtml(watchedItems, true);
 
     [whBox, watchedBox].forEach(box => {
+      box.querySelectorAll('.watch-history-open').forEach(card => {
+        const openHistoryCard = () => {
+          const item = getWatchHistory().find(entry => entry.key === card.closest('[data-key]').dataset.key);
+          if (!item) return;
+          openRatingModal(item.id, item.media_type, currentUser, () => {
+            renderProfilePage(document.getElementById('app'), currentUser, { force: true });
+          });
+        };
+        card.addEventListener('click', openHistoryCard);
+        card.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openHistoryCard();
+          }
+        });
+      });
       box.querySelectorAll('.wh-continue').forEach(button => button.addEventListener('click', () => {
         const item = getWatchHistory().find(x => x.key === button.closest('[data-key]').dataset.key);
         if (!item || !(item.kp_url || item.kpId || item.query)) return;
