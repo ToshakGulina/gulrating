@@ -13,7 +13,7 @@ import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, poster
 // Фирменные иконки источников оценок (inline SVG по оригинальным логотипам):
 // Кинопоиск — квадратная иконка сервиса: оранжевый фон и белая киноплёнка
 // с четырьмя отверстиями; TMDb — зелёный (#90cea4) контур-«пузырь» с буквами
-// TM/DB; друзья — розовый силуэт компании.
+// TM/DB; друзья — розовый силуэт группы.
 const KP_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0 rounded" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#ff5c00"/><circle cx="16" cy="16" r="10.5" fill="#fdfbf7"/><g fill="#ff5c00"><circle cx="11.6" cy="11.6" r="3.1"/><circle cx="20.4" cy="11.6" r="3.1"/><circle cx="11.6" cy="20.4" r="3.1"/><circle cx="20.4" cy="20.4" r="3.1"/><circle cx="16" cy="16" r="1.9"/></g></svg>';
 const TMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><g fill="none" stroke="#90cea4" stroke-width="3.4" stroke-linejoin="round"><rect x="5" y="4.5" width="22" height="17.5" rx="4.5"/><path d="M8.6 22.5v6.2l6.2-6.2"/></g><text x="16" y="12.6" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.6" font-weight="800" fill="#ffffff">TM</text><text x="16" y="19.4" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.6" font-weight="800" fill="#ffffff">DB</text></svg>';
 const IMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><rect x="2" y="8" width="28" height="16" rx="4" fill="#f5c518"/><text x="16" y="20" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="800" fill="#000000">IMDb</text></svg>';
@@ -433,6 +433,16 @@ function formatVotes(n) {
     : 'голосов';
   return new Intl.NumberFormat('ru-RU').format(n) + ' ' + word;
 }
+
+function formatRatingCount(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  const word = mod10 === 1 && mod100 !== 11 ? 'оценка'
+    : (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) ? 'оценки'
+    : 'оценок';
+  return `${n} ${word}`;
+}
+
 const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="#f472b6"><path d="M9 11a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5zm8-2a3.5 3.5 0 10-2.4-6 5.5 5.5 0 010 8c.8.6 1.6 1 2.4 1zm0 2c-.6 0-1.3-.1-2-.3 1.2 1 2 2.3 2 3.8v1.5h6v-2c0-2.2-3.6-3-6-3z"/></svg>';
 
 // Пока оценка не выбрана, пузырёк над бегунком показывает позицию серым
@@ -514,15 +524,19 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       year
     });
 
-    const companyRatings = allRatings;
-    const averageRating = companyRatings.length > 0
-      ? (companyRatings.reduce((sum, r) => sum + Number(r.rating), 0) / companyRatings.length).toFixed(1)
+    const sharedRatings = allRatings;
+    const friendRatings = sharedRatings.filter((r) => r.user_id !== currentUser.id);
+    const ownRatingIncluded = sharedRatings.some((r) => r.user_id === currentUser.id);
+    const scoreLabel = friendRatings.length
+      ? (ownRatingIncluded ? 'Друзья + вы' : 'Друзья')
+      : 'Ваша оценка';
+    const averageRating = sharedRatings.length > 0
+      ? (sharedRatings.reduce((sum, r) => sum + Number(r.rating), 0) / sharedRatings.length).toFixed(1)
       : null;
 
-    // Один короткий итог на карточке; среднее включает вашу оценку и оценки
-    // остальных участников. Подробный список доступен ниже.
+    // Среднее включает собственную оценку; подпись всегда стоит перед числом.
     const friendsBadge = averageRating
-      ? `<span class="friends-score-pill inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300" title="Средняя оценка компании">${FRIENDS_ICON}<b class="text-pink-300">${averageRating}</b><span class="text-gray-500">компания · ${companyRatings.length}</span></span>`
+      ? `<span class="friends-score-pill inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300" title="Средняя оценка друзей и ваша">${FRIENDS_ICON}<span class="text-gray-500">${scoreLabel}</span><b class="text-pink-300">${averageRating}</b><span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span></span>`
       : '';
 
     // Очередь внешних рейтингов: первые два доступных видны сразу,
@@ -645,9 +659,9 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       </div>
 
       ${allRatings.length > 0 ? `
-        <details class="company-ratings-details border-t border-slate-700 pt-3">
+        <details class="friends-ratings-details border-t border-slate-700 pt-3">
           <summary class="cursor-pointer select-none rounded-xl px-2.5 py-2 text-sm text-gray-300 hover:bg-slate-800">
-            Оценки компании <span class="text-gray-500">· ${allRatings.length}</span>
+            Оценки друзей и ваша <span class="text-gray-500">· ${formatRatingCount(allRatings.length)}</span>
           </summary>
           <div class="mt-2 space-y-2 px-2">
             ${allRatings.map(r => `

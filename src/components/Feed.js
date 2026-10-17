@@ -57,7 +57,7 @@ let trendsActive = 'week';
 const recsCache = { trends: {}, personal: null, personalKey: '', personalSub: '', db: null, dbAt: 0 };
 
 // Подписи пустых рядов рекомендаций — объясняют, при каком условии ряд наполнится
-const FRIENDS_EMPTY_HINT = 'Появится, когда кто-то из компании поставит оценки.';
+const FRIENDS_EMPTY_HINT = 'Появится, когда друзья поставят оценки.';
 const WANT_EMPTY_HINT = 'Появится, когда друзья добавят тайтлы в списки «хочу посмотреть».';
 const PERSONAL_EMPTY_HINT = 'Появится, когда вы оцените фильмы: подбор отталкивается от ваших оценок.';
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
@@ -203,7 +203,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
         </div>
         </div>
 
-        <div id="feed-note" class="hidden text-xs text-gray-500 mt-3 mb-3">Показан список «хочу посмотреть» всей вашей компании</div>
+        <div id="feed-note" class="hidden text-xs text-gray-500 mt-3 mb-3">Показаны списки «хочу посмотреть» друзей и ваш</div>
 
         <div id="blocks-wrap" class="mt-4 space-y-6">
 
@@ -324,10 +324,12 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
     loadRatings(currentUser, activeFilter);
   });
 
-  // Сеть появилась: отложенные оценки улетают сами
+  // Сеть появилась: отложенные оценки улетают сами. Ничего не перерисовываем,
+  // если очереди не было: браузеры могут прислать online при возврате во вкладку.
   onlineFlushHandler = async () => {
     const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
-    if (sent) showToast(`Отложенные оценки отправлены в базу: ${sent}`, 'success');
+    if (!sent) return;
+    showToast(`Отложенные оценки отправлены в базу: ${sent}`, 'success');
     paintPending();
     if (feedEl('ratings-list')) {
       loadRatings(currentUser, activeFilter);
@@ -505,7 +507,7 @@ async function loadRatings(currentUser, filter = 'all') {
                 <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-xl px-2.5 py-1.5 text-white text-center shrink-0">
                   <span class="text-[10px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
                   <strong class="text-xl leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
-                  <span class="text-[11px] opacity-80">${groupRows.length} оценок</span>
+                  <span class="text-[11px] opacity-80">${ratingCountLabel(groupRows.length)}</span>
                 </div>
               ` : `
                 <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
@@ -519,7 +521,7 @@ async function loadRatings(currentUser, filter = 'all') {
             </div>
             
             ${item.groupedRatings ? `
-              <div class="grouped-ratings-list mt-2 grid grid-cols-1 gap-1" aria-label="Оценки участников компании">
+              <div class="grouped-ratings-list mt-2 grid grid-cols-1 gap-1" aria-label="Оценки друзей и ваша">
                 ${visibleGroupRows.map((r, index) => {
                   const score = Number(r.rating || 0);
                   const scoreColor = score >= 8 ? 'text-green-300' : score >= 5 ? 'text-yellow-300' : 'text-red-300';
@@ -531,7 +533,7 @@ async function loadRatings(currentUser, filter = 'all') {
                     ${r.comment && index < 2 ? `<span class="basis-full pl-8 line-clamp-2 whitespace-normal break-words text-xs leading-relaxed text-gray-400" title="${escapeHtml(r.comment)}">${escapeHtml(r.comment)}</span>` : ''}
                   </div>`;
                 }).join('')}
-                ${hiddenGroupCount ? `<span class="pl-2 text-[10px] text-gray-500">и ещё ${hiddenGroupCount} оценок</span>` : ''}
+                ${hiddenGroupCount ? `<span class="pl-2 text-[10px] text-gray-500">и ещё ${ratingCountLabel(hiddenGroupCount)}</span>` : ''}
               </div>
             ` : `
               <div class="mt-2 flex items-center gap-2">
@@ -573,7 +575,7 @@ const FEED_VISIBLE_KEY = 'gulrating:feed_visible';
 const FEED_ORDER_DEFAULT = ['trends', 'recs', 'feed'];
 export const FEED_SECTIONS = [
   { id: 'trends', label: 'Тренды' },
-  { id: 'recs', label: 'Подборки по вкусам компании' },
+  { id: 'recs', label: 'Подборки по вкусам друзей' },
   { id: 'feed', label: 'Оценки' }
 ];
 
@@ -637,6 +639,15 @@ function paintPending() {
   if (!pending.length) return;
   const textEl = feedEl('pending-text');
   if (textEl) textEl.textContent = `📴 Отложенных оценок: ${pending.length} — отправятся в базу при появлении сети`;
+}
+
+function ratingCountLabel(count) {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  const word = last === 1 && lastTwo !== 11 ? 'оценка'
+    : last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? 'оценки'
+    : 'оценок';
+  return `${count} ${word}`;
 }
 
 // Объединяем несколько пользовательских оценок одного тайтла в одну карточку.
@@ -728,7 +739,7 @@ async function loadRecs(currentUser) {
     </div>
     </div>
     <div id="blk-recs" class="${showRecs ? 'space-y-4' : 'hidden'}">
-      <h3 class="font-semibold">Подборки по вкусам компании</h3>
+      <h3 class="font-semibold">Подборки по вкусам друзей</h3>
       ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
       ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
       ${recRowSkeleton('recs-personal', 'Похоже на то, что вам понравилось')}

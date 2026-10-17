@@ -40,13 +40,17 @@ window.addEventListener('appinstalled', () => {
 let rendering = false;
 let offlineOnlySession = false;
 let onlineRefreshPending = false;
+let networkWasOffline = false;
 
 // Сеть пропала/вернулась: интерфейс живёт из кэша, объясняем состояние
 window.addEventListener('offline', () => {
+  networkWasOffline = true;
   showToast('Нет сети: интерфейс из кэша, данные обновятся при появлении интернета', 'info', 4000);
 });
 window.addEventListener('online', () => {
-  showToast('Снова в сети', 'success', 2000);
+  const genuinelyReconnected = networkWasOffline || offlineOnlySession;
+  networkWasOffline = false;
+  if (genuinelyReconnected) showToast('Снова в сети', 'success', 2000);
   // Полная перерисовка ленты здесь сбрасывала видимый экран и запускала
   // анимации заново при возврате во вкладку. Обновляем приложение только
   // если оно действительно было запущено без сети.
