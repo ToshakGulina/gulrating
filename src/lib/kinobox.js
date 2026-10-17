@@ -29,11 +29,12 @@ function flatten(j) {
           type: p.type || 'player',
           name: (tr && tr.name) || 'Основная озвучка',
           quality: (tr && tr.quality) || '',
+          embed: (tr && tr.embed) || p.embed || 'any',
           url,
         });
       }
     } else if (p.iframeUrl) {
-      out.push({ type: p.type || 'player', name: 'Основная озвучка', quality: '', url: p.iframeUrl });
+      out.push({ type: p.type || 'player', name: 'Основная озвучка', quality: '', embed: p.embed || 'any', url: p.iframeUrl });
     }
   }
   return out;

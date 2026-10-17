@@ -526,7 +526,8 @@ async function loadRatings(currentUser, filter = 'all') {
                   return `<div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-xl bg-slate-900/40 px-2.5 py-1.5">
                     <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="h-6 w-6 flex-shrink-0 rounded-full bg-slate-700 object-cover">
                     <span class="max-w-[160px] truncate text-xs font-medium text-gray-200">${escapeHtml(r.profiles?.username || 'Участник')}</span>
-                    <b class="flex-shrink-0 text-xs ${scoreColor}">${escapeHtml(formatRating(score))}</b>
+                    <span class="text-gray-500" aria-hidden="true">·</span>
+                    <b class="ml-1 flex-shrink-0 text-xs ${scoreColor}">${escapeHtml(formatRating(score))}</b>
                     ${r.comment && index < 2 ? `<span class="basis-full pl-8 line-clamp-2 whitespace-normal break-words text-xs leading-relaxed text-gray-400" title="${escapeHtml(r.comment)}">${escapeHtml(r.comment)}</span>` : ''}
                   </div>`;
                 }).join('')}

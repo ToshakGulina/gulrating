@@ -72,9 +72,15 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
         <!-- Карточка профиля -->
         <div class="bg-card rounded-2xl p-5 mb-6">
           <div class="flex items-center gap-4 mb-4">
-            <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt="" class="w-20 h-20 rounded-full bg-slate-700">
-            <div>
-              <h2 id="profile-name" class="text-xl font-bold">${escapeHtml(currentUser.profile.username)}</h2>
+            <button id="profile-avatar-edit" type="button" class="relative flex-shrink-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" title="Изменить аватар" aria-label="Изменить аватар">
+              <img id="profile-avatar" src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt="" class="w-20 h-20 rounded-full bg-slate-700 object-cover">
+              <span class="absolute bottom-0 right-0 grid h-7 w-7 place-items-center rounded-full border-2 border-card bg-primary text-sm text-white" aria-hidden="true">✎</span>
+            </button>
+            <div class="min-w-0">
+              <button id="profile-name-edit" type="button" class="inline-flex max-w-full items-center gap-2 rounded-md text-left text-xl font-bold hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" title="Изменить ник">
+                <span id="profile-name" class="truncate">${escapeHtml(currentUser.profile.username)}</span>
+                <span class="text-xs text-gray-500" aria-hidden="true">✎</span>
+              </button>
               <p class="text-gray-400 text-sm">${escapeHtml(currentUser.email)}</p>
               ${currentUser.profile.is_admin ? '<span class="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded-full mt-1 inline-block">Администратор</span>' : ''}
             </div>
@@ -308,10 +314,21 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
 
   // --- Настройки: аватар, ник, лента ---
   const avatarPreview = pageRoot.querySelector('#avatar-preview');
+  const profileAvatar = pageRoot.querySelector('#profile-avatar');
   const avatarInput = pageRoot.querySelector('#avatar-input');
   const presetsBox = pageRoot.querySelector('#avatar-presets');
   const nickInput = pageRoot.querySelector('#nick-input');
   const sortSelect = pageRoot.querySelector('#sort-select');
+
+  pageRoot.querySelector('#profile-avatar-edit').addEventListener('click', () => {
+    setProfileSection('settings');
+    avatarInput.click();
+  });
+  pageRoot.querySelector('#profile-name-edit').addEventListener('click', () => {
+    setProfileSection('settings');
+    nickInput.focus();
+    nickInput.select();
+  });
 
   async function saveProfileFields(fields) {
     const { error } = await supabase.from('profiles').update(fields).eq('id', currentUser.id);
@@ -336,6 +353,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       const dataUrl = await downscaleImage(file, 160);
       if (await saveProfileFields({ avatar_url: dataUrl })) {
         avatarPreview.src = dataUrl;
+        profileAvatar.src = dataUrl;
         showToast('Аватар обновлён', 'success');
       }
     } catch (e) {
@@ -357,6 +375,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     const uri = presetAvatarUri(emoji, bg);
     if (await saveProfileFields({ avatar_url: uri })) {
       avatarPreview.src = uri;
+      profileAvatar.src = uri;
       presetsBox.querySelectorAll('.avatar-preset').forEach((b) => {
         b.classList.toggle('border-primary', b === btn);
         b.classList.toggle('border-transparent', b !== btn);
@@ -368,6 +387,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   pageRoot.querySelector('#avatar-remove-btn').addEventListener('click', async () => {
     if (await saveProfileFields({ avatar_url: null })) {
       avatarPreview.src = safeAvatarUrl(null, currentUser.profile.username);
+      profileAvatar.src = avatarPreview.src;
       showToast('Аватар убран', 'success');
     }
   });
@@ -382,6 +402,11 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     if (await saveProfileFields({ username: value })) {
       showToast('Ник сохранён', 'success');
       pageRoot.querySelector('#profile-name').textContent = value;
+      if (!currentUser.profile.avatar_url) {
+        const fallbackAvatar = safeAvatarUrl(null, value);
+        profileAvatar.src = fallbackAvatar;
+        avatarPreview.src = fallbackAvatar;
+      }
     }
   });
 

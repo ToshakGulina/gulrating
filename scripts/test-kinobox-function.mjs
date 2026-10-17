@@ -28,8 +28,29 @@ try {
 
   const invalid = await onRequestGet({ request: new Request('https://gulrating.pages.dev/kinobox') });
   assert.equal(invalid.status, 400);
+
+  // Browser playback uses dynamic iframeUrl values returned for each provider,
+  // rather than loading the Kinokino/Brogiro mirror page.
+  const clientSource = await readFile(new URL('../src/lib/kinobox.js', import.meta.url), 'utf8');
+  const clientUrl = `data:text/javascript;base64,${Buffer.from(clientSource).toString('base64')}`;
+  const { fetchKinoboxPlayers } = await import(clientUrl);
+  const directPlayers = [
+    { type: 'Alloha', embed: 'any', translations: [{ name: 'Дубляж', quality: '4K', iframeUrl: 'https://kurolesya.link/balancer-api/iframe?movie_id=1171&token=fresh' }] },
+    { type: 'Turbo', iframeUrl: 'https://api.nextembed.ws/embed/movie/1621' },
+  ];
+  globalThis.fetch = async (input) => {
+    requestedUrl = new URL(input);
+    return new Response(JSON.stringify({ data: directPlayers }), { status: 200 });
+  };
+  const directList = await fetchKinoboxPlayers({ kpId: '12345' });
+  assert.equal(requestedUrl.hostname, 'playcdnfb.top');
+  assert.deepEqual(directList.map(({ type, embed, url }) => ({ type, embed, url })), [
+    { type: 'Alloha', embed: 'any', url: 'https://kurolesya.link/balancer-api/iframe?movie_id=1171&token=fresh' },
+    { type: 'Turbo', embed: 'any', url: 'https://api.nextembed.ws/embed/movie/1621' },
+  ]);
+  assert.ok(directList.every((player) => !player.url.includes('brogiro') && !player.url.includes('kinokino')));
 } finally {
   globalThis.fetch = originalFetch;
 }
 
-console.log('Kinobox Pages Function proxy mapping: OK');
+console.log('Kinobox proxy and direct iframe URL mapping: OK');
