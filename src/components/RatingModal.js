@@ -593,7 +593,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
       ${title.overview ? `
         <p id="overview-text" class="text-sm text-gray-300 mb-1 line-clamp-3">${escapeHtml(title.overview)}</p>
-        <button id="overview-toggle" class="text-xs text-primary hover:underline mb-4 hidden">Читать дальше</button>
+        <button id="overview-toggle" class="text-xs text-primary hover:underline mb-4 hidden" aria-controls="overview-text" aria-expanded="false">Читать дальше</button>
       ` : ''}
 
       <div class="border-t border-slate-700 pt-4 mb-4">
@@ -688,13 +688,37 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const overviewText = document.getElementById('overview-text');
     const overviewToggle = document.getElementById('overview-toggle');
     if (overviewText && overviewToggle) {
-      // Кнопка нужна только если текст реально обрезан
-      if (overviewText.scrollHeight > overviewText.clientHeight + 4) {
+      // Некоторые браузеры возвращают scrollHeight уже обрезанного текста
+      // при -webkit-line-clamp. Сравниваем с невидимой копией без clamp,
+      // сохраняя фактическую ширину и типографику элемента.
+      const visibleHeight = overviewText.getBoundingClientRect().height;
+      const fullCopy = overviewText.cloneNode(true);
+      fullCopy.removeAttribute('id');
+      fullCopy.setAttribute('aria-hidden', 'true');
+      fullCopy.classList.remove('line-clamp-3');
+      Object.assign(fullCopy.style, {
+        position: 'fixed',
+        left: '-100000px',
+        top: '0',
+        width: `${overviewText.getBoundingClientRect().width}px`,
+        height: 'auto',
+        maxHeight: 'none',
+        overflow: 'visible',
+        display: 'block',
+        visibility: 'hidden',
+        pointerEvents: 'none',
+      });
+      document.body.appendChild(fullCopy);
+      const fullHeight = fullCopy.getBoundingClientRect().height;
+      fullCopy.remove();
+
+      if (visibleHeight > 0 && fullHeight > visibleHeight + 1) {
         overviewToggle.classList.remove('hidden');
       }
       overviewToggle.addEventListener('click', () => {
         const collapsed = overviewText.classList.toggle('line-clamp-3');
         overviewToggle.textContent = collapsed ? 'Читать дальше' : 'Свернуть';
+        overviewToggle.setAttribute('aria-expanded', String(!collapsed));
       });
     }
 
