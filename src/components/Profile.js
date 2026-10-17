@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase.js';
+import { removeFromWatchlist } from '../lib/ratings.js';
 import { mountPage } from '../lib/pageState.js';
 import { APP_BUILD } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
@@ -757,7 +758,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     });
     pageRoot.querySelector('#profile-content').innerHTML = tab === 'ratings'
       ? renderMyRatings(myRatingsList)
-      : renderWatchlist(watchlistList);
+      : renderWatchlist(watchlistList, currentUser);
   }
   pageRoot.querySelectorAll('.tab-btn').forEach(button => {
     button.addEventListener('click', () => {
@@ -893,6 +894,9 @@ function renderMyRatings(ratings) {
       <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="profile-card-poster flex-shrink-0">
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
+          <select class="profile-title-status mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[10px] leading-tight text-gray-200" disabled aria-label="Статус: ${escapeHtml(title.title)}">
+            <option selected>Просмотрено</option>
+          </select>
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-start justify-between gap-2">
@@ -910,7 +914,7 @@ function renderMyRatings(ratings) {
   }).join('');
 }
 
-function renderWatchlist(items) {
+function renderWatchlist(items, currentUser) {
   if (!items || items.length === 0) {
     return `
       <div class="col-span-full text-center py-12 text-gray-500">
@@ -929,6 +933,11 @@ function renderWatchlist(items) {
       <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="profile-card-poster flex-shrink-0">
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
+          <select class="profile-watch-status mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[10px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
+            <option value="watchlist" selected>Смотреть позже</option>
+            <option value="watched">Просмотрено</option>
+            <option value="none">Не отмечено</option>
+          </select>
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-semibold leading-tight">${escapeHtml(title.title)}</h3>
@@ -941,6 +950,34 @@ function renderWatchlist(items) {
 }
 
 function initTitleCards(pageRoot, currentUser) {
+  pageRoot.querySelectorAll('.profile-watch-status').forEach(select => {
+    select.addEventListener('click', event => event.stopPropagation());
+    select.addEventListener('keydown', event => event.stopPropagation());
+    select.addEventListener('change', async event => {
+      event.stopPropagation();
+      const titleId = select.dataset.titleId;
+      const mediaType = select.dataset.mediaType;
+      if (select.value === 'watched') {
+        select.value = 'watchlist';
+        openRatingModal(titleId, mediaType, currentUser, () => renderProfilePage(document.getElementById('app'), currentUser, { force: true }));
+        return;
+      }
+      if (select.value === 'none') {
+        select.disabled = true;
+        try {
+          await removeFromWatchlist(currentUser.id, titleId);
+          showToast('Убрали из «Смотреть позже»', 'success');
+          renderProfilePage(document.getElementById('app'), currentUser, { force: true });
+        } catch (error) {
+          select.value = 'watchlist';
+          showToast(`Не удалось изменить статус: ${error.message}`, 'error', 5000);
+        } finally {
+          select.disabled = false;
+        }
+      }
+    });
+  });
+
   pageRoot.querySelectorAll('.title-card').forEach(card => {
     card.addEventListener('click', () => {
       const titleId = card.dataset.titleId;

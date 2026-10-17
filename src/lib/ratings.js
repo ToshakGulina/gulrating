@@ -53,6 +53,21 @@ export async function saveRating(userId, tmdbId, mediaType, rating, comment = ''
     .single();
 
   if (error) throw error;
+
+  // Оценка означает статус «Просмотрено»: не оставляем такой тайтл
+  // одновременно в списке «Хочу посмотреть».
+  const { error: watchlistError } = await supabase
+    .from('watchlist')
+    .delete()
+    .eq('user_id', userId)
+    .eq('title_id', tmdbId);
+
+  if (watchlistError) {
+    const partialError = new Error(`Оценка сохранена, но не удалось убрать тайтл из «Хочу посмотреть»: ${watchlistError.message}`);
+    partialError.ratingSaved = true;
+    throw partialError;
+  }
+
   return data;
 }
 
