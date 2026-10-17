@@ -10,9 +10,6 @@ module.exports = {
         dark: '#0f172a',
         card: '#1e293b',
       },
-      fontFamily: {
-        inter: ['Inter', 'sans-serif'],
-      },
     },
   },
 };

@@ -39,6 +39,12 @@ function saveSort(value) {
 
 let activeFilter = 'all';
 let feedRoot = null;
+let lastTrendColumns = 0;
+let trendsHavePainted = false;
+let lastRenderedTrendTab = null;
+let ratingsHavePainted = false;
+let lastRenderedRatingsFilter = null;
+let lastRenderedRatingsSort = null;
 const feedEl = (id) => feedRoot?.querySelector(`#${id}`) || null;
 const feedAll = (selector) => feedRoot?.querySelectorAll(selector) || [];
 let activeSort = readSort();   // сортировка ленты: new | rating_desc | rating_asc
@@ -148,6 +154,12 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
   }
 
   cleanupFeed();
+  lastTrendColumns = 0;
+  trendsHavePainted = false;
+  lastRenderedTrendTab = null;
+  ratingsHavePainted = false;
+  lastRenderedRatingsFilter = null;
+  lastRenderedRatingsSort = null;
   activeFilter = 'all';
   activeSort = readSort(); // сортировку могли поменять из профиля
 
@@ -205,9 +217,9 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
 
         <div id="feed-note" class="hidden text-xs text-gray-500 mt-3 mb-3">Показаны списки «хочу посмотреть» друзей и ваш</div>
 
-        <div id="blocks-wrap" class="mt-4 space-y-6">
+        <div id="blocks-wrap" class="mt-3 space-y-3">
 
-          <div id="blk-feed" class="space-y-3 ${getVisibleFeedSections().includes('feed') ? '' : 'hidden'}">
+          <div id="blk-feed" class="space-y-2 ${getVisibleFeedSections().includes('feed') ? '' : 'hidden'}">
             <div class="flex items-center gap-2">
               <h3 class="font-semibold">Оценки</h3>
             </div>
@@ -218,7 +230,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
               <button id="pending-flush" class="ml-auto px-2 py-1 bg-primary hover:bg-primary/90 text-white rounded-lg flex-shrink-0">Отправить сейчас</button>
             </div>
 
-            <div id="ratings-list" class="space-y-4">
+            <div id="ratings-list" class="ratings-grid grid grid-cols-1 items-start gap-2 lg:grid-cols-2">
               ${skeletonCards(3)}
             </div>
           </div>
@@ -308,7 +320,10 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
   setFiltersTop();
   filtersResizeHandler = () => {
     setFiltersTop();
-    if (feedEl('trends-grid')) renderTrendsGrid(currentUser);
+    const trendsGrid = feedEl('trends-grid');
+    if (trendsGrid && trendColumnCount(trendsGrid) !== lastTrendColumns) {
+      renderTrendsGrid(currentUser);
+    }
   };
   window.addEventListener('resize', filtersResizeHandler);
 
@@ -379,6 +394,12 @@ function scheduleReload(currentUser) {
   }, 400);
 }
 
+function rememberRatingsPaint(filter) {
+  ratingsHavePainted = true;
+  lastRenderedRatingsFilter = filter;
+  lastRenderedRatingsSort = activeSort;
+}
+
 async function loadRatings(currentUser, filter = 'all') {
   const listEl = feedEl('ratings-list');
   const noteEl = feedEl('feed-note');
@@ -446,6 +467,11 @@ async function loadRatings(currentUser, filter = 'all') {
     data = applySort(data);
   }
 
+  const shouldAnimateCards = !ratingsHavePainted
+    || filter !== lastRenderedRatingsFilter
+    || activeSort !== lastRenderedRatingsSort;
+  listEl.classList.toggle('suppress-card-animation', !shouldAnimateCards);
+
   if (!data || data.length === 0) {
     if (filter === 'all') {
       // Первое впечатление: не пустое полотно, а онбординг + живые постеры трендов
@@ -458,6 +484,7 @@ async function loadRatings(currentUser, filter = 'all') {
           </button>
         </div>
       `;
+      rememberRatingsPaint(filter);
       const focusBtn = feedEl('focus-search-btn');
       if (focusBtn) focusBtn.addEventListener('click', () => feedEl('search-input').focus());
       return;
@@ -473,6 +500,7 @@ async function loadRatings(currentUser, filter = 'all') {
         <p>${emptyText}</p>
       </div>
     `;
+    rememberRatingsPaint(filter);
     return;
   }
 
@@ -492,8 +520,8 @@ async function loadRatings(currentUser, filter = 'all') {
     const hiddenGroupCount = Math.max(0, groupRows.length - visibleGroupRows.length);
 
     return `
-      <div class="title-card bg-card rounded-2xl overflow-hidden hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
-        <div class="p-4 flex gap-4">
+      <div class="title-card bg-card rounded-xl overflow-hidden hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
+        <div class="p-2.5 sm:p-3 flex gap-3">
           <div class="feed-card-poster flex-shrink-0">
             ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
           </div>
@@ -504,10 +532,10 @@ async function loadRatings(currentUser, filter = 'all') {
                 <p class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${title.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
               </div>
               ${!isWatchlistView ? (item.groupedRatings ? `
-                <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-xl px-2.5 py-1.5 text-white text-center shrink-0">
-                  <span class="text-[10px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
-                  <strong class="text-xl leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
-                  <span class="text-[11px] opacity-80">${ratingCountLabel(groupRows.length)}</span>
+                <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
+                  <span class="text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
+                  <strong class="text-lg leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
+                  <span class="text-[10px] opacity-80">${ratingCountLabel(groupRows.length)}</span>
                 </div>
               ` : `
                 <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
@@ -521,16 +549,16 @@ async function loadRatings(currentUser, filter = 'all') {
             </div>
             
             ${item.groupedRatings ? `
-              <div class="grouped-ratings-list mt-2 grid grid-cols-1 gap-1" aria-label="Оценки друзей и ваша">
+              <div class="grouped-ratings-list mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2" aria-label="Оценки друзей и ваша">
                 ${visibleGroupRows.map((r, index) => {
                   const score = Number(r.rating || 0);
                   const scoreColor = score >= 8 ? 'text-green-300' : score >= 5 ? 'text-yellow-300' : 'text-red-300';
-                  return `<div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-xl bg-slate-900/40 px-2.5 py-1.5">
-                    <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="h-6 w-6 flex-shrink-0 rounded-full bg-slate-700 object-cover">
+                  return `<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg bg-slate-900/40 px-2 py-1">
+                    <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="h-5 w-5 flex-shrink-0 rounded-full bg-slate-700 object-cover">
                     <span class="max-w-[160px] truncate text-xs font-medium text-gray-200">${escapeHtml(r.profiles?.username || 'Участник')}</span>
                     <span class="text-gray-500" aria-hidden="true">·</span>
-                    <b class="ml-1 flex-shrink-0 text-xs ${scoreColor}">${escapeHtml(formatRating(score))}</b>
-                    ${r.comment && index < 2 ? `<span class="basis-full pl-8 line-clamp-2 whitespace-normal break-words text-xs leading-relaxed text-gray-400" title="${escapeHtml(r.comment)}">${escapeHtml(r.comment)}</span>` : ''}
+                    <b class="flex-shrink-0 text-xs ${scoreColor}">${escapeHtml(formatRating(score))}</b>
+                    ${r.comment && index < 2 ? `<span class="basis-full pl-7 line-clamp-2 whitespace-normal break-words text-xs leading-snug text-gray-400" title="${escapeHtml(r.comment)}">${escapeHtml(r.comment)}</span>` : ''}
                   </div>`;
                 }).join('')}
                 ${hiddenGroupCount ? `<span class="pl-2 text-[10px] text-gray-500">и ещё ${ratingCountLabel(hiddenGroupCount)}</span>` : ''}
@@ -548,6 +576,7 @@ async function loadRatings(currentUser, filter = 'all') {
       </div>
     `;
   }).join('');
+  rememberRatingsPaint(filter);
 
   if (offlineCopy) {
     listEl.insertAdjacentHTML('afterbegin', `
@@ -703,8 +732,8 @@ function todayCaption() {
 // Скелетоны карточек на время загрузки вместо текста «Загружаем...»
 function skeletonCards(count = 3) {
   return Array.from({ length: count }).map(() => `
-    <div class="bg-card rounded-2xl p-4 flex gap-4 animate-pulse">
-      <div class="flex-shrink-0 w-20 aspect-[2/3] bg-slate-700 rounded-lg"></div>
+    <div class="bg-card rounded-xl p-3 flex gap-3 animate-pulse">
+      <div class="flex-shrink-0 w-16 aspect-[2/3] bg-slate-700 rounded-lg"></div>
       <div class="flex-1 space-y-3 py-1">
         <div class="h-5 bg-slate-700 rounded w-2/3"></div>
         <div class="h-4 bg-slate-700 rounded w-1/3"></div>
@@ -735,10 +764,10 @@ async function loadRecs(currentUser) {
         <h3 class="font-semibold mr-1">Тренды</h3>
         ${TREND_TABS.map(t => `<button class="trend-tab px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap ${t.key === trendsActive ? 'bg-primary text-white' : 'bg-card hover:bg-slate-700 text-gray-300'}" data-key="${t.key}">${t.label}</button>`).join('')}
       </div>
-      <div id="trends-grid" class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2 sm:gap-3"></div>
+      <div id="trends-grid" class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2"></div>
     </div>
     </div>
-    <div id="blk-recs" class="${showRecs ? 'space-y-4' : 'hidden'}">
+    <div id="blk-recs" class="${showRecs ? 'space-y-3' : 'hidden'}">
       <h3 class="font-semibold">Подборки по вкусам друзей</h3>
       ${recRowSkeleton('recs-friends', 'Друзья оценили высоко')}
       ${recRowSkeleton('recs-want', 'Друзья хотят посмотреть')}
@@ -800,6 +829,10 @@ function trendColumnCount(grid) {
 function renderTrendsGrid(currentUser) {
   const grid = feedEl('trends-grid');
   if (!grid) return;
+  const columns = trendColumnCount(grid);
+  const shouldAnimate = !trendsHavePainted || lastRenderedTrendTab !== trendsActive;
+  grid.classList.toggle('suppress-card-animation', !shouldAnimate);
+
   let items = recsCache.trends[trendsActive];
   let offlineTrends = false;
   if (!items) {
@@ -820,14 +853,17 @@ function renderTrendsGrid(currentUser) {
   });
   if (!items) {
     grid.innerHTML = '<p class="col-span-full text-sm text-gray-500 py-6">Тренды недоступны — проверьте соединение с TMDb.</p>';
+    lastTrendColumns = columns;
+    lastRenderedTrendTab = trendsActive;
     return;
   }
   if (!items.length) {
     grid.innerHTML = '<p class="col-span-full text-sm text-gray-500 py-6">В этой выборке пусто.</p>';
+    lastTrendColumns = columns;
+    lastRenderedTrendTab = trendsActive;
     return;
   }
   // Оставляем только полные ряды карточек: число столбцов адаптируется к экрану.
-  const columns = trendColumnCount(grid);
   const completeCount = Math.floor(items.length / columns) * columns;
   if (completeCount > 0) items = items.slice(0, completeCount);
   grid.innerHTML = (offlineTrends
@@ -848,6 +884,9 @@ function renderTrendsGrid(currentUser) {
       </div>
     `;
   }).join('');
+  trendsHavePainted = true;
+  lastRenderedTrendTab = trendsActive;
+  lastTrendColumns = columns;
 }
 
 function paintTrendsSkeleton() {
@@ -855,6 +894,7 @@ function paintTrendsSkeleton() {
   if (!grid) return;
   const columns = trendColumnCount(grid);
   const count = Math.max(columns, Math.floor(20 / columns) * columns);
+  lastTrendColumns = columns;
   grid.innerHTML = Array.from({ length: count }).map(() => `
     <div class="animate-pulse"><div class="w-full aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-1.5"></div></div>
   `).join('');
@@ -978,7 +1018,7 @@ function recRowSkeleton(id, titleText) {
   return `
     <div id="${id}" class="rec-row">
       <h3 class="font-semibold mb-3">${escapeHtml(titleText)}</h3>
-      <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+      <div class="flex gap-2 overflow-x-auto scrollbar-hide pb-2">
         ${Array.from({ length: 6 }).map(() => `<div class="flex-shrink-0 w-24 animate-pulse"><div class="w-24 aspect-[2/3] bg-slate-700 rounded-lg"></div><div class="h-3 bg-slate-700 rounded mt-2"></div></div>`).join('')}
       </div>
     </div>
@@ -1004,7 +1044,7 @@ function fillRecRow(section, id, titleText, subtitle, items, badgeClass, emptyHi
   row.innerHTML = `
     <h3 class="font-semibold mb-1">${escapeHtml(titleText)}</h3>
     <p class="text-xs text-gray-500 mb-3">${escapeHtml(subtitle || '')}</p>
-    <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+    <div class="flex gap-2 overflow-x-auto scrollbar-hide pb-2">
       ${items.map(item => {
         const year = releaseYear(item.release_date);
         primeTitleCache(item.media_type, item.id, item);

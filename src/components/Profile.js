@@ -64,13 +64,13 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       </div>
 
       <div class="p-4">
-        <div class="profile-section-switch flex gap-2 p-1 mb-5 rounded-xl bg-slate-900/70" role="tablist" aria-label="Раздел профиля">
+        <div class="profile-section-switch flex gap-2 p-1 mb-3 rounded-xl bg-slate-900/70" role="tablist" aria-label="Раздел профиля">
           <button class="profile-section-tab flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-white" data-profile-section="overview" role="tab" aria-controls="profile-overview-panel" aria-selected="true">Профиль</button>
           <button class="profile-section-tab flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-400 hover:text-white" data-profile-section="settings" role="tab" aria-controls="profile-settings-panel" aria-selected="false">Настройки</button>
         </div>
-        <section id="profile-overview-panel" class="profile-section-panel space-y-4" role="tabpanel" aria-label="Профиль">
+        <section id="profile-overview-panel" class="profile-section-panel space-y-3" role="tabpanel" aria-label="Профиль">
         <!-- Карточка профиля -->
-        <div class="bg-card rounded-2xl p-5 mb-6">
+        <div class="bg-card rounded-xl border border-slate-700/60 p-4">
           <div class="flex items-center gap-4 mb-4">
             <button id="profile-avatar-edit" type="button" class="relative flex-shrink-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" title="Изменить аватар" aria-label="Изменить аватар">
               <img id="profile-avatar" src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt="" class="w-20 h-20 rounded-full bg-slate-700 object-cover">
@@ -86,16 +86,16 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
             </div>
           </div>
 
-          <div class="grid grid-cols-3 gap-3 text-center">
-            <div class="bg-slate-800 rounded-xl p-3">
+          <div class="grid grid-cols-3 gap-2 text-center">
+            <div class="bg-slate-800/80 rounded-lg p-2.5">
               <div class="text-2xl font-bold">${ratingsCount ?? myRatingsList.length}</div>
               <div class="text-xs text-gray-400">Оценок</div>
             </div>
-            <div class="bg-slate-800 rounded-xl p-3">
+            <div class="bg-slate-800/80 rounded-lg p-2.5">
               <div class="text-2xl font-bold">${averageRating}</div>
               <div class="text-xs text-gray-400">Средняя</div>
             </div>
-            <div class="bg-slate-800 rounded-xl p-3">
+            <div class="bg-slate-800/80 rounded-lg p-2.5">
               <div class="text-2xl font-bold">${watchlistList.length}</div>
               <div class="text-xs text-gray-400">В планах</div>
             </div>
@@ -103,30 +103,30 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
         </div>
 
         <!-- История просмотров и отслеживание новых выпусков -->
-        <div class="bg-card rounded-2xl border border-slate-700 p-4 mb-4">
+        <div class="bg-card rounded-xl border border-slate-700/60 p-3">
           <h3 class="font-semibold mb-3">История просмотров</h3>
           <div id="watch-history" class="space-y-2"></div>
         </div>
-        <div class="bg-card rounded-2xl border border-slate-700 p-4 mb-4">
+        <div class="bg-card rounded-xl border border-slate-700/60 p-3">
           <h3 class="font-semibold mb-1">Просмотрено</h3>
           <p class="text-xs text-gray-500 mb-3">Здесь тайтлы, за которыми следим: уведомим о новых сезонах и сериях сериалов или частях фильма из коллекции TMDb.</p>
           <div id="watched-history" class="space-y-2"></div>
         </div>
 
         <!-- Оценки и список просмотра -->
-        <div class="flex gap-2 mb-4 overflow-x-auto scrollbar-hide">
+        <div class="flex gap-2 mb-2 overflow-x-auto scrollbar-hide">
           <button class="tab-btn px-4 py-2 bg-primary text-white rounded-full text-sm font-medium whitespace-nowrap" data-tab="ratings">Мои оценки</button>
           <button class="tab-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-tab="watchlist">Хочу посмотреть</button>
         </div>
 
-        <div id="profile-content" class="space-y-3">
+        <div id="profile-content" class="grid grid-cols-1 items-start gap-2 lg:grid-cols-2">
           ${renderMyRatings(myRatingsList)}
         </div>
         </section>
-        <section id="profile-settings-panel" class="profile-section-panel hidden space-y-4" role="tabpanel" aria-label="Настройки">
+        <section id="profile-settings-panel" class="profile-section-panel hidden space-y-3" role="tabpanel" aria-label="Настройки">
         <h2 class="text-xl font-bold mb-2">Настройки</h2>
         <!-- Настройки аккаунта и приложения -->
-        <div class="bg-card rounded-2xl p-5 mb-6">
+        <div class="bg-card rounded-xl border border-slate-700/60 p-4">
           <h3 class="font-semibold mb-4">Ник и аватар</h3>
           <div class="flex items-center gap-4 mb-4">
             <img id="avatar-preview" src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt="" class="w-16 h-16 rounded-full bg-slate-700">
@@ -226,7 +226,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
 
         <!-- Секция админа: управление пользователями -->
         ${currentUser.profile.is_admin ? `
-          <div class="bg-card rounded-2xl p-4 mb-6">
+          <div class="bg-card rounded-xl border border-slate-700/60 p-4">
             <h3 class="font-semibold mb-3">👥 Управление доступом (${profileList.length})</h3>
             
             ${pendingUsers.length > 0 ? `
@@ -857,7 +857,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
 function renderMyRatings(ratings) {
   if (!ratings || ratings.length === 0) {
     return `
-      <div class="text-center py-12 text-gray-500">
+      <div class="col-span-full text-center py-12 text-gray-500">
         <div class="text-4xl mb-3">📝</div>
         <p>Вы еще не поставили ни одной оценки</p>
       </div>
@@ -871,7 +871,7 @@ function renderMyRatings(ratings) {
     const ratingColor = r.rating >= 8 ? 'bg-green-600' : r.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
 
     return `
-      <div class="title-card bg-card rounded-2xl p-4 flex gap-4 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
+      <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="profile-card-poster flex-shrink-0">
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
         </div>
@@ -894,7 +894,7 @@ function renderMyRatings(ratings) {
 function renderWatchlist(items) {
   if (!items || items.length === 0) {
     return `
-      <div class="text-center py-12 text-gray-500">
+      <div class="col-span-full text-center py-12 text-gray-500">
         <div class="text-4xl mb-3">📋</div>
         <p>Список «Хочу посмотреть» пуст</p>
       </div>
@@ -907,7 +907,7 @@ function renderWatchlist(items) {
     const year = releaseYear(title.release_date);
 
     return `
-      <div class="title-card bg-card rounded-2xl p-4 flex gap-4 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
+      <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="profile-card-poster flex-shrink-0">
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
         </div>

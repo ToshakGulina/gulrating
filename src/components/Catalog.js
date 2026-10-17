@@ -86,7 +86,7 @@ overlay.className = 'fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex flex
             <span id="catalog-count" class="text-xs text-gray-500 ml-auto"></span>
           </div>
           <div class="flex-1 overflow-y-auto p-4">
-            <div id="catalog-grid" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-3"></div>
+            <div id="catalog-grid" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-2"></div>
             <div class="text-center mt-4 pb-2">
               <button id="catalog-more" class="hidden px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm">Показать ещё</button>
             </div>

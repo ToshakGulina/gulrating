@@ -41,6 +41,18 @@ let rendering = false;
 let offlineOnlySession = false;
 let onlineRefreshPending = false;
 let networkWasOffline = false;
+let renderedAuthUserSignature = null;
+
+function authUserSignature(user) {
+  if (!user) return null;
+  return JSON.stringify([
+    user.id,
+    user.email || '',
+    user.phone || '',
+    user.user_metadata || {},
+    user.app_metadata || {},
+  ]);
+}
 
 // Сеть пропала/вернулась: интерфейс живёт из кэша, объясняем состояние
 window.addEventListener('offline', () => {
@@ -61,6 +73,15 @@ window.addEventListener('online', () => {
 });
 
 function hideSplash() {
+  const html = document.documentElement;
+  if (html.classList.contains('skip-entry-motion')) {
+    // Не дать отключённым на время загрузки CSS-анимациям стартовать заново
+    // именно в момент снятия временного класса; новые элементы оживут штатно.
+    document.querySelectorAll(
+      '#app:not(:empty), #blocks-wrap > *, #ratings-list > .title-card, #trends-grid > .rec-card, .profile-section-panel:not(.hidden), .rating-modal-panel, .fixed.inset-0:not(#boot-splash), #search-results:not(.hidden), nav.fixed, #toast-container > *'
+    ).forEach((element) => { element.style.animation = 'none'; });
+    html.classList.remove('skip-entry-motion');
+  }
   const splash = document.getElementById('boot-splash');
   if (!splash || splash.classList.contains('splash-leaving')) return;
   splash.classList.add('splash-leaving');
@@ -74,6 +95,7 @@ async function renderApp() {
   rendering = true;
   try {
     const currentUser = await getCurrentUser();
+    renderedAuthUserSignature = authUserSignature(currentUser);
     offlineOnlySession = Boolean(currentUser && currentUser.offlineOnly);
     setSyncUser(currentUser);
     if (currentUser) {
@@ -144,9 +166,16 @@ async function init() {
   }
 
   // Реагируем на вход/выход (в том числе на возврат по магической ссылке)
-  supabase.auth.onAuthStateChange((event) => {
-    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
-      renderApp();
+  supabase.auth.onAuthStateChange((event, session) => {
+    const nextSignature = authUserSignature(session && session.user);
+    if (event === 'SIGNED_IN') {
+      // Supabase пересылает auth-события между вкладками. Повторный SIGNED_IN
+      // того же аккаунта не должен заново собирать экран и мигать лентой.
+      if (nextSignature !== renderedAuthUserSignature) renderApp();
+    } else if (event === 'SIGNED_OUT') {
+      if (renderedAuthUserSignature !== null) renderApp();
+    } else if (event === 'USER_UPDATED') {
+      if (nextSignature !== renderedAuthUserSignature) renderApp();
     } else if (event === 'PASSWORD_RECOVERY') {
       // Вход по ссылке восстановления: перерисовываем app и сразу просим задать пароль
       renderApp();

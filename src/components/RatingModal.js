@@ -544,12 +544,12 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     // Подпись стоит перед средним баллом; по наведению/фокусу или нажатию
     // можно посмотреть, чьи оценки вошли в среднее.
     const friendsBadge = averageRating
-      ? `<details class="friends-score-details relative">
-          <summary class="friends-score-pill inline-flex cursor-help items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}. Показать список оценок`)}" title="Наведите или нажмите, чтобы увидеть список оценок">${FRIENDS_ICON}<span class="text-gray-500">${scoreLabel}</span><b class="text-pink-300">${averageRating}</b><span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span></summary>
-          <div class="friends-score-popover rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl" aria-label="Список оценок друзей">
+      ? `<div class="friends-score-details relative inline-block">
+          <button id="friends-score-trigger" type="button" class="friends-score-pill friends-score-trigger inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}. Показать список оценок`)}" aria-expanded="false" aria-controls="friends-score-popover" title="Наведите или нажмите, чтобы увидеть список оценок">${FRIENDS_ICON}<span class="text-gray-500">${scoreLabel}</span><b class="text-pink-300">${averageRating}</b><span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span></button>
+          <div id="friends-score-popover" class="friends-score-popover rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl" role="region" aria-label="Список оценок">
             <ul class="space-y-1">${friendRatingRows}</ul>
           </div>
-        </details>`
+        </div>`
       : '';
 
     // Очередь внешних рейтингов: первые два доступных видны сразу,
@@ -695,17 +695,45 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     `;
 
     const friendScoreDetails = modal.querySelector('.friends-score-details');
-    if (friendScoreDetails) {
-      friendScoreDetails.addEventListener('keydown', (e) => {
+    const friendScoreTrigger = modal.querySelector('#friends-score-trigger');
+    if (friendScoreDetails && friendScoreTrigger) {
+      const setFriendsPopoverOpen = (open) => {
+        friendScoreDetails.dataset.open = String(open);
+        friendScoreTrigger.setAttribute('aria-expanded', String(open));
+      };
+      friendScoreTrigger.addEventListener('click', () => {
+        if (friendScoreDetails.dataset.open === 'true') {
+          setFriendsPopoverOpen(false);
+          friendScoreTrigger.blur();
+        } else {
+          setFriendsPopoverOpen(true);
+        }
+      });
+      friendScoreTrigger.addEventListener('focus', () => {
+        friendScoreTrigger.setAttribute('aria-expanded', 'true');
+      });
+      friendScoreDetails.addEventListener('pointerenter', () => {
+        if (window.matchMedia('(hover: hover)').matches) friendScoreTrigger.setAttribute('aria-expanded', 'true');
+      });
+      friendScoreDetails.addEventListener('pointerleave', () => {
+        if (friendScoreDetails.dataset.open !== 'true' && !friendScoreDetails.contains(document.activeElement)) {
+          friendScoreTrigger.setAttribute('aria-expanded', 'false');
+        }
+      });
+      friendScoreTrigger.addEventListener('blur', () => {
+        if (friendScoreDetails.dataset.open !== 'true') setFriendsPopoverOpen(false);
+      });
+      friendScoreTrigger.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
           e.stopPropagation();
-          friendScoreDetails.open = false;
-          friendScoreDetails.querySelector('summary')?.focus();
+          setFriendsPopoverOpen(false);
+          friendScoreTrigger.blur();
         }
       });
       modal.addEventListener('click', (e) => {
-        if (friendScoreDetails.open && !friendScoreDetails.contains(e.target)) {
-          friendScoreDetails.open = false;
+        if (friendScoreDetails.dataset.open === 'true' && !friendScoreDetails.contains(e.target)) {
+          setFriendsPopoverOpen(false);
+          friendScoreTrigger.blur();
         }
       });
     }
