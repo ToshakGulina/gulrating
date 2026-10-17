@@ -202,6 +202,16 @@ async function init() {
       .then((text) => {
         const m = text.match(/APP_BUILD\s*=\s*"([^"]+)"/);
         if (m && m[1] && m[1] !== APP_BUILD) {
+          // Обновляем уже открытые вкладки автоматически: иначе старый JS
+          // продолжает работать после деплоя, даже когда новая версия уже есть.
+          const reloadKey = `gulrating:reloaded_to_build:${m[1]}`;
+          try {
+            if (sessionStorage.getItem(reloadKey) !== '1') {
+              sessionStorage.setItem(reloadKey, '1');
+              window.location.reload();
+              return;
+            }
+          } catch (e) { /* storage недоступен — оставим ручное обновление */ }
           showToast('Доступна новая версия сайта — обновите страницу', 'info', 8000);
         }
       })
