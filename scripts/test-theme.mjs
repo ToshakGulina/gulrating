@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 const values = new Map();
 globalThis.localStorage = {
@@ -30,4 +31,10 @@ assert.equal(setTheme('light'), 'light');
 assert.equal(metas['meta[name="apple-mobile-web-app-status-bar-style"]'].content, 'default');
 assert.equal(setTheme('not-a-theme'), 'classic');
 assert.equal(getThemeId(), 'classic');
-console.log('Theme selection persists and applies full theme IDs/metadata.');
+
+const generatedCss = await readFile(new URL('../assets/tw.css', import.meta.url), 'utf8');
+assert.ok(generatedCss.includes('var(--theme-raised)/var(--tw-bg-opacity)'), 'slate surface utilities must use theme tokens');
+assert.ok(generatedCss.includes('var(--theme-card)/.7'), 'translucent card surfaces must use theme tokens');
+assert.ok(generatedCss.includes('var(--theme-text-500)'), 'neutral text utilities must use theme tokens');
+assert.ok(generatedCss.includes('var(--theme-border)/.6'), 'translucent borders must use theme tokens');
+console.log('Theme selection, persistence, metadata, and generated utility colors: OK.');
