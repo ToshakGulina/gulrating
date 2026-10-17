@@ -11,6 +11,8 @@ source = source.replace(
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const { searchTitles } = await import(moduleUrl);
 const originalFetch = globalThis.fetch;
+const originalWindow = globalThis.window;
+const hadWindow = Object.hasOwn(globalThis, 'window');
 
 try {
   const requests = [];
@@ -47,8 +49,32 @@ try {
   };
   await assert.rejects(() => searchTitles('test film'), /Ключ TMDb не принят сервером/);
   assert.equal(requests.length, 1, '401 should not be retried through the proxy');
+
+  // On Pages hosts, prefer the server-side proxy immediately, avoiding a
+  // round-trip to the geo-blocked public TMDb API.
+  globalThis.window = { location: { hostname: 'arena-46e90052-gulrating.gulrating.pages.dev' } };
+  const pagesModuleUrl = `data:text/javascript;base64,${Buffer.from(`${source}\n// Pages-host test`).toString('base64')}`;
+  const { searchTitles: searchOnPages } = await import(pagesModuleUrl);
+  requests.length = 0;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    requests.push(url);
+    assert.match(url, /^\/tmdb\/search\/multi\?/);
+    assert.doesNotMatch(url, /api_key=/);
+    return new Response(JSON.stringify({ results: [{
+      id: 456,
+      media_type: 'movie',
+      title: 'Pages proxy film',
+      release_date: '2021-01-01',
+    }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  const pagesResults = await searchOnPages('pages film');
+  assert.equal(requests.length, 1);
+  assert.equal(pagesResults[0].id, 456);
 } finally {
   globalThis.fetch = originalFetch;
+  if (hadWindow) globalThis.window = originalWindow;
+  else delete globalThis.window;
 }
 
 console.log('TMDb HTTP geo-block fallback: OK');

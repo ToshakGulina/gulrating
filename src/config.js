@@ -68,7 +68,7 @@ export const CONFIG = {
 // Метка сборки: видна в профиле внизу и в консоли браузера.
 // Помогает мгновенно понять, какая версия кода реально крутится в браузере
 // (предпросмотр / локальная копия / продакшен).
-export const APP_BUILD = "2026.10.17-95 (волна на кнопках)";
+export const APP_BUILD = "2026.10.17-96 (TMDb через Pages proxy)";
 
 export function saveLocalAnonKey(key) {
   try {
