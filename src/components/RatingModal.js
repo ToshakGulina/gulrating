@@ -1,5 +1,5 @@
 import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
-import { getTitleDetails, getTitleWatchProviders } from '../lib/tmdb.js';
+import { getTitleDetails } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
@@ -20,38 +20,6 @@ const IMDB_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-h
 const RU_CRITICS_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" aria-hidden="true"><clipPath id="ru-flag-clip"><rect x="3" y="8" width="26" height="16" rx="3"/></clipPath><g clip-path="url(#ru-flag-clip)"><rect x="3" y="8" width="26" height="16" fill="#ffffff"/><rect x="3" y="13.3" width="26" height="5.4" fill="#0039a6"/><rect x="3" y="18.7" width="26" height="5.3" fill="#d52b1e"/></g></svg>';
 const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18-3-3.6-3-14.4 0-18z"/></svg>';
 const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
-
-const WATCH_REGION_KEY = 'gulrating:watch_region';
-const WATCH_REGIONS = { DE: 'Германия', RU: 'Россия' };
-
-function getWatchRegion() {
-  try {
-    const saved = localStorage.getItem(WATCH_REGION_KEY);
-    if (saved && WATCH_REGIONS[saved]) return saved;
-  } catch (e) { /* private mode */ }
-  return 'DE';
-}
-
-function providerOffer(regionData, service) {
-  if (!regionData) return null;
-  const categories = [
-    ['flatrate', 'подписка'],
-    ['free', 'бесплатно'],
-    ['ads', 'с рекламой'],
-    ['rent', 'аренда'],
-    ['buy', 'покупка'],
-  ];
-  const matches = (name) => {
-    const value = String(name || '').toLocaleLowerCase('ru').replace(/ё/g, 'е');
-    if (service === 'kinopoisk') return /кино.?поиск|kinopoisk/.test(value);
-    return /(^|[^a-zа-я0-9])(ivi|иви)([^a-zа-я0-9]|$)/i.test(value);
-  };
-  for (const [key, label] of categories) {
-    const provider = (regionData[key] || []).find((item) => matches(item.provider_name));
-    if (provider) return label;
-  }
-  return '';
-}
 
 // Встроенный плеер: оверлей в нашем стиле. Источники и озвучки — ДВУМЯ
 // строками (сначала плеер: Alloha/Veoveo/…, затем его озвучки), выбор
@@ -588,10 +556,6 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const visibleRows = ratingRows.slice(0, 2);
     const extraRows = ratingRows.slice(2);
     const kpPageUrl = kinopoiskPageUrl(kpRatings && kpRatings.kpId);
-    const serviceQuery = `${title.title || title.original_title || ''} ${year || ''}`.trim();
-    const kinopoiskSearchUrl = `https://www.kinopoisk.ru/index.php?kp_query=${encodeURIComponent(serviceQuery)}`;
-    const iviSearchUrl = `https://www.ivi.ru/search/?q=${encodeURIComponent(serviceQuery)}`;
-
     modal.querySelector('h2').textContent = title.title || 'Фильм';
 
     document.getElementById('modal-content').innerHTML = `
@@ -626,26 +590,6 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
               : '';
           })()}
           <button id="watch-btn" class="watch-action-btn inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 mb-2 text-sm font-medium text-primary hover:bg-primary/20 hover:text-white transition-colors"><span aria-hidden="true">▶</span> Смотреть</button>
-          <section class="mb-3 w-full max-w-xl rounded-xl border border-slate-700/80 bg-slate-900/50 p-3" aria-label="Проверка каталогов онлайн-кинотеатров">
-            <div class="mb-2 flex flex-wrap items-center gap-2">
-              <span class="text-xs font-medium text-gray-300">Проверить каталог в</span>
-              <select id="watch-region" class="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-gray-200" aria-label="Регион каталога">
-                <option value="DE" ${getWatchRegion() === 'DE' ? 'selected' : ''}>Германии</option>
-                <option value="RU" ${getWatchRegion() === 'RU' ? 'selected' : ''}>России</option>
-              </select>
-            </div>
-            <div class="flex flex-col gap-2">
-              <div class="flex flex-wrap items-center gap-2">
-                <a href="${escapeHtml(kinopoiskSearchUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex min-w-32 items-center justify-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm font-medium text-orange-200 hover:bg-orange-500/20">Кинопоиск <span aria-hidden="true">↗</span></a>
-                <span id="kinopoisk-provider-status" class="text-xs text-gray-400" aria-live="polite">Проверяем каталог TMDb…</span>
-              </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <a href="${escapeHtml(iviSearchUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex min-w-32 items-center justify-center gap-1 rounded-lg border border-violet-400/30 bg-violet-400/10 px-3 py-2 text-sm font-medium text-violet-200 hover:bg-violet-400/20">Иви <span aria-hidden="true">↗</span></a>
-                <span id="ivi-provider-status" class="text-xs text-gray-400" aria-live="polite">Проверяем каталог TMDb…</span>
-              </div>
-            </div>
-            <p id="watch-provider-note" class="mt-2 text-[11px] leading-relaxed text-gray-500">Каталог <a href="https://www.justwatch.com/" target="_blank" rel="noopener noreferrer" class="underline decoration-dotted underline-offset-2">JustWatch через TMDb</a> не проверяет ваш аккаунт и не подтверждает, что START/Amediateka входят в подписку для этого тайтла. Доступ уточняйте в сервисе.</p>
-          </section>
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
             ${friendsBadge}
@@ -721,48 +665,6 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         </details>
       ` : ''}
     `;
-
-    // Наличие берём из регионального каталога TMDb/JustWatch; сами кнопки
-    // открывают поиск в сервисе, где пользователь может подтвердить доступ.
-    const providerRegion = modal.querySelector('#watch-region');
-    const providerStatus = {
-      kinopoisk: modal.querySelector('#kinopoisk-provider-status'),
-      ivi: modal.querySelector('#ivi-provider-status'),
-    };
-    let providerRegions = null;
-    let providerLookupFailed = false;
-    const updateProviderStatuses = () => {
-      const region = providerRegion.value;
-      const regionName = WATCH_REGIONS[region] || region;
-      for (const service of ['kinopoisk', 'ivi']) {
-        const el = providerStatus[service];
-        if (providerLookupFailed) {
-          el.textContent = 'Не удалось проверить каталог';
-        } else if (!providerRegions) {
-          el.textContent = `Проверяем каталог ${regionName}…`;
-        } else if (!Object.prototype.hasOwnProperty.call(providerRegions, region)) {
-          el.textContent = `Нет данных TMDb для региона ${region}`;
-        } else {
-          const offer = providerOffer(providerRegions[region], service);
-          el.textContent = offer
-            ? `TMDb · ${region}: ${offer}`
-            : `В данных TMDb (${region}) не найдено`;
-        }
-      }
-    };
-    providerRegion.addEventListener('change', () => {
-      try { localStorage.setItem(WATCH_REGION_KEY, providerRegion.value); } catch (e) { /* private mode */ }
-      updateProviderStatuses();
-    });
-    getTitleWatchProviders(titleId, mediaType)
-      .then((regions) => {
-        providerRegions = regions;
-        updateProviderStatuses();
-      })
-      .catch(() => {
-        providerLookupFailed = true;
-        updateProviderStatuses();
-      });
 
     // --- Постер: клик открывает крупный просмотр ---
     const posterBox = document.getElementById('poster-box');
