@@ -5,10 +5,12 @@ import { configIsComplete, APP_BUILD } from './config.js';
 import { setSyncUser, syncUserData } from './lib/userSync.js';
 import { activePageKey, clearPageState } from './lib/pageState.js';
 import { applyTheme, getThemeId } from './lib/theme.js';
+import { installButtonRipple } from './lib/buttonRipple.js';
 
 // Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
 // Тема из локальных настроек применяется до первой отрисовки.
 applyTheme(getThemeId());
+installButtonRipple();
 
 console.info(`🎬 ГульРейтинг — сборка ${APP_BUILD}`);
 import { showToast } from './lib/dom.js';
