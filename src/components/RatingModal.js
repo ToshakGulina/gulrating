@@ -514,14 +514,15 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       year
     });
 
-    const groupRatings = allRatings.filter(r => r.user_id !== currentUser.id);
-    const averageRating = groupRatings.length > 0
-      ? (groupRatings.reduce((sum, r) => sum + Number(r.rating), 0) / groupRatings.length).toFixed(1)
+    const companyRatings = allRatings;
+    const averageRating = companyRatings.length > 0
+      ? (companyRatings.reduce((sum, r) => sum + Number(r.rating), 0) / companyRatings.length).toFixed(1)
       : null;
 
-    // Один короткий итог на карточке; подробный список оценок доступен ниже.
+    // Один короткий итог на карточке; среднее включает вашу оценку и оценки
+    // остальных участников. Подробный список доступен ниже.
     const friendsBadge = averageRating
-      ? `<span class="friends-score-pill inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300" title="Средняя оценка компании">${FRIENDS_ICON}<b class="text-pink-300">${averageRating}</b><span class="text-gray-500">компания · ${groupRatings.length}</span></span>`
+      ? `<span class="friends-score-pill inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300" title="Средняя оценка компании">${FRIENDS_ICON}<b class="text-pink-300">${averageRating}</b><span class="text-gray-500">компания · ${companyRatings.length}</span></span>`
       : '';
 
     // Очередь внешних рейтингов: первые два доступных видны сразу,
