@@ -21,10 +21,13 @@ const RU_CRITICS_ICON = '<svg viewBox="0 0 32 32" class="w-4 h-4 flex-shrink-0" 
 const CRITICS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18-3-3.6-3-14.4 0-18z"/></svg>';
 const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>';
 
-// Плеер в оверлее GulRating. В браузере получаем из Kinobox API прямой
-// iframeUrl выбранного источника и не загружаем страницу-обёртку зеркала.
-// Источники и озвучки показываются двумя рядами, выбор запоминается;
-// «не играет» прячет источник локально и переключает на следующий.
+// Встроенный плеер: оверлей в нашем стиле. Источники и озвучки — ДВУМЯ
+// строками (сначала плеер: Alloha/Veoveo/…, затем его озвучки), выбор
+// запоминается. Доступность каждого источника Function /kinobox проверяет
+// заранее (embed: 'any' | 'referer'): то, что не встраивается в браузере,
+// в браузере спрятано за счётчик «ещё N (в приложении)», мёртвые источники
+// не показываются вовсе. Кнопка «не играет» прячет источник в памяти
+// браузера и сразу включает следующий.
 const BAD_DUBS_KEY = 'gulrating:bad_dubs';
 
 // Embed-only плееры: открытые верхним документом отвечают «404 NOT FOUND» /
@@ -120,7 +123,6 @@ export function openWatchOverlay(opts) {
     frame.allow = 'fullscreen *; encrypted-media *; autoplay *; picture-in-picture *';
     frame.setAttribute('allowfullscreen', '');
     frame.setAttribute('webkitallowfullscreen', '');
-    frame.referrerPolicy = 'no-referrer';
     stage.classList.toggle('crop-vertical', cropVertical);
     // Плеерные CDN сверяют встраивающую страницу со списком зеркал:
     // без referer мы выглядим как прямой заход, а не как чужой сайт
@@ -380,10 +382,17 @@ export function openWatchOverlay(opts) {
       : 'Останьтесь в GulRating и повторите поиск позже; источник не открывается во вкладке браузера.';
   }
 
-  // В браузере всегда получаем iframeUrl каждого источника из Kinobox API.
-  // Не загружаем mirrorUrl (страницу Kinokino/Brogiro): это лишняя обёртка,
-  // которая могла открыть новую вкладку и повторно загрузить весь плеер.
-  load();
+  if (!apk && mirrorUrl) {
+    // В браузере зеркало показываем ВНУТРИ нашего оверлея: сохраняется
+    // полный виджет со всеми источниками (включая Alloha и Turbo) и крестик.
+    playersBox.style.display = 'none';
+    dubsBox.style.display = 'none';
+    ov.querySelector('#watch-bad').style.display = 'none';
+    hint.textContent = 'Плеер открыт в окне. Закройте его крестиком, чтобы вернуться к ГульРейтингу.';
+    showFrame(mirrorUrl);
+  } else {
+    load();
+  }
 }
 
 // «105 936 голосов» с правильным склонением
