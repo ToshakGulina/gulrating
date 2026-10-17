@@ -91,6 +91,22 @@ CREATE TABLE IF NOT EXISTS public.watchlist (
   UNIQUE(user_id, title_id)
 );
 
+-- Дополнительные личные статусы. «Хочу посмотреть» остаётся в watchlist,
+-- а «Просмотрено» также может определяться сохранённой оценкой.
+CREATE TABLE IF NOT EXISTS public.title_statuses (
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  title_id BIGINT REFERENCES public.titles(id) ON DELETE CASCADE NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('watched', 'in_progress', 'dropped')),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  PRIMARY KEY (user_id, title_id)
+);
+
+-- Удаляем только дубли: если конкретный пользователь уже оценил тот же тайтл,
+-- его собственная запись не должна оставаться в «Хочу посмотреть».
+DELETE FROM public.watchlist w
+USING public.ratings r
+WHERE w.user_id = r.user_id AND w.title_id = r.title_id;
+
 -- Миграция для баз, созданных старыми версиями схемы: оценки были SMALLINT,
 -- теперь допускаем десятые доли. Повторный запуск безопасен (тип уже такой).
 ALTER TABLE public.ratings ALTER COLUMN rating TYPE NUMERIC(3,1);
@@ -109,6 +125,7 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.titles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.watchlist ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.title_statuses ENABLE ROW LEVEL SECURITY;
 
 -- Проверка «пользователь одобрен админом». SECURITY DEFINER, чтобы функцию
 -- можно было вызывать из политик без рекурсии по RLS.
@@ -243,6 +260,24 @@ DROP POLICY IF EXISTS "Пользователи могут удалять из �
 CREATE POLICY "Пользователи могут удалять из своего списка" ON public.watchlist
   FOR DELETE USING (auth.uid() = user_id);
 
+-- Статусы видны и изменяются только владельцем.
+DROP POLICY IF EXISTS "Users can read own title statuses" ON public.title_statuses;
+CREATE POLICY "Users can read own title statuses" ON public.title_statuses
+  FOR SELECT USING (auth.uid() = user_id AND public.is_approved());
+
+DROP POLICY IF EXISTS "Users can insert own title statuses" ON public.title_statuses;
+CREATE POLICY "Users can insert own title statuses" ON public.title_statuses
+  FOR INSERT WITH CHECK (auth.uid() = user_id AND public.is_approved());
+
+DROP POLICY IF EXISTS "Users can update own title statuses" ON public.title_statuses;
+CREATE POLICY "Users can update own title statuses" ON public.title_statuses
+  FOR UPDATE USING (auth.uid() = user_id AND public.is_approved())
+  WITH CHECK (auth.uid() = user_id AND public.is_approved());
+
+DROP POLICY IF EXISTS "Users can delete own title statuses" ON public.title_statuses;
+CREATE POLICY "Users can delete own title statuses" ON public.title_statuses
+  FOR DELETE USING (auth.uid() = user_id);
+
 -- ----------------------------------------------------------------------------
 -- Права доступа ролей Supabase к таблицам.
 --
@@ -281,6 +316,12 @@ BEGIN
     WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'watchlist'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.watchlist;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'title_statuses'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.title_statuses;
   END IF;
 END $$;
 

@@ -1,4 +1,4 @@
-import { saveRating, addToWatchlist, removeFromWatchlist, getUserTitleStatus, deleteRating } from '../lib/ratings.js';
+import { saveRating, getUserTitleStatus, deleteRating, setUserTitleStatus } from '../lib/ratings.js';
 import { getTitleDetails, getFranchiseTitles } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
@@ -504,7 +504,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     // открывается (детали из кэша), оценку можно поставить в очередь
     const [status, allRatings, kpRatings] = await Promise.all([
       getUserTitleStatus(currentUser.id, titleId)
-        .catch(() => ({ hasRating: false, rating: null, isInWatchlist: false })),
+        .catch(() => ({ hasRating: false, rating: null, isInWatchlist: false, currentStatus: '' })),
       supabase
         .from('ratings')
         .select(`*, profiles!inner(*)`)
@@ -597,6 +597,16 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       <div class="flex gap-4 mb-4">
         <div id="poster-box" class="flex-shrink-0 w-28 ${title.poster_path ? 'cursor-zoom-in' : ''}" title="${title.poster_path ? 'Открыть постер' : ''}">
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-xl')}
+          <label class="mt-2 block cursor-default">
+            <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
+            <select id="title-status-select" class="w-full rounded-lg border border-slate-600 bg-slate-800 px-1 py-1.5 text-[10px] font-medium text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary" data-current-status="${escapeHtml(status.currentStatus || '')}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false) ? 'disabled title="Недоступно офлайн"' : ''}>
+              <option value="" ${!status.currentStatus ? 'selected' : ''}>Не отмечено</option>
+              <option value="watchlist" ${status.currentStatus === 'watchlist' ? 'selected' : ''} ${status.hasRating ? 'disabled' : ''}>Хочу посмотреть</option>
+              <option value="in_progress" ${status.currentStatus === 'in_progress' ? 'selected' : ''}>В процессе</option>
+              <option value="watched" ${status.currentStatus === 'watched' ? 'selected' : ''}>Просмотрено</option>
+              <option value="dropped" ${status.currentStatus === 'dropped' ? 'selected' : ''}>Заброшено</option>
+            </select>
+          </label>
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-bold text-lg leading-tight">${kpPageUrl
@@ -661,21 +671,17 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-white placeholder-gray-500 text-sm mb-3"
         >${escapeHtml(status.hasRating ? (status.rating.comment || '') : '')}</textarea>
         <div class="flex gap-2">
-          <button id="save-rating-btn" class="flex-1 bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-xl transition-colors">
-            ${status.hasRating ? 'Обновить оценку' : 'Сохранить оценку'}
+          <button id="save-rating-btn" class="flex-1 bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-xl transition-colors" title="Сохранить оценку и закрыть карточку">
+            ${status.hasRating ? 'Обновить оценку' : 'Поставить оценку'}
           </button>
-          ${status.hasRating ? `
-            <button id="delete-rating-btn" class="px-4 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-xl transition-colors">
-              Удалить
-            </button>
-          ` : ''}
+          <button id="save-rating-keep-open-btn" class="border border-slate-600 bg-slate-800 hover:bg-slate-700 text-gray-200 font-medium py-2 px-4 rounded-xl transition-colors" title="Сохранить оценку, оставив карточку открытой">
+            Сохранить
+          </button>
+          <button id="delete-rating-btn" class="px-4 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-xl transition-colors ${status.hasRating ? '' : 'hidden'}">
+            Удалить
+          </button>
         </div>
 
-        ${!status.hasRating ? `
-          <button id="add-watchlist-btn" class="w-full mt-2 py-2 px-4 rounded-xl border border-slate-700 hover:bg-slate-700 transition-colors text-sm ${status.isInWatchlist ? 'text-green-400 border-green-600/30 bg-green-600/10' : ''}">
-            ${status.isInWatchlist ? '✓ В списке «Хочу посмотреть»' : '+ Добавить в «Хочу посмотреть»'}
-          </button>
-        ` : ''}
       </div>
 
       ${allRatings.length > 0 ? `
@@ -732,6 +738,42 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       tabs.addEventListener('scroll', updateFranchiseScrollButtons, { passive: true });
       requestAnimationFrame(updateFranchiseScrollButtons);
     }).catch(() => {});
+
+    // Статус живёт в карточке тайтла под постером, отдельно от блока оценки.
+    const titleStatusSelect = modal.querySelector('#title-status-select');
+    if (titleStatusSelect) {
+      titleStatusSelect.addEventListener('click', event => event.stopPropagation());
+      titleStatusSelect.addEventListener('keydown', event => event.stopPropagation());
+      titleStatusSelect.addEventListener('change', async event => {
+        event.stopPropagation();
+        const nextStatus = titleStatusSelect.value;
+        const previousStatus = titleStatusSelect.dataset.currentStatus || '';
+        if (nextStatus === previousStatus) return;
+        titleStatusSelect.disabled = true;
+        try {
+          await setUserTitleStatus(currentUser.id, titleId, mediaType, nextStatus);
+          status.currentStatus = nextStatus || (status.hasRating ? 'watched' : '');
+          status.isInWatchlist = status.currentStatus === 'watchlist';
+          titleStatusSelect.dataset.currentStatus = status.currentStatus;
+          titleStatusSelect.value = status.currentStatus;
+          const labels = { watchlist: 'Хочу посмотреть', in_progress: 'В процессе', watched: 'Просмотрено', dropped: 'Заброшено', '': 'Не отмечено' };
+          showToast(`Статус: ${labels[status.currentStatus] || labels['']}`, 'success');
+          if (onSaveCallback) onSaveCallback();
+        } catch (error) {
+          if (error && error.statusSaved) {
+            status.currentStatus = nextStatus;
+            titleStatusSelect.dataset.currentStatus = nextStatus;
+            showToast(error.message, 'error', 6000);
+            if (onSaveCallback) onSaveCallback();
+          } else {
+            titleStatusSelect.value = previousStatus;
+            showToast(`Не удалось изменить статус: ${error.message}`, 'error', 5000);
+          }
+        } finally {
+          titleStatusSelect.disabled = false;
+        }
+      });
+    }
 
     const friendScoreDetails = modal.querySelector('.friends-score-details');
     const friendScoreTrigger = modal.querySelector('#friends-score-trigger');
@@ -926,36 +968,52 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       });
     }
 
-    // Сохранение оценки
-    document.getElementById('save-rating-btn').addEventListener('click', async () => {
+    // Оценку можно сохранить и закрыть карточку либо сохранить, оставив её открытой.
+    const saveRatingButton = modal.querySelector('#save-rating-btn');
+    const keepRatingModalOpenButton = modal.querySelector('#save-rating-keep-open-btn');
+    const deleteRatingButton = modal.querySelector('#delete-rating-btn');
+
+    const syncSavedRatingState = (score, comment) => {
+      status.hasRating = true;
+      status.rating = { ...(status.rating || {}), rating: score, comment };
+      status.currentStatus = 'watched';
+      saveRatingButton.textContent = 'Обновить оценку';
+      const statusSelect = modal.querySelector('#title-status-select');
+      if (statusSelect) {
+        statusSelect.value = 'watched';
+        statusSelect.dataset.currentStatus = 'watched';
+      }
+      deleteRatingButton?.classList.remove('hidden');
+    };
+
+    const saveSelectedRating = async (closeAfterSave, button) => {
       if (selectedScore === null) {
         showToast('Подвиньте бегунок, чтобы поставить оценку', 'error');
         return;
       }
       const comment = document.getElementById('rating-comment').value.trim();
-
-      const btn = document.getElementById('save-rating-btn');
-      btn.disabled = true;
-      btn.textContent = 'Сохраняем...';
+      const buttons = [saveRatingButton, keepRatingModalOpenButton];
+      buttons.forEach(control => { control.disabled = true; });
+      button.textContent = 'Сохраняем...';
 
       try {
         await saveRating(currentUser.id, titleId, mediaType, selectedScore, comment);
-        closeModal();
+        syncSavedRatingState(selectedScore, comment);
+        if (closeAfterSave) closeModal();
         showToast(`Оценка ${formatRating(selectedScore)} сохранена`, 'success');
         notifyTelegram(currentUser, title, selectedScore);
         if (onSaveCallback) onSaveCallback();
       } catch (e) {
         if (e && e.ratingSaved) {
-          // Рейтинг уже сохранён, но очистка watchlist не завершилась: не ставим
-          // ту же оценку в офлайн-очередь и сразу обновляем вид карточки.
-          closeModal();
+          // Оценка уже в базе: не отправляем её повторно в офлайн-очередь.
+          syncSavedRatingState(selectedScore, comment);
+          if (closeAfterSave) closeModal();
           showToast(e.message, 'error', 6000);
           notifyTelegram(currentUser, title, selectedScore);
           if (onSaveCallback) onSaveCallback();
           return;
         }
         if (networkLikeError(e)) {
-          // Офлайн: оценка не теряется, а встаёт в очередь на устройстве
           enqueueRating({
             title_id: title.id,
             media_type: mediaType,
@@ -964,60 +1022,36 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             title: title.title,
             poster_path: title.poster_path
           });
-          closeModal();
+          if (closeAfterSave) closeModal();
           showToast('Нет сети: оценка сохранена на устройстве и отправится в базу автоматически', 'info', 6000);
           if (onSaveCallback) onSaveCallback();
           return;
         }
         showToast('Ошибка при сохранении: ' + e.message, 'error', 5000);
-        btn.disabled = false;
-        btn.textContent = status.hasRating ? 'Обновить оценку' : 'Сохранить оценку';
+      } finally {
+        buttons.forEach(control => { control.disabled = false; });
+        if (modal.isConnected) {
+          saveRatingButton.textContent = status.hasRating ? 'Обновить оценку' : 'Поставить оценку';
+          keepRatingModalOpenButton.textContent = 'Сохранить';
+        }
+      }
+    };
+
+    saveRatingButton.addEventListener('click', () => saveSelectedRating(true, saveRatingButton));
+    keepRatingModalOpenButton.addEventListener('click', () => saveSelectedRating(false, keepRatingModalOpenButton));
+
+    // Удаление оценки; кнопка появляется после первого сохранения без закрытия.
+    deleteRatingButton?.addEventListener('click', async () => {
+      if (!status.hasRating || !confirm('Удалить вашу оценку?')) return;
+      try {
+        await deleteRating(currentUser.id, titleId);
+        closeModal();
+        showToast('Оценка удалена', 'success');
+        if (onSaveCallback) onSaveCallback();
+      } catch (e) {
+        showToast('Ошибка при удалении: ' + e.message, 'error', 5000);
       }
     });
-
-    // Удаление оценки
-    if (status.hasRating) {
-      document.getElementById('delete-rating-btn').addEventListener('click', async () => {
-        if (confirm('Удалить вашу оценку?')) {
-          try {
-            await deleteRating(currentUser.id, titleId);
-            closeModal();
-            showToast('Оценка удалена', 'success');
-            if (onSaveCallback) onSaveCallback();
-          } catch (e) {
-            showToast('Ошибка при удалении: ' + e.message, 'error', 5000);
-          }
-        }
-      });
-    }
-
-    // Добавление / удаление из «хочу посмотреть»
-    if (!status.hasRating) {
-      const watchlistBtn = document.getElementById('add-watchlist-btn');
-      watchlistBtn.addEventListener('click', async () => {
-        watchlistBtn.disabled = true;
-        try {
-          if (status.isInWatchlist) {
-            await removeFromWatchlist(currentUser.id, titleId);
-            status.isInWatchlist = false;
-            showToast('Убрали из «Хочу посмотреть»', 'success');
-          } else {
-            await addToWatchlist(currentUser.id, titleId, mediaType);
-            status.isInWatchlist = true;
-            showToast('Добавили в «Хочу посмотреть»', 'success');
-          }
-          watchlistBtn.textContent = status.isInWatchlist ? '✓ В списке «Хочу посмотреть»' : '+ Добавить в «Хочу посмотреть»';
-          watchlistBtn.classList.toggle('text-green-400', status.isInWatchlist);
-          watchlistBtn.classList.toggle('border-green-600/30', status.isInWatchlist);
-          watchlistBtn.classList.toggle('bg-green-600/10', status.isInWatchlist);
-          if (onSaveCallback) onSaveCallback();
-        } catch (e) {
-          showToast('Ошибка: ' + e.message, 'error', 5000);
-        } finally {
-          watchlistBtn.disabled = false;
-        }
-      });
-    }
 
   } catch (e) {
     document.getElementById('modal-content').innerHTML = `
