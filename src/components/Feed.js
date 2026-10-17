@@ -560,11 +560,14 @@ async function loadRatings(currentUser, filter = 'all') {
         <div class="p-2.5 sm:p-3 flex gap-3">
           <div class="feed-card-poster flex-shrink-0">
             ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
-            <select class="feed-status-select mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[10px] leading-tight text-gray-200 focus:outline-none focus:ring-1 focus:ring-primary" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${ownRatedIds.has(String(title.id)) ? 'watched' : ownWatchlistIds.has(String(title.id)) ? 'watchlist' : ''}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled title="Недоступно офлайн"' : ''}>
-              <option value="" ${!ownRatedIds.has(String(title.id)) && !ownWatchlistIds.has(String(title.id)) ? 'selected' : ''}>Статус</option>
-              <option value="watchlist" ${ownWatchlistIds.has(String(title.id)) && !ownRatedIds.has(String(title.id)) ? 'selected' : ''} ${ownRatedIds.has(String(title.id)) ? 'disabled' : ''}>Смотреть позже</option>
-              <option value="watched" ${ownRatedIds.has(String(title.id)) ? 'selected' : ''}>Просмотрено</option>
-            </select>
+            <label class="mt-1 block">
+              <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
+              <select class="feed-status-select w-full rounded-xl border border-slate-600 bg-slate-800 px-1.5 py-1.5 text-[10px] font-medium leading-tight text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${ownRatedIds.has(String(title.id)) ? 'watched' : ownWatchlistIds.has(String(title.id)) ? 'watchlist' : ''}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled title="Недоступно офлайн"' : ''}>
+                <option value="" ${!ownRatedIds.has(String(title.id)) && !ownWatchlistIds.has(String(title.id)) ? 'selected' : ''}>Не отмечено</option>
+                <option value="watchlist" ${ownWatchlistIds.has(String(title.id)) && !ownRatedIds.has(String(title.id)) ? 'selected' : ''} ${ownRatedIds.has(String(title.id)) ? 'disabled' : ''}>Смотреть позже</option>
+                <option value="watched" ${ownRatedIds.has(String(title.id)) ? 'selected' : ''}>Просмотрено</option>
+              </select>
+            </label>
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-start justify-between gap-2">
@@ -572,7 +575,7 @@ async function loadRatings(currentUser, filter = 'all') {
                 <h3 class="font-semibold text-lg leading-tight">${escapeHtml(title.title)}</h3>
                 <p class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${title.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
               </div>
-              ${!isWatchlistView ? (item.groupedRatings ? `
+              ${!isWatchlistView ? (item.groupedRatings && groupRows.length > 1 ? `
                 <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
                   <span class="text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
                   <strong class="text-lg leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
@@ -589,7 +592,7 @@ async function loadRatings(currentUser, filter = 'all') {
               `}
             </div>
             
-            ${item.groupedRatings ? `
+            ${item.groupedRatings && groupRows.length > 1 ? `
               <div class="grouped-ratings-list mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2" aria-label="Оценки друзей и ваша">
                 ${visibleGroupRows.map((r, index) => {
                   const score = Number(r.rating || 0);
@@ -605,12 +608,8 @@ async function loadRatings(currentUser, filter = 'all') {
                 ${hiddenGroupCount ? `<span class="pl-2 text-[10px] text-gray-500">и ещё ${ratingCountLabel(hiddenGroupCount)}</span>` : ''}
               </div>
             ` : `
-              <div class="mt-2 flex items-center gap-2">
-                <img src="${escapeHtml(safeAvatarUrl(user.avatar_url, user.username))}" alt="" class="w-6 h-6 rounded-full bg-slate-700">
-                <span class="text-sm text-gray-300">${escapeHtml(user.username)}</span>
-                <span class="text-xs text-gray-500">${formatDistanceToNow(new Date(item.created_at))}</span>
-              </div>
-              ${!isWatchlistView && item.comment ? `<p class="mt-2 text-gray-300 text-sm line-clamp-2">${escapeHtml(item.comment)}</p>` : ''}
+              <div class="mt-2 text-sm text-gray-300">${escapeHtml(groupRows.length === 1 ? groupRows[0].profiles?.username || 'Участник' : user.username)}</div>
+              ${!isWatchlistView && (groupRows[0]?.comment || item.comment) ? `<p class="mt-1 text-gray-300 text-sm line-clamp-2">${escapeHtml(groupRows[0]?.comment || item.comment)}</p>` : ''}
             `}
           </div>
         </div>
