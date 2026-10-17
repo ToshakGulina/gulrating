@@ -5,7 +5,7 @@ import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { enqueueRating, networkLikeError } from '../lib/offline.js';
-import { addWatchEntry, reportWatchNative, isApk } from '../lib/watchHistory.js';
+import { addWatchEntry, reportWatchNative, isApk, getPositions, saveWatchPosition } from '../lib/watchHistory.js';
 import { fetchKinoboxPlayers, qualityRank } from '../lib/kinobox.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
@@ -45,6 +45,29 @@ function isEmbedOnly(url) {
   }
 }
 
+// Same-origin policy blocks inspection of most commercial player iframes.
+// Search the top player frame and any same-origin descendants; cross-origin
+// frames are deliberately skipped rather than weakening browser security.
+function findAccessibleVideo(win, depth = 0) {
+  if (!win || depth > 3) return null;
+  try {
+    const videos = win.document.querySelectorAll('video');
+    let candidate = null;
+    for (const video of videos) {
+      if (Number.isFinite(video.duration) && video.duration > 0) return video;
+      if (!candidate) candidate = video;
+    }
+    for (let i = 0; i < win.frames.length; i += 1) {
+      const nested = findAccessibleVideo(win.frames[i], depth + 1);
+      if (nested && Number.isFinite(nested.duration) && nested.duration > 0) return nested;
+      if (!candidate) candidate = nested;
+    }
+    return candidate;
+  } catch (e) {
+    return null;
+  }
+}
+
 function readBadDubs() {
   try {
     const v = JSON.parse(localStorage.getItem(BAD_DUBS_KEY) || '[]');
@@ -64,7 +87,7 @@ function markBadDub(type, name) {
 }
 
 export function openWatchOverlay(opts) {
-  const { kpId, imdbId, query, titleText, mirrorUrl } = opts || {};
+  const { kpId, imdbId, query, titleText, mirrorUrl, watchKey } = opts || {};
   const apk = isApk();
   const ov = document.createElement('div');
   ov.id = 'watch-overlay';
@@ -106,12 +129,112 @@ export function openWatchOverlay(opts) {
   let curType = null;
   let curName = null;
   let showHidden = false; // показать спрятанные (браузер: только-приложение; плохие)
+  let progressTimer = null;
+  let savedPosition = (!apk && watchKey) ? getPositions()[watchKey] || null : null;
+  const videoProgress = new WeakMap();
+
+  function saveVideoPosition(video, state, force = false) {
+    if (!watchKey || !state.resumeAttempted || !video) return;
+    const t = Number(video.currentTime);
+    const d = Number(video.duration);
+    if (t <= 0 || !Number.isFinite(t) || !Number.isFinite(d) || d <= 0) return;
+    const now = Date.now();
+    if (!force && now - (state.lastSavedAt || 0) < 10_000) return;
+    if (saveWatchPosition(watchKey, t, d, force)) {
+      state.lastSavedAt = now;
+      savedPosition = { t, d, at: now };
+    }
+  }
+
+  function tryResumeVideo(video, state) {
+    if (state.resumeAttempted) return true;
+    if (!savedPosition || !Number.isFinite(video.duration) || video.duration <= 0) return false;
+    const target = Number(savedPosition.t);
+    if (!Number.isFinite(target) || target < 30 || target >= video.duration - 10) {
+      state.resumeAttempted = true;
+      return true;
+    }
+    // Не перебиваем осознанное воспроизведение/перемотку, но успеваем
+    // продолжить, если autoplay продвинулся немного до загрузки метаданных.
+    if (video.currentTime > 15) {
+      state.resumeAttempted = true;
+      return true;
+    }
+    try {
+      video.currentTime = target;
+      state.resumeAttempted = true;
+    } catch (e) {
+      state.resumeAttempted = true;
+    }
+    return state.resumeAttempted;
+  }
+
+  function inspectPlayerFrame() {
+    if (apk || !watchKey) return;
+    const frame = stage.querySelector('#watch-frame');
+    if (!frame) return;
+    const video = findAccessibleVideo(frame.contentWindow);
+    if (!video) return;
+    let state = videoProgress.get(video);
+    if (!state) {
+      state = {
+        resumeAttempted: !savedPosition || Number(savedPosition.t) < 30,
+        lastSavedAt: Number(savedPosition && savedPosition.at) || 0
+      };
+      videoProgress.set(video, state);
+      video.addEventListener('loadedmetadata', () => {
+        if (tryResumeVideo(video, state)) saveVideoPosition(video, state);
+      });
+      video.addEventListener('timeupdate', () => saveVideoPosition(video, state));
+      video.addEventListener('pause', () => saveVideoPosition(video, state, true));
+      video.addEventListener('seeked', () => saveVideoPosition(video, state, true));
+      video.addEventListener('ended', () => saveVideoPosition(video, state, true));
+    }
+    if (tryResumeVideo(video, state)) saveVideoPosition(video, state);
+  }
+
+  function saveCurrentProgress() {
+    const frame = stage.querySelector('#watch-frame');
+    const video = frame && findAccessibleVideo(frame.contentWindow);
+    const state = video && videoProgress.get(video);
+    if (video && state) saveVideoPosition(video, state, true);
+  }
+
+  function onProgressVisibilityChange() {
+    if (document.visibilityState !== 'hidden') return;
+    inspectPlayerFrame();
+    saveCurrentProgress();
+  }
+
+  function onProgressPageHide() {
+    inspectPlayerFrame();
+    saveCurrentProgress();
+  }
+
+  function startProgressTracking(frame) {
+    if (apk || !watchKey) return;
+    frame.addEventListener('load', inspectPlayerFrame);
+    if (progressTimer) clearInterval(progressTimer);
+    inspectPlayerFrame();
+    progressTimer = setInterval(inspectPlayerFrame, 1500);
+    document.addEventListener('visibilitychange', onProgressVisibilityChange);
+    window.addEventListener('pagehide', onProgressPageHide);
+  }
+
+  function stopProgressTracking() {
+    if (progressTimer) clearInterval(progressTimer);
+    progressTimer = null;
+    saveCurrentProgress();
+    document.removeEventListener('visibilitychange', onProgressVisibilityChange);
+    window.removeEventListener('pagehide', onProgressPageHide);
+  }
 
   const CHIP = 'px-3 py-1.5 rounded-full text-xs whitespace-nowrap flex-shrink-0 ';
   const CHIP_IDLE = CHIP + 'bg-slate-800 hover:bg-slate-700 text-gray-200';
   const CHIP_ON = CHIP + 'bg-primary text-white';
 
   function showFrame(url, provider = '') {
+    if (!apk && watchKey) saveCurrentProgress();
     stage.innerHTML = '';
     const frame = document.createElement('iframe');
     frame.id = 'watch-frame';
@@ -124,6 +247,7 @@ export function openWatchOverlay(opts) {
     frame.referrerPolicy = /^(gencit|gendit|flixcdn)$/i.test(provider) ? 'no-referrer' : 'origin';
     frame.src = url;
     stage.appendChild(frame);
+    startProgressTracking(frame);
   }
 
   function curGroup() {
@@ -287,6 +411,7 @@ export function openWatchOverlay(opts) {
     }
   });
   ov.querySelector('#watch-close').addEventListener('click', () => {
+    stopProgressTracking();
     removeOverlayListeners();
     ov.remove();
   });
@@ -296,6 +421,7 @@ export function openWatchOverlay(opts) {
       return;
     }
     if (e.key === 'Escape') {
+      stopProgressTracking();
       removeOverlayListeners();
       ov.remove();
     }
@@ -352,7 +478,7 @@ export function openWatchOverlay(opts) {
         }
         hint.textContent = apk
           ? 'Тап по источнику — только выбор; тап по озвучке — запуск сразу во весь экран (ландшафт). Back — обычный вид. У источников с одной кнопкой озвучки переключает меню самого плеера.'
-          : 'Выберите озвучку для запуска. Во время просмотра список источников и озвучек остаётся видимым; выбор сразу переключает плеер.';
+          : 'Выберите озвучку для запуска. Список источников остаётся видимым; позиция запоминается, если источник разрешает браузеру её прочитать.';
       })
       .catch((err) => {
         if (generation === loadGeneration && !mirrorMode) {
@@ -963,7 +1089,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           kpId: kpRatings && kpRatings.kpId,
           query: `${title.title || title.name || ''} ${yr}`.trim(),
           titleText: title.title || title.name || '',
-          mirrorUrl: kpPageUrl
+          mirrorUrl: kpPageUrl,
+          watchKey: `${mediaType}:${titleId}`
         });
       });
     }

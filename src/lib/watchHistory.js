@@ -1,14 +1,15 @@
 // История просмотров и уведомления о новых сезонах.
 // Всё живёт локально на устройстве (localStorage): факт просмотра, кнопка
 // «Продолжить», отметка «досмотрено» и снимок числа сезонов/серий для слежения.
-// Позиция воспроизведения приходит из APK: нативный мост GulRatingBridge
-// опрашивает <video> плеера и отдаёт позиции через getPositions().
+// APK хранит прогресс в нативном мосте; браузер — в localStorage, если плеер
+// доступен странице (same-origin HTML5 video).
 
 import { getTitleDetails, getMovieCollection } from './tmdb.js';
 
 const HIST_KEY = 'gulrating:watch_history';
 const NOTIF_KEY = 'gulrating:notifications';
 const CHECK_KEY = 'gulrating:season_check_at';
+const POSITIONS_KEY = 'gulrating:watch_positions';
 // Проверка только при входе в приложение и не чаще раза в неделю:
 // фоном ничего не крутится совсем
 const CHECK_EVERY = 7 * 24 * 60 * 60 * 1000;
@@ -65,14 +66,30 @@ export function removeWatchEntry(key) {
   write(HIST_KEY, read(HIST_KEY, []).filter(i => i.key !== key));
 }
 
-// Позиции из APK: { "tv:123": { t, d, at } } — для прогресс-бара «как в YT»
+// Позиции для прогресс-бара: { "tv:123": { t, d, at } }.
 export function getPositions() {
-  if (!isApk()) return {};
+  if (!isApk()) return read(POSITIONS_KEY, {});
   try {
     return JSON.parse(window.GulRatingBridge.getPositions() || '{}');
   } catch (e) {
     return {};
   }
+}
+
+// В браузере записываем только доступное HTML5-видео; на Android позицию
+// снимает нативный слой, чтобы не дублировать её в localStorage.
+export function saveWatchPosition(key, currentTime, duration, force = false) {
+  if (isApk() || !key) return false;
+  const t = Math.floor(Number(currentTime));
+  const d = Math.floor(Number(duration));
+  if (!Number.isFinite(t) || !Number.isFinite(d) || t <= 0 || d <= 0) return false;
+  const all = read(POSITIONS_KEY, {});
+  const previous = all[key];
+  const now = Date.now();
+  if (!force && previous && now - (Number(previous.at) || 0) < 10_000) return false;
+  all[key] = { t, d, at: now };
+  write(POSITIONS_KEY, all);
+  return true;
 }
 
 export function reportWatchNative(id, mediaType) {

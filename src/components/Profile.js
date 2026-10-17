@@ -609,7 +609,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
           window.location.href = item.kp_url;
           return;
         }
-        openWatchOverlay({ kpId: item.kpId, query: item.query || item.title, titleText: item.title, mirrorUrl: item.kp_url });
+        openWatchOverlay({ kpId: item.kpId, query: item.query || item.title, titleText: item.title, mirrorUrl: item.kp_url, watchKey: item.key });
       }));
       box.querySelectorAll('.wh-done').forEach(button => button.addEventListener('click', async () => {
         const key = button.closest('[data-key]').dataset.key;
