@@ -588,8 +588,11 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
     document.getElementById('modal-content').innerHTML = `
       <div id="franchise-tabs" class="hidden -mx-4 -mt-4 mb-4 border-b border-slate-700 bg-slate-900/70 px-4 py-2.5">
-        <div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Франшиза</div>
-        <div class="franchise-tabs-list flex gap-1.5 overflow-x-auto scrollbar-hide" role="tablist" aria-label="Другие части франшизы"></div>
+        <div class="flex items-center gap-1.5">
+          <button type="button" class="franchise-scroll-left hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700" aria-label="Прокрутить к предыдущим частям">‹</button>
+          <div class="franchise-tabs-list flex min-w-0 flex-1 gap-1.5 overflow-x-auto" role="tablist" aria-label="Другие части"></div>
+          <button type="button" class="franchise-scroll-right hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700" aria-label="Прокрутить к следующим частям">›</button>
+        </div>
       </div>
       <div class="flex gap-4 mb-4">
         <div id="poster-box" class="flex-shrink-0 w-28 ${title.poster_path ? 'cursor-zoom-in' : ''}" title="${title.poster_path ? 'Открыть постер' : ''}">
@@ -708,13 +711,26 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       tabs.innerHTML = parts.map(part => {
         const selected = Number(part.id) === Number(titleId) && part.media_type === mediaType;
         const partYear = releaseYear(part.release_date);
-        return `<button type="button" role="tab" aria-selected="${selected}" data-title-id="${escapeHtml(part.id)}" data-media-type="${escapeHtml(part.media_type)}" class="franchise-tab max-w-[210px] flex-shrink-0 truncate rounded-full border px-3 py-1.5 text-xs transition-colors ${selected ? 'border-primary bg-primary text-white' : 'border-slate-700 bg-slate-800 text-gray-300 hover:bg-slate-700'}">${escapeHtml(part.title || 'Тайтл')}${partYear ? ` · ${escapeHtml(partYear)}` : ''}</button>`;
+        return `<button type="button" role="tab" aria-selected="${selected}" data-title-id="${escapeHtml(part.id)}" data-media-type="${escapeHtml(part.media_type)}" class="franchise-tab max-w-[210px] flex-shrink-0 truncate whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition-colors ${selected ? 'border-primary bg-primary text-white' : 'border-slate-700 bg-slate-800 text-gray-300 hover:bg-slate-700'}">${escapeHtml(part.title || 'Тайтл')}${partYear ? ` · ${escapeHtml(partYear)}` : ''}</button>`;
       }).join('');
       tabs.querySelectorAll('.franchise-tab').forEach(tab => tab.addEventListener('click', () => {
         if (Number(tab.dataset.titleId) === Number(titleId) && tab.dataset.mediaType === mediaType) return;
         closeModal();
         openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback);
       }));
+
+      const scrollLeftButton = franchiseBox.querySelector('.franchise-scroll-left');
+      const scrollRightButton = franchiseBox.querySelector('.franchise-scroll-right');
+      const updateFranchiseScrollButtons = () => {
+        const maxScroll = tabs.scrollWidth - tabs.clientWidth;
+        const canScroll = maxScroll > 2;
+        scrollLeftButton.classList.toggle('hidden', !canScroll || tabs.scrollLeft <= 2);
+        scrollRightButton.classList.toggle('hidden', !canScroll || tabs.scrollLeft >= maxScroll - 2);
+      };
+      scrollLeftButton.addEventListener('click', () => tabs.scrollBy({ left: -Math.max(180, tabs.clientWidth * 0.75), behavior: 'smooth' }));
+      scrollRightButton.addEventListener('click', () => tabs.scrollBy({ left: Math.max(180, tabs.clientWidth * 0.75), behavior: 'smooth' }));
+      tabs.addEventListener('scroll', updateFranchiseScrollButtons, { passive: true });
+      requestAnimationFrame(updateFranchiseScrollButtons);
     }).catch(() => {});
 
     const friendScoreDetails = modal.querySelector('.friends-score-details');
