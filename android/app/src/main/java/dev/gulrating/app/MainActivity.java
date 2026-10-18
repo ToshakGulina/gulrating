@@ -60,11 +60,12 @@ public class MainActivity extends Activity {
     // Идёт сеанс плеера: после входа на хост плеера держим внутри WebView
     // любые редиректы и смежные домены, пока пользователь не вернётся на сайт
     private volatile boolean inPlayerSession = false;
-    // При сетевом сбое главной страницы переключаем запросы pages.dev
-    // на копию веб-приложения, встроенную в APK. URL/ origin остаётся тем же,
-    // поэтому localStorage, Supabase-сессия и кэш не теряются.
-    private volatile boolean useBundledWebApp = false;
+    // APK всегда запускается с локальной копии оболочки: для первого кадра
+    // и офлайн-старта не требуется доступ к pages.dev. Origin URL при этом
+    // остаётся прежним, поэтому сохраняются localStorage и Supabase-сессия.
+    private volatile boolean useBundledWebApp = true;
     private volatile boolean triedBundledFallback = false;
+    private volatile boolean remoteBuildCheckStarted = false;
     // Автофуллскрин с тапа по озвучке: ландшафт + иммерсив сразу;
     // выход — Back или возврат домой
     private boolean cinema = false;
@@ -207,7 +208,8 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (!isPlayerHost(url)) {
+                if (!isPlayerHost(url) && !isPlayerSessionUrl(url)) {
+                    if (useBundledWebApp && isHomeShellUrl(url)) checkRemoteBuildAndUpdate();
                     scheduleBundledBootCheck(url);
                     return;
                 }
@@ -343,6 +345,86 @@ public class MainActivity extends Activity {
         }, 13000);
     }
 
+    private boolean isHomeShellUrl(String url) {
+        Uri uri = Uri.parse(url == null ? "" : url);
+        String path = uri.getPath();
+        return HOME_HOST.equals(uri.getHost()) && (path == null || path.isEmpty()
+                || "/".equals(path) || "/index.html".equals(path));
+    }
+
+    // Обновление сайта проверяем в фоне уже после запуска локальной оболочки.
+    // Если pages.dev недоступен, пользователь остаётся в рабочем APK и не
+    // ждёт сеть; если на сайте другая сборка — переключаемся на неё без потери
+    // сессии и локальных данных (host/origin остаётся тем же).
+    private void checkRemoteBuildAndUpdate() {
+        if (remoteBuildCheckStarted || !useBundledWebApp || isFinishing()) return;
+        remoteBuildCheckStarted = true;
+        new Thread(() -> {
+            String localBuild = readBundledBuild();
+            String remoteBuild = fetchRemoteBuild();
+            if (remoteBuild != null && localBuild != null && !remoteBuild.equals(localBuild)) {
+                handler.post(() -> {
+                    if (isFinishing() || !useBundledWebApp || web == null) return;
+                    useBundledWebApp = false;
+                    web.loadUrl(HOME);
+                });
+            } else if (remoteBuild == null) {
+                // Сеть могла восстановиться позже; повторяем проверку редко,
+                // не мешая офлайн-работе и не дёргая батарею.
+                handler.postDelayed(() -> {
+                    if (!isFinishing() && useBundledWebApp) {
+                        remoteBuildCheckStarted = false;
+                        checkRemoteBuildAndUpdate();
+                    }
+                }, 60_000);
+            }
+        }, "gulrating-build-check").start();
+    }
+
+    private String readBundledBuild() {
+        try (java.io.InputStream input = getAssets().open("web/src/config.js")) {
+            return extractBuild(readUtf8(input));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String fetchRemoteBuild() {
+        java.net.HttpURLConnection connection = null;
+        try {
+            java.net.URL url = new java.net.URL(HOME + "src/config.js?build-check=1");
+            connection = (java.net.HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(2500);
+            connection.setReadTimeout(2500);
+            connection.setUseCaches(false);
+            connection.setRequestProperty("Cache-Control", "no-cache");
+            if (connection.getResponseCode() != 200) return null;
+            try (java.io.InputStream input = connection.getInputStream()) {
+                return extractBuild(readUtf8(input));
+            }
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private String readUtf8(java.io.InputStream input) throws java.io.IOException {
+        java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[4096];
+        int count;
+        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+        return output.toString("UTF-8");
+    }
+
+    private String extractBuild(String source) {
+        if (source == null) return null;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("APP_BUILD\\s*=\\s*\\\"([^\\\"]+)\\\"")
+                .matcher(source);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
     private WebResourceResponse bundledWebResponse(String requestPath) {
         String path = requestPath == null || requestPath.isEmpty() || "/".equals(requestPath)
                 ? "index.html" : requestPath.replaceFirst("^/", "");
@@ -458,52 +540,110 @@ public class MainActivity extends Activity {
         return false;
     }
 
+    private static final String FIND_VIDEO_JS =
+            "(function(){"
+                    + "function findVideo(w,depth){"
+                    + "try{var vs=w.document.querySelectorAll('video'),candidate=null;"
+                    + "for(var i=0;i<vs.length;i++){var v=vs[i];"
+                    + "if(Number.isFinite(v.duration)&&v.duration>0)return v;"
+                    + "if(!candidate)candidate=v;}"
+                    + "if(depth<3)for(var j=0;j<w.frames.length;j++){"
+                    + "var nested=findVideo(w.frames[j],depth+1);"
+                    + "if(nested&&Number.isFinite(nested.duration)&&nested.duration>0)return nested;"
+                    + "if(!candidate)candidate=nested;}return candidate;}"
+                    + "catch(e){}return null;}"
+                    + "var v=findVideo(window,0);"
+                    + "if(!v)return null;return {t:v.currentTime||0,d:v.duration||0};})()";
+
     private void probePlayer() {
         final String key = currentWatchKey;
-        if (key == null || key.isEmpty()) return;
-        if (!onPlayer()) return;
-        web.evaluateJavascript(
-                "(function(){var v=document.querySelector('video');if(!v||!v.duration)return '';return JSON.stringify({t:v.currentTime,d:v.duration});})()",
-                value -> {
-                    if (value == null || value.isEmpty() || "null".equals(value)) return;
-                    try {
-                        org.json.JSONObject o = new org.json.JSONObject(value);
-                        long t = Math.round(o.optDouble("t", 0));
-                        long d = Math.round(o.optDouble("d", 0));
-                        if (t <= 0 || d <= 0) return;
-                        SharedPreferences p = prefs();
-                        org.json.JSONObject all = new org.json.JSONObject(p.getString("positions", "{}"));
-                        org.json.JSONObject rec = new org.json.JSONObject();
-                        rec.put("t", t);
-                        rec.put("d", d);
-                        rec.put("at", System.currentTimeMillis());
-                        all.put(key, rec);
-                        p.edit().putString("positions", all.toString()).apply();
-                    } catch (Exception ignored) {
-                    }
-                });
+        if (key == null || key.isEmpty() || !onPlayer() || web == null) return;
+        web.evaluateJavascript(FIND_VIDEO_JS, value -> {
+            if (!key.equals(currentWatchKey) || value == null || value.isEmpty() || "null".equals(value)) return;
+            try {
+                Object decoded = new org.json.JSONTokener(value).nextValue();
+                // evaluateJavascript отдаёт JSON-представление результата; старые
+                // версии возвращали JSON.stringify(...) и получали здесь строку.
+                org.json.JSONObject state = decoded instanceof org.json.JSONObject
+                        ? (org.json.JSONObject) decoded
+                        : decoded instanceof String
+                                ? new org.json.JSONObject((String) decoded) : null;
+                if (state == null) return;
+                long t = Math.round(state.optDouble("t", 0));
+                long d = Math.round(state.optDouble("d", 0));
+                if (t <= 0 || d <= 0) return;
+                SharedPreferences p = prefs();
+                org.json.JSONObject all = new org.json.JSONObject(p.getString("positions", "{}"));
+                org.json.JSONObject rec = new org.json.JSONObject();
+                rec.put("t", t);
+                rec.put("d", d);
+                rec.put("at", System.currentTimeMillis());
+                all.put(key, rec);
+                p.edit().putString("positions", all.toString()).apply();
+            } catch (Exception ignored) {
+            }
+        });
     }
 
-    // Подставляем сохранённую позицию: плеер может инициализироваться с задержкой,
-    // поэтому несколько попыток
+    // Плеер может загрузить метаданные после onPageFinished. Повторяем попытку
+    // до 45 секунд и прекращаем, если пользователь уже начал смотреть дальше.
     private void resumePlayback(final WebView view) {
         final String key = currentWatchKey;
-        if (key == null || key.isEmpty()) return;
+        if (key == null || key.isEmpty() || view == null) return;
         try {
             org.json.JSONObject all = new org.json.JSONObject(prefs().getString("positions", "{}"));
             org.json.JSONObject rec = all.optJSONObject(key);
             if (rec == null) return;
             final long t = rec.optLong("t", 0);
             final long d = rec.optLong("d", 0);
-            // Не продолжаем начало и самый конец
             if (t < 30 || d <= 0 || t > d - 20) return;
-            for (int i = 0; i < 6; i++) {
-                handler.postDelayed(() -> view.evaluateJavascript(
-                        "(function(){var v=document.querySelector('video');if(!v||!v.duration||v.currentTime>5)return 'wait';v.currentTime=" + t + ";return 'ok';})()",
-                        val -> {
-                        }), i * 1500L);
-            }
+            attemptResumePlayback(view, view.getUrl(), t, 0);
         } catch (Exception ignored) {
+        }
+    }
+
+    private void attemptResumePlayback(final WebView view, final String playerUrl,
+                                       final long target, final int attempt) {
+        if (attempt >= 30 || view == null
+                || (!isPlayerHost(view.getUrl()) && !isPlayerSessionUrl(view.getUrl()))
+                || (playerUrl != null && !playerUrl.equals(view.getUrl()))) return;
+        String script = "(function(){"
+                + "function findVideo(w,depth){try{var vs=w.document.querySelectorAll('video'),candidate=null;"
+                + "for(var i=0;i<vs.length;i++){var v=vs[i];"
+                + "if(Number.isFinite(v.duration)&&v.duration>0)return v;"
+                + "if(!candidate)candidate=v;}"
+                + "if(depth<3)for(var j=0;j<w.frames.length;j++){"
+                + "var nested=findVideo(w.frames[j],depth+1);"
+                + "if(nested&&Number.isFinite(nested.duration)&&nested.duration>0)return nested;"
+                + "if(!candidate)candidate=nested;}return candidate;}"
+                + "catch(e){}return null;}"
+                + "var v=findVideo(window,0);if(!v)return 'wait';"
+                + "if(!Number.isFinite(v.duration)||v.duration<=0){"
+                + "if(v.__gulratingResumeTarget!==" + target + "){"
+                + "v.__gulratingResumeTarget=" + target + ";"
+                + "var retry=function(){v.removeEventListener('loadedmetadata',retry);"
+                + "if(Number.isFinite(v.duration)&&v.duration>" + target + "+10&&v.currentTime<=10)"
+                + "v.currentTime=" + target + ";};"
+                + "v.addEventListener('loadedmetadata',retry);}return 'wait';}"
+                + "if(v.currentTime>10)return 'already-playing';"
+                + "if(" + target + ">=v.duration-10)return 'invalid-position';"
+                + "v.currentTime=" + target + ";return 'seeked';})()";
+        view.evaluateJavascript(script, value -> {
+            String result = decodeJavascriptString(value);
+            if ("wait".equals(result)) {
+                handler.postDelayed(() -> attemptResumePlayback(view, playerUrl,
+                        target, attempt + 1), 1500L);
+            }
+        });
+    }
+
+    private String decodeJavascriptString(String value) {
+        if (value == null) return "";
+        try {
+            Object decoded = new org.json.JSONTokener(value).nextValue();
+            return decoded instanceof String ? (String) decoded : String.valueOf(decoded);
+        } catch (Exception ignored) {
+            return value;
         }
     }
 

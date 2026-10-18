@@ -17,6 +17,7 @@
 // Любая ошибка КП не ломает карточку фильма: значок просто не показывается.
 
 import { CONFIG } from '../config.js';
+import { moneyValue } from './money.js';
 
 const DIRECT_BASE = 'https://api.poiskkino.dev';
 
@@ -136,21 +137,43 @@ async function fetchMovieDetails(base, sendKey, kpId) {
   }
 }
 
-// budget/fees приходят объектами { value, currency } — вытаскиваем числа
+// Стриминговые ссылки берём только из watchability самого API Кинопоиска:
+// это конкретные карточки сервисов, а не просто существование страницы фильма.
+function extractWatchability(details) {
+  const items = details && details.watchability && details.watchability.items;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap(item => {
+    if (!item || !item.name || !item.url) return [];
+    try {
+      const url = new URL(item.url);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') return [];
+      return [{ name: String(item.name), url: url.toString() }];
+    } catch (e) {
+      return [];
+    }
+  });
+}
+
+// budget/fees приходят объектами { value, currency }; сохраняем валюту,
+// иначе локальные суммы (например, рубли) ошибочно показываются как доллары.
 function extractMoney(details) {
   if (!details) return null;
-  const num = (x) => {
-    const v = Number(x && typeof x === 'object' ? x.value : x);
-    return Number.isFinite(v) && v > 0 ? Math.round(v) : null;
+  const readMoney = (entry) => {
+    const parsed = moneyValue(entry);
+    return parsed ? { amount: Math.round(parsed.amount), currency: parsed.currency } : null;
   };
   const fees = details.fees || {};
-  const money = {
-    kpBudget: num(details.budget),
-    kpFeesWorld: num(fees.world),
-    kpFeesRussia: num(fees.russia),
-    kpFeesUsa: num(fees.usa)
+  const budget = readMoney(details.budget);
+  const world = readMoney(fees.world);
+  const russia = readMoney(fees.russia);
+  const usa = readMoney(fees.usa);
+  if (!budget && !world && !russia && !usa) return null;
+  return {
+    ...(budget ? { kpBudget: budget.amount, kpBudgetCurrency: budget.currency } : {}),
+    ...(world ? { kpFeesWorld: world.amount, kpFeesWorldCurrency: world.currency } : {}),
+    ...(russia ? { kpFeesRussia: russia.amount, kpFeesRussiaCurrency: russia.currency } : {}),
+    ...(usa ? { kpFeesUsa: usa.amount, kpFeesUsaCurrency: usa.currency } : {})
   };
-  return Object.values(money).some(v => v !== null) ? money : null;
 }
 
 async function fetchItems(base, sendKey, query) {
@@ -172,17 +195,42 @@ async function fetchItems(base, sendKey, query) {
   }
 }
 
+async function refreshKinopoiskWatchability(result, cacheKey) {
+  if (!result || !result.kpId) return result;
+  const checkedAt = Number(result.watchabilityAt) || 0;
+  if (Array.isArray(result.watchability) && checkedAt > 0 && Date.now() - checkedAt < 24 * 60 * 60 * 1000) {
+    return result;
+  }
+
+  for (const { base, sendKey } of baseList()) {
+    const details = await fetchMovieDetails(base, sendKey, result.kpId);
+    if (!details) continue;
+    const refreshed = {
+      ...result,
+      watchability: extractWatchability(details),
+      watchabilityAt: Date.now()
+    };
+    const money = extractMoney(details);
+    if (money) Object.assign(refreshed, money);
+    cache.set(cacheKey, refreshed);
+    kpDiskWrite(cacheKey, refreshed);
+    return refreshed;
+  }
+  return result;
+}
+
 // Ищем рейтинги Кинопоиска и IMDb по названию и году.
 // Возвращает { kp, imdb } (любое из полей может быть null) или null.
 export async function getKinopoiskRatings(title, originalTitle, year) {
   if (!kinopoiskConfigured() || !title) return null;
 
   const cacheKey = `${title}|${year || ''}`;
-  if (cache.has(cacheKey)) return cache.get(cacheKey);
+  if (cache.has(cacheKey)) return refreshKinopoiskWatchability(cache.get(cacheKey), cacheKey);
   const diskHit = kpDiskRead(cacheKey);
   if (diskHit !== undefined) {
-    cache.set(cacheKey, diskHit);
-    return diskHit;
+    const refreshed = await refreshKinopoiskWatchability(diskHit, cacheKey);
+    cache.set(cacheKey, refreshed);
+    return refreshed;
   }
 
   const queries = [title];
@@ -212,20 +260,12 @@ export async function getKinopoiskRatings(title, originalTitle, year) {
         : answer.items[0];
 
       const ratings = extractRatings(matched);
-      if (ratings && Object.values(ratings).some((x) => x !== null)) {
-        const rawId = matched && (matched.id !== undefined ? matched.id : matched.kinopoiskId);
-        result = { ...ratings, kpId: rawId !== undefined && rawId !== null ? Number(rawId) : null };
-        // Добираем бюджет и сборы из карточки тайтла (кэш сессии + кэш прокси)
-        if (result.kpId) {
-          const tries = [{ base, sendKey }, ...baseList().filter(b => b.base !== base)];
-          for (const t of tries) {
-            const money = extractMoney(await fetchMovieDetails(t.base, t.sendKey, result.kpId));
-            if (money) {
-              Object.assign(result, money);
-              break;
-            }
-          }
-        }
+      const rawId = matched && (matched.id !== undefined ? matched.id : matched.kinopoiskId);
+      const kpId = /^\d+$/.test(String(rawId ?? '')) ? Number(rawId) : null;
+      const matchedWatchability = extractWatchability(matched);
+      const hasRatings = ratings && Object.values(ratings).some(value => value !== null);
+      if (ratings && (hasRatings || kpId || matchedWatchability.length)) {
+        result = { ...ratings, kpId, watchability: matchedWatchability };
         break;
       }
     }
@@ -233,6 +273,7 @@ export async function getKinopoiskRatings(title, originalTitle, year) {
     if (reachable || result !== null) break;
   }
 
+  if (result) result = await refreshKinopoiskWatchability(result, cacheKey);
   cache.set(cacheKey, result);
   kpDiskWrite(cacheKey, result);
   return result;

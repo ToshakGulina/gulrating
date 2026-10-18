@@ -15,6 +15,15 @@ import { THEMES, getThemeId, setTheme } from '../lib/theme.js';
 
 // Полная тема оформления задаётся data-theme на корне документа.
 let installBoxUpdateHandler = null;
+
+function formatPlaybackTime(value) {
+  const seconds = Math.max(0, Math.floor(Number(value) || 0));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = String(seconds % 60).padStart(2, '0');
+  if (minutes < 60) return `${minutes}:${remainder}`;
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}:${remainder}`;
+}
+
 window.addEventListener('gulrating:pages-cleared', () => {
   if (!installBoxUpdateHandler) return;
   window.removeEventListener('gulrating:installable', installBoxUpdateHandler);
@@ -555,7 +564,10 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       if (!items.length) return `<p class="text-xs text-gray-600">${watched ? 'Пока ничего не отмечено.' : 'Пока пусто: нажмите «Смотреть» в карточке фильма или сериала.'}</p>`;
       return items.map(i => {
         const pos = positions[i.key];
-        const pct = pos && pos.d ? Math.min(100, Math.round(pos.t / pos.d * 100)) : null;
+        const savedSeconds = pos && Number.isFinite(Number(pos.t)) && Number(pos.t) > 0 ? Number(pos.t) : null;
+        const savedTime = savedSeconds === null ? null : formatPlaybackTime(savedSeconds);
+        const pct = pos && Number(pos.d) > 0 && savedSeconds !== null
+          ? Math.min(100, Math.round(savedSeconds / Number(pos.d) * 100)) : null;
         const status = watched
           ? (i.media_type === 'movie'
             ? (i.done.collectionId ? `Следим за новыми частями: ${escapeHtml(i.done.collectionName || 'коллекция TMDb')}` : 'Отмечено просмотренным; коллекция-продолжение в TMDb не указана')
@@ -569,7 +581,8 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
                 <span class="block truncate text-sm font-medium">${escapeHtml(i.title)}</span>
                 <span class="block text-[11px] text-gray-500">${status}</span>
                 ${watched ? `<span class="block text-[10px] text-gray-600">Отмечено ${new Date(i.done.at).toLocaleDateString('ru-RU')}</span>` : ''}
-                ${pct !== null ? `<span class="mt-1 block h-1 overflow-hidden rounded bg-slate-700"><span class="block h-full bg-red-500" style="width:${pct}%"></span></span><span class="block text-[10px] text-gray-500">просмотрено ${pct}%</span>` : ''}
+                ${pct !== null ? `<span class="mt-1 block h-1 overflow-hidden rounded bg-slate-700"><span class="block h-full bg-red-500" style="width:${pct}%"></span></span>` : ''}
+                ${savedTime !== null ? `<span class="block text-[10px] text-gray-500">Запомнено: ${savedTime}${pct !== null ? ` · ${pct}%` : ''}</span>` : ''}
               </span>
             </div>
             <div class="flex flex-col gap-1 flex-shrink-0 items-stretch">
@@ -609,7 +622,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
           window.location.href = item.kp_url;
           return;
         }
-        openWatchOverlay({ kpId: item.kpId, query: item.query || item.title, titleText: item.title, mirrorUrl: item.kp_url });
+        openWatchOverlay({ kpId: item.kpId, query: item.query || item.title, titleText: item.title, mirrorUrl: item.kp_url, watchKey: item.key });
       }));
       box.querySelectorAll('.wh-done').forEach(button => button.addEventListener('click', async () => {
         const key = button.closest('[data-key]').dataset.key;

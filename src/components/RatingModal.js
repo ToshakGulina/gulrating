@@ -5,8 +5,12 @@ import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { enqueueRating, networkLikeError } from '../lib/offline.js';
-import { addWatchEntry, reportWatchNative, isApk } from '../lib/watchHistory.js';
+import { addWatchEntry, reportWatchNative, isApk, getPositions, saveWatchPosition } from '../lib/watchHistory.js';
 import { fetchKinoboxPlayers, qualityRank } from '../lib/kinobox.js';
+import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
+import { friendRatingsLabel } from '../lib/ratingLabels.js';
+import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
+import { formatCompactMoney } from '../lib/money.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -45,6 +49,29 @@ function isEmbedOnly(url) {
   }
 }
 
+// Same-origin policy blocks inspection of most commercial player iframes.
+// Search the top player frame and any same-origin descendants; cross-origin
+// frames are deliberately skipped rather than weakening browser security.
+function findAccessibleVideo(win, depth = 0) {
+  if (!win || depth > 3) return null;
+  try {
+    const videos = win.document.querySelectorAll('video');
+    let candidate = null;
+    for (const video of videos) {
+      if (Number.isFinite(video.duration) && video.duration > 0) return video;
+      if (!candidate) candidate = video;
+    }
+    for (let i = 0; i < win.frames.length; i += 1) {
+      const nested = findAccessibleVideo(win.frames[i], depth + 1);
+      if (nested && Number.isFinite(nested.duration) && nested.duration > 0) return nested;
+      if (!candidate) candidate = nested;
+    }
+    return candidate;
+  } catch (e) {
+    return null;
+  }
+}
+
 function readBadDubs() {
   try {
     const v = JSON.parse(localStorage.getItem(BAD_DUBS_KEY) || '[]');
@@ -64,7 +91,7 @@ function markBadDub(type, name) {
 }
 
 export function openWatchOverlay(opts) {
-  const { kpId, imdbId, query, titleText, mirrorUrl } = opts || {};
+  const { kpId, imdbId, query, titleText, mirrorUrl, watchKey } = opts || {};
   const apk = isApk();
   const ov = document.createElement('div');
   ov.id = 'watch-overlay';
@@ -106,12 +133,112 @@ export function openWatchOverlay(opts) {
   let curType = null;
   let curName = null;
   let showHidden = false; // показать спрятанные (браузер: только-приложение; плохие)
+  let progressTimer = null;
+  let savedPosition = (!apk && watchKey) ? getPositions()[watchKey] || null : null;
+  const videoProgress = new WeakMap();
+
+  function saveVideoPosition(video, state, force = false) {
+    if (!watchKey || !state.resumeAttempted || !video) return;
+    const t = Number(video.currentTime);
+    const d = Number(video.duration);
+    if (t <= 0 || !Number.isFinite(t) || !Number.isFinite(d) || d <= 0) return;
+    const now = Date.now();
+    if (!force && now - (state.lastSavedAt || 0) < 10_000) return;
+    if (saveWatchPosition(watchKey, t, d, force)) {
+      state.lastSavedAt = now;
+      savedPosition = { t, d, at: now };
+    }
+  }
+
+  function tryResumeVideo(video, state) {
+    if (state.resumeAttempted) return true;
+    if (!savedPosition || !Number.isFinite(video.duration) || video.duration <= 0) return false;
+    const target = Number(savedPosition.t);
+    if (!Number.isFinite(target) || target < 30 || target >= video.duration - 10) {
+      state.resumeAttempted = true;
+      return true;
+    }
+    // Не перебиваем осознанное воспроизведение/перемотку, но успеваем
+    // продолжить, если autoplay продвинулся немного до загрузки метаданных.
+    if (video.currentTime > 15) {
+      state.resumeAttempted = true;
+      return true;
+    }
+    try {
+      video.currentTime = target;
+      state.resumeAttempted = true;
+    } catch (e) {
+      state.resumeAttempted = true;
+    }
+    return state.resumeAttempted;
+  }
+
+  function inspectPlayerFrame() {
+    if (apk || !watchKey) return;
+    const frame = stage.querySelector('#watch-frame');
+    if (!frame) return;
+    const video = findAccessibleVideo(frame.contentWindow);
+    if (!video) return;
+    let state = videoProgress.get(video);
+    if (!state) {
+      state = {
+        resumeAttempted: !savedPosition || Number(savedPosition.t) < 30,
+        lastSavedAt: Number(savedPosition && savedPosition.at) || 0
+      };
+      videoProgress.set(video, state);
+      video.addEventListener('loadedmetadata', () => {
+        if (tryResumeVideo(video, state)) saveVideoPosition(video, state);
+      });
+      video.addEventListener('timeupdate', () => saveVideoPosition(video, state));
+      video.addEventListener('pause', () => saveVideoPosition(video, state, true));
+      video.addEventListener('seeked', () => saveVideoPosition(video, state, true));
+      video.addEventListener('ended', () => saveVideoPosition(video, state, true));
+    }
+    if (tryResumeVideo(video, state)) saveVideoPosition(video, state);
+  }
+
+  function saveCurrentProgress() {
+    const frame = stage.querySelector('#watch-frame');
+    const video = frame && findAccessibleVideo(frame.contentWindow);
+    const state = video && videoProgress.get(video);
+    if (video && state) saveVideoPosition(video, state, true);
+  }
+
+  function onProgressVisibilityChange() {
+    if (document.visibilityState !== 'hidden') return;
+    inspectPlayerFrame();
+    saveCurrentProgress();
+  }
+
+  function onProgressPageHide() {
+    inspectPlayerFrame();
+    saveCurrentProgress();
+  }
+
+  function startProgressTracking(frame) {
+    if (apk || !watchKey) return;
+    frame.addEventListener('load', inspectPlayerFrame);
+    if (progressTimer) clearInterval(progressTimer);
+    inspectPlayerFrame();
+    progressTimer = setInterval(inspectPlayerFrame, 1500);
+    document.addEventListener('visibilitychange', onProgressVisibilityChange);
+    window.addEventListener('pagehide', onProgressPageHide);
+  }
+
+  function stopProgressTracking() {
+    if (progressTimer) clearInterval(progressTimer);
+    progressTimer = null;
+    saveCurrentProgress();
+    document.removeEventListener('visibilitychange', onProgressVisibilityChange);
+    window.removeEventListener('pagehide', onProgressPageHide);
+  }
 
   const CHIP = 'px-3 py-1.5 rounded-full text-xs whitespace-nowrap flex-shrink-0 ';
   const CHIP_IDLE = CHIP + 'bg-slate-800 hover:bg-slate-700 text-gray-200';
   const CHIP_ON = CHIP + 'bg-primary text-white';
 
   function showFrame(url, provider = '') {
+    if (!apk && watchKey) saveCurrentProgress();
     stage.innerHTML = '';
     const frame = document.createElement('iframe');
     frame.id = 'watch-frame';
@@ -124,6 +251,7 @@ export function openWatchOverlay(opts) {
     frame.referrerPolicy = /^(gencit|gendit|flixcdn)$/i.test(provider) ? 'no-referrer' : 'origin';
     frame.src = url;
     stage.appendChild(frame);
+    startProgressTracking(frame);
   }
 
   function curGroup() {
@@ -287,6 +415,7 @@ export function openWatchOverlay(opts) {
     }
   });
   ov.querySelector('#watch-close').addEventListener('click', () => {
+    stopProgressTracking();
     removeOverlayListeners();
     ov.remove();
   });
@@ -296,6 +425,7 @@ export function openWatchOverlay(opts) {
       return;
     }
     if (e.key === 'Escape') {
+      stopProgressTracking();
       removeOverlayListeners();
       ov.remove();
     }
@@ -352,7 +482,7 @@ export function openWatchOverlay(opts) {
         }
         hint.textContent = apk
           ? 'Тап по источнику — только выбор; тап по озвучке — запуск сразу во весь экран (ландшафт). Back — обычный вид. У источников с одной кнопкой озвучки переключает меню самого плеера.'
-          : 'Выберите озвучку для запуска. Во время просмотра список источников и озвучек остаётся видимым; выбор сразу переключает плеер.';
+          : 'Выберите озвучку для запуска. Список источников остаётся видимым; позиция запоминается, если источник разрешает браузеру её прочитать.';
       })
       .catch((err) => {
         if (generation === loadGeneration && !mirrorMode) {
@@ -415,16 +545,6 @@ function criticsLabel(value) {
     : `${Math.round(value)}%`;
 }
 
-// «150 млн $» / «1.2 млрд $» для бюджета и сборов
-function formatMoney(n) {
-  const v = Number(n);
-  if (!Number.isFinite(v) || v <= 0) return '';
-  if (v >= 1e9) return `${(v / 1e9).toFixed(1).replace('.', ',')} млрд $`;
-  if (v >= 1e6) return `${Math.round(v / 1e6)} млн $`;
-  if (v >= 1e3) return `${Math.round(v / 1e3)} тыс $`;
-  return `${v} $`;
-}
-
 function formatVotes(n) {
   const mod10 = n % 10;
   const mod100 = n % 100;
@@ -447,7 +567,7 @@ const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" ari
 
 // Пока оценка не выбрана, пузырёк над бегунком показывает позицию серым
 
-export async function openRatingModal(titleId, mediaType, currentUser, onSaveCallback) {
+export async function openRatingModal(titleId, mediaType, currentUser, onSaveCallback, franchiseContext = null) {
   // Создаем оверлей модалки
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm';
@@ -526,7 +646,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
     const sharedRatings = allRatings;
     const friendRatings = sharedRatings.filter((r) => r.user_id !== currentUser.id);
-    const scoreLabel = friendRatings.length ? 'Друзья' : 'Ваша оценка';
+    const scoreLabel = friendRatingsLabel(friendRatings, sharedRatings.length);
     const averageRating = sharedRatings.length > 0
       ? (sharedRatings.reduce((sum, r) => sum + Number(r.rating), 0) / sharedRatings.length).toFixed(1)
       : null;
@@ -541,15 +661,18 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       </li>`;
     }).join('');
 
-    // Подпись стоит перед средним баллом; по наведению/фокусу или нажатию
-    // можно посмотреть, чьи оценки вошли в среднее.
+    // Одна оценка уже подписана именем — список при наведении для неё не нужен.
+    const showFriendRatingsPopover = sharedRatings.length > 1;
+    const friendScoreContent = `${FRIENDS_ICON}<span class="text-gray-500">${escapeHtml(scoreLabel)}</span><b class="text-pink-300">${averageRating || ''}</b>${showFriendRatingsPopover ? `<span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span>` : ''}`;
     const friendsBadge = averageRating
-      ? `<div class="friends-score-details relative inline-block">
-          <button id="friends-score-trigger" type="button" class="friends-score-pill friends-score-trigger inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}. Показать список оценок`)}" aria-expanded="false" aria-controls="friends-score-popover" title="Наведите или нажмите, чтобы увидеть список оценок">${FRIENDS_ICON}<span class="text-gray-500">${scoreLabel}</span><b class="text-pink-300">${averageRating}</b><span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span></button>
-          <div id="friends-score-popover" class="friends-score-popover rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl" role="region" aria-label="Список оценок">
-            <ul class="space-y-1">${friendRatingRows}</ul>
-          </div>
-        </div>`
+      ? showFriendRatingsPopover
+        ? `<div class="friends-score-details relative inline-block">
+            <button id="friends-score-trigger" type="button" class="friends-score-pill friends-score-trigger inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}. Показать список оценок`)}" aria-expanded="false" aria-controls="friends-score-popover" title="Наведите или нажмите, чтобы увидеть список оценок">${friendScoreContent}</button>
+            <div id="friends-score-popover" class="friends-score-popover rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl" role="region" aria-label="Список оценок">
+              <ul class="space-y-1">${friendRatingRows}</ul>
+            </div>
+          </div>`
+        : `<span class="friends-score-pill inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}`)}">${friendScoreContent}</span>`
       : '';
 
     // Очередь внешних рейтингов: первые два доступных видны сразу,
@@ -584,14 +707,25 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const visibleRows = ratingRows.slice(0, 2);
     const extraRows = ratingRows.slice(2);
     const kpPageUrl = kinopoiskPageUrl(kpRatings && kpRatings.kpId);
+    const kpWatchUrl = getOfficialWatchUrl(kpRatings && kpRatings.watchability, 'kinopoisk');
+    const iviWatchUrl = getOfficialWatchUrl(kpRatings && kpRatings.watchability, 'ivi');
+    const platformWatchLinks = [
+      kpWatchUrl ? { name: 'Кинопоиск', url: kpWatchUrl } : null,
+      iviWatchUrl ? { name: 'Иви', url: iviWatchUrl } : null
+    ].filter(Boolean);
+    const platformWatchLinksHtml = platformWatchLinks.length
+      ? `<div class="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Прямые ссылки просмотра">
+          ${platformWatchLinks.map(link => `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" title="Прямая ссылка просмотра из watchability API Кинопоиска" class="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:border-primary/60 hover:text-white">▶ Смотреть на ${escapeHtml(link.name)}</a>`).join('')}
+        </div>`
+      : '';
     modal.querySelector('h2').textContent = title.title || 'Фильм';
 
     document.getElementById('modal-content').innerHTML = `
       <div id="franchise-tabs" class="hidden -mx-4 -mt-4 mb-4 border-b border-slate-700 bg-slate-900/70 px-4 py-2.5">
-        <div class="flex items-center gap-1.5">
-          <button type="button" class="franchise-scroll-left hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700" aria-label="Прокрутить к предыдущим частям">‹</button>
+        <div class="franchise-tabs-viewport flex min-w-0 items-center gap-1.5">
+          <button type="button" class="franchise-scroll-left hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700 disabled:opacity-30" aria-label="Прокрутить к предыдущим частям">‹</button>
           <div class="franchise-tabs-list flex min-w-0 flex-1 gap-1.5 overflow-x-auto" role="tablist" aria-label="Другие части"></div>
-          <button type="button" class="franchise-scroll-right hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700" aria-label="Прокрутить к следующим частям">›</button>
+          <button type="button" class="franchise-scroll-right hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700 disabled:opacity-30" aria-label="Прокрутить к следующим частям">›</button>
         </div>
       </div>
       <div class="flex gap-4 mb-4">
@@ -617,24 +751,33 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Открыть каталог с фильтром по жанру «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
           </div>
           ${(() => {
-            // TMDb и КП не дублируем: по каждой метрике одна строка;
-            // если источники расходятся — берём большую сумму
-            const pick = (...vals) => {
-              const nums = vals.map(v => Number(v)).filter(v => Number.isFinite(v) && v > 0);
-              return nums.length ? Math.max(...nums) : null;
+            // Сначала используем сумму и валюту Кинопоиска как одну пару.
+            // У TMDb валюта не передаётся; его значения трактуем как USD,
+            // но не сравниваем сырые суммы разных валют между собой.
+            const ruTitle = (title.origin_country || []).includes('RU');
+            const fromSources = (kpAmount, kpCurrency, tmdbAmount) => {
+              const localAmount = Number(kpAmount);
+              if (Number.isFinite(localAmount) && localAmount > 0) {
+                return { amount: localAmount, currency: kpCurrency || (ruTitle ? 'RUB' : null) };
+              }
+              const tmdbValue = Number(tmdbAmount);
+              return Number.isFinite(tmdbValue) && tmdbValue > 0
+                ? { amount: tmdbValue, currency: 'USD' }
+                : null;
             };
             const rows = [];
-            const budget = pick(title.budget, kpRatings && kpRatings.kpBudget);
-            const world = pick(title.revenue, kpRatings && kpRatings.kpFeesWorld);
-            const ru = pick(kpRatings && kpRatings.kpFeesRussia);
-            if (budget) rows.push(`Бюджет: ${formatMoney(budget)}`);
-            if (world) rows.push(`Сборы в мире: ${formatMoney(world)}`);
-            if (ru) rows.push(`Сборы в России: ${formatMoney(ru)}`);
+            const budget = fromSources(kpRatings && kpRatings.kpBudget, kpRatings && kpRatings.kpBudgetCurrency, title.budget);
+            const world = fromSources(kpRatings && kpRatings.kpFeesWorld, kpRatings && kpRatings.kpFeesWorldCurrency, title.revenue);
+            const ru = fromSources(kpRatings && kpRatings.kpFeesRussia, kpRatings && kpRatings.kpFeesRussiaCurrency, null);
+            if (budget) rows.push(`Бюджет: ${formatCompactMoney(budget.amount, budget.currency)}`);
+            if (world) rows.push(`Сборы в мире: ${formatCompactMoney(world.amount, world.currency)}`);
+            if (ru) rows.push(`Сборы в России: ${formatCompactMoney(ru.amount, ru.currency)}`);
             return rows.length
               ? `<div class="text-xs text-gray-500 mb-2 space-y-0.5">${rows.map((r, i) => `<div>${i === 0 ? '💵 ' : ''}${r}</div>`).join('')}</div>`
               : '';
           })()}
           <button id="watch-btn" class="watch-action-btn inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 mb-2 text-sm font-medium text-primary hover:bg-primary/20 hover:text-white transition-colors"><span aria-hidden="true">▶</span> Смотреть</button>
+          ${platformWatchLinksHtml}
           <div class="flex flex-col items-start gap-1.5 text-sm">
             ${visibleRows.map(row => `<span class="flex items-center gap-1.5">${row}</span>`).join('')}
             ${friendsBadge}
@@ -710,7 +853,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     // Рядом с заголовком показываем вкладки других частей франшизы.
     // TMDb-коллекцию фильмов дополняем точными совпадениями поиска сериалов.
     const franchiseBox = modal.querySelector('#franchise-tabs');
-    getFranchiseTitles(titleId, mediaType).then(parts => {
+    const franchisePartsPromise = Array.isArray(franchiseContext?.parts)
+      ? Promise.resolve(franchiseContext.parts)
+      : getFranchiseTitles(titleId, mediaType);
+    franchisePartsPromise.then(parts => {
       if (!modal.isConnected || !franchiseBox || !Array.isArray(parts) || parts.length < 2) return;
       franchiseBox.classList.remove('hidden');
       const tabs = franchiseBox.querySelector('.franchise-tabs-list');
@@ -722,21 +868,42 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       tabs.querySelectorAll('.franchise-tab').forEach(tab => tab.addEventListener('click', () => {
         if (Number(tab.dataset.titleId) === Number(titleId) && tab.dataset.mediaType === mediaType) return;
         closeModal();
-        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback);
+        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback, { parts });
       }));
 
       const scrollLeftButton = franchiseBox.querySelector('.franchise-scroll-left');
       const scrollRightButton = franchiseBox.querySelector('.franchise-scroll-right');
       const updateFranchiseScrollButtons = () => {
-        const maxScroll = tabs.scrollWidth - tabs.clientWidth;
-        const canScroll = maxScroll > 2;
-        scrollLeftButton.classList.toggle('hidden', !canScroll || tabs.scrollLeft <= 2);
-        scrollRightButton.classList.toggle('hidden', !canScroll || tabs.scrollLeft >= maxScroll - 2);
+        let maxScroll = fitSmallHorizontalOverflow(tabs);
+        if (maxScroll > 24 && tabs.dataset.scrollControls !== 'true') {
+          tabs.dataset.scrollControls = 'true';
+          scrollLeftButton.classList.remove('hidden');
+          scrollRightButton.classList.remove('hidden');
+          maxScroll = Math.max(0, tabs.scrollWidth - tabs.clientWidth);
+        }
+        const controlsEnabled = tabs.dataset.scrollControls === 'true';
+        const canScroll = controlsEnabled && maxScroll > 2;
+        const atStart = tabs.scrollLeft <= 2;
+        const atEnd = tabs.scrollLeft >= maxScroll - 2;
+        scrollLeftButton.classList.toggle('hidden', !controlsEnabled);
+        scrollRightButton.classList.toggle('hidden', !controlsEnabled);
+        scrollLeftButton.disabled = !canScroll || atStart;
+        scrollRightButton.disabled = !canScroll || atEnd;
       };
       scrollLeftButton.addEventListener('click', () => tabs.scrollBy({ left: -Math.max(180, tabs.clientWidth * 0.75), behavior: 'smooth' }));
       scrollRightButton.addEventListener('click', () => tabs.scrollBy({ left: Math.max(180, tabs.clientWidth * 0.75), behavior: 'smooth' }));
       tabs.addEventListener('scroll', updateFranchiseScrollButtons, { passive: true });
-      requestAnimationFrame(updateFranchiseScrollButtons);
+      updateFranchiseScrollButtons();
+      requestAnimationFrame(() => {
+        const selectedTab = tabs.querySelector('[aria-selected="true"]');
+        if (selectedTab) {
+          const tabsRect = tabs.getBoundingClientRect();
+          const selectedRect = selectedTab.getBoundingClientRect();
+          if (selectedRect.left < tabsRect.left) tabs.scrollLeft -= tabsRect.left - selectedRect.left;
+          else if (selectedRect.right > tabsRect.right) tabs.scrollLeft += selectedRect.right - tabsRect.right;
+        }
+        updateFranchiseScrollButtons();
+      });
     }).catch(() => {});
 
     // Статус живёт в карточке тайтла под постером, отдельно от блока оценки.
@@ -963,7 +1130,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           kpId: kpRatings && kpRatings.kpId,
           query: `${title.title || title.name || ''} ${yr}`.trim(),
           titleText: title.title || title.name || '',
-          mirrorUrl: kpPageUrl
+          mirrorUrl: kpPageUrl,
+          watchKey: `${mediaType}:${titleId}`
         });
       });
     }

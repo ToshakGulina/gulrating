@@ -1,4 +1,5 @@
 import { CONFIG } from '../config.js';
+import { getWikipediaFranchiseTitles } from './wikipedia.js';
 
 // На Cloudflare Pages используем собственную Pages Function как основной
 // источник: она обходит геоблок TMDb для российских IP. Для локальной сборки
@@ -198,6 +199,9 @@ export async function getTitleDetails(id, mediaType) {
     backdrop_path: data.backdrop_path,
     tmdb_rating: data.vote_average,
     genres: (data.genres || []).map(g => g.name),
+    origin_country: Array.isArray(data.origin_country)
+      ? data.origin_country
+      : (data.production_countries || []).map(country => country.iso_3166_1).filter(Boolean),
     budget: data.budget || null,
     revenue: data.revenue || null,
     seasons: data.number_of_seasons != null ? data.number_of_seasons : null,
@@ -219,120 +223,118 @@ export async function getMovieCollection(collectionId) {
     parts: (data.parts || []).map(part => ({
       id: part.id,
       title: part.title || '',
-      release_date: part.release_date || null
-    }))
+      release_date: part.release_date || null,
+    })),
   };
 }
 
-// Фильмы берутся только из официальной коллекции TMDb: совпадения по словам
-// из поиска не подтверждают, что они входят в одну франшизу. Сериалам достаточно
-// прямого совпадения названия с корнем франшизы.
-function franchiseRoot(title, collectionName = '') {
-  const source = collectionName || String(title || '').split(/[:(]/, 1)[0];
-  return String(source)
-    .replace(/\b(collection|franchise|коллекция|франшиза)\b/gi, '')
-    .replace(/\b(part|chapter|volume|часть|том)\s*\d+\b/gi, '')
-    .replace(/\s+/g, ' ')
+function removeArticleDisambiguation(value) {
+  return String(value || '')
+    .replace(/\s*\((?:\d{4}\s+)?(?:film|movie|tv series|television series|film series|franchise|фильм|сериал)\)\s*$/i, '')
+    .replace(/\s+\((?:18|19|20)\d{2}\)\s*$/, '');
+}
+
+function normalizeArticleTitle(value) {
+  return removeArticleDisambiguation(value)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('ru-RU')
+    .replace(/[’']/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 }
 
-function franchiseTokens(value) {
-  return String(value || '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(word => word.length > 2 && !/^\d+$/.test(word));
+async function resolveArticleTitles(articleTitles) {
+  const resolved = [];
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < articleTitles.length) {
+      const entry = articleTitles[cursor++];
+      const query = removeArticleDisambiguation(entry?.title).trim();
+      if (query.length < 2) continue;
+      const matches = await searchTitles(query).catch(() => []);
+      const wanted = normalizeArticleTitle(entry.title);
+      let exact = matches.filter(match => {
+        if (entry.media_type !== 'all' && match.media_type !== entry.media_type) return false;
+        return normalizeArticleTitle(match.title) === wanted
+          || normalizeArticleTitle(match.original_title) === wanted;
+      });
+      if (entry.year && exact.length) {
+        const yearMatches = exact.filter(match => {
+          const releaseYear = Number(String(match.release_date || '').slice(0, 4));
+          return releaseYear && Math.abs(releaseYear - Number(entry.year)) <= 1;
+        });
+        exact = yearMatches;
+      }
+      if (exact.length) resolved.push(exact[0]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(8, articleTitles.length) }, worker));
+  return resolved;
 }
 
-function hasDirectFranchiseName(title, franchiseName) {
-  const franchiseWords = franchiseTokens(franchiseName);
-  const titleWords = franchiseTokens(title);
-  if (!franchiseWords.length || titleWords.length < franchiseWords.length) return false;
-
-  // Для коротких названий допускаем подзаголовок, например «Alien: Earth».
-  if (franchiseWords.length === 1) return titleWords[0] === franchiseWords[0];
-  return franchiseWords.every((word, index) => titleWords[index] === word);
-}
-
+// Берём перечень из первой релевантной статьи Wikipedia с секцией фильмов,
+// сопоставляя каждую ссылку только с точным названием в TMDb. Если такой
+// статьи/сопоставлений нет, используем только официальную TMDb-коллекцию.
 export async function getFranchiseTitles(id, mediaType) {
   const current = await getTitleDetails(id, mediaType);
-  const titleRoot = franchiseRoot(current.title);
-  const [collection, initialMatches] = await Promise.all([
+  const [articleTitles, collection] = await Promise.all([
+    getWikipediaFranchiseTitles(
+      current.title,
+      current.original_title,
+      current.release_date || current.first_air_date,
+      mediaType
+    ).catch(() => []),
     mediaType === 'movie' && current.collection_id
       ? getMovieCollection(current.collection_id).catch(() => null)
       : Promise.resolve(null),
-    searchTitles(titleRoot).catch(() => [])
   ]);
-  const root = franchiseRoot(current.title, collection?.name);
-  const rootWords = [...new Set(franchiseTokens(root))];
-  if (!rootWords.length) return [{ ...current, media_type: mediaType }];
+  const articleParts = await resolveArticleTitles(articleTitles);
 
-  const matches = root === titleRoot
-    ? initialMatches
-    : [...initialMatches, ...await searchTitles(root).catch(() => [])];
   const byKey = new Map();
-  for (const part of collection?.parts || []) {
-    byKey.set(`movie:${part.id}`, {
-      ...part,
-      media_type: 'movie',
-      poster_path: null
-    });
-  }
-
-  const relatedTvById = new Map(matches
-    .filter(match => match?.media_type === 'tv' && hasDirectFranchiseName(match.title, root))
-    .filter(match => !(Number(match.id) === Number(id) && mediaType === 'tv'))
-    .map(match => [String(match.id), match]));
-
-  // Если открыли сериал, ищем фильмы с прямым названием бренда и проверяем,
-  // что их официальная коллекция TMDb соответствует этому же корню.
-  if (mediaType === 'tv') {
-    const movieCandidates = matches
-      .filter(match => match?.media_type === 'movie' && hasDirectFranchiseName(match.title, root))
-      .slice(0, 8);
-    const movieDetails = await Promise.all(movieCandidates.map(match =>
-      getTitleDetails(match.id, 'movie').catch(() => null)
-    ));
-    const collectionIds = [...new Set(movieDetails.map(details => details?.collection_id).filter(Boolean))];
-    const relatedCollections = await Promise.all(collectionIds.map(collectionId =>
-      getMovieCollection(collectionId).catch(() => null)
-    ));
-    for (const relatedCollection of relatedCollections) {
-      if (!relatedCollection || !hasDirectFranchiseName(relatedCollection.name, root)) continue;
-      for (const part of relatedCollection.parts || []) {
-        byKey.set(`movie:${part.id}`, { ...part, media_type: 'movie', poster_path: null });
-      }
+  // Если Wikipedia явно указала связанные части, не подмешиваем посторонние
+  // элементы коллекции TMDb даже когда точный поиск не нашёл часть в каталоге.
+  const currentArticleNames = new Set([current.title, current.original_title]
+    .map(normalizeArticleTitle)
+    .filter(Boolean));
+  const hasRelatedWikipediaTitle = articleTitles.some(entry =>
+    !currentArticleNames.has(normalizeArticleTitle(entry.title))
+  );
+  const hasRelatedArticlePart = articleParts.some(part =>
+    Number(part.id) !== Number(id) || part.media_type !== mediaType
+  );
+  if (hasRelatedWikipediaTitle || hasRelatedArticlePart) {
+    for (const part of articleParts) byKey.set(`${part.media_type}:${part.id}`, part);
+    // Keep a listed film when TMDb search could not resolve its name, but only
+    // if the official collection has the same title and compatible article year.
+    for (const collectionPart of collection?.parts || []) {
+      const normalizedCollectionTitle = normalizeArticleTitle(collectionPart.title);
+      const listedInArticle = articleTitles.some(entry => {
+        if (entry.media_type === 'tv' || normalizeArticleTitle(entry.title) !== normalizedCollectionTitle) return false;
+        if (!entry.year) return true;
+        const collectionYear = Number(String(collectionPart.release_date || '').slice(0, 4));
+        return !collectionYear || Math.abs(collectionYear - Number(entry.year)) <= 1;
+      });
+      if (listedInArticle) byKey.set(`movie:${collectionPart.id}`, {
+        ...collectionPart,
+        media_type: 'movie',
+        poster_path: null,
+      });
     }
-  }
-
-  for (const match of matches) {
-    if (!match) continue;
-    const key = `${match.media_type}:${match.id}`;
-
-    if (match.media_type === 'movie') {
-      // Поиск может лишь дополнить метаданные уже подтверждённого фильма,
-      // но никогда не добавляет фильм в коллекцию сам по себе.
-      if (byKey.has(key)) byKey.set(key, { ...byKey.get(key), ...match });
-      continue;
+  } else {
+    for (const part of collection?.parts || []) {
+      if (!part?.id) continue;
+      byKey.set(`movie:${part.id}`, { ...part, media_type: 'movie', poster_path: null });
     }
-
-    if (match.media_type !== 'tv') continue;
-    const verifiedSeries = relatedTvById.get(String(match.id));
-    if (!verifiedSeries) continue;
-    byKey.set(key, { ...match, ...verifiedSeries });
   }
 
   byKey.set(`${mediaType}:${id}`, { ...current, media_type: mediaType });
-  return [...byKey.values()]
-    .sort((a, b) => {
-      // Сначала по фактической дате выхода, без приоритета открытого тайтла.
-      // Для неизвестной даты оставляем элемент в конце списка.
-      const dateA = a.release_date || '9999-12-31';
-      const dateB = b.release_date || '9999-12-31';
-      return dateA.localeCompare(dateB) || a.title.localeCompare(b.title, 'ru');
-    })
-    .slice(0, 12);
+  return [...byKey.values()].sort((a, b) => {
+    const dateA = a.release_date || a.first_air_date || '9999-12-31';
+    const dateB = b.release_date || b.first_air_date || '9999-12-31';
+    return String(dateA).localeCompare(String(dateB))
+      || String(a.title || '').localeCompare(String(b.title || ''), 'ru');
+  });
 }
 
 // Приводим ответ TMDb к общему виду карточки рекомендации

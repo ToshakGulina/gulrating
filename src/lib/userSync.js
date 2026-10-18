@@ -12,10 +12,11 @@ const SETTING_KEYS = [
 ];
 const HISTORY_KEY = 'gulrating:watch_history';
 const HISTORY_DELETES_KEY = 'gulrating:watch_history_tombstones';
+const POSITIONS_KEY = 'gulrating:watch_positions';
 const SETTING_TIMES_KEY = 'gulrating:sync_setting_times';
 const SYNC_EVENT = 'gulrating:local-change';
 const SYNC_TRIGGER_KEYS = new Set([
-  ...SETTING_KEYS, HISTORY_KEY, HISTORY_DELETES_KEY,
+  ...SETTING_KEYS, HISTORY_KEY, HISTORY_DELETES_KEY, POSITIONS_KEY,
   'gulrating:bad_dubs', 'gulrating:recent_titles', 'gulrating:search_queries'
 ]);
 const DEBOUNCE_MS = 900;
@@ -157,9 +158,10 @@ function mergeData(local, remote) {
     ...(Array.isArray(localSearchQueries) ? localSearchQueries : [])].filter((item, index, all) => typeof item === 'string'
       && all.findIndex(other => other.toLowerCase() === item.toLowerCase()) === index).slice(0, 3);
 
-  const localPositions = (() => {
+  const nativePositions = (() => {
     try { return JSON.parse(window.GulRatingBridge?.getPositions?.() || '{}'); } catch (e) { return {}; }
   })();
+  const localPositions = mergePositions(readJson(POSITIONS_KEY, {}), nativePositions);
   const positions = mergePositions(localPositions, remote && remote.positions);
 
   // Победившие значения сохраняем без перезаписи их серверных меток времени.
@@ -178,6 +180,7 @@ function mergeData(local, remote) {
     writeJson(SETTING_TIMES_KEY, nextTimes);
     writeJson(HISTORY_KEY, history.rows);
     writeJson(HISTORY_DELETES_KEY, history.deletes);
+    writeJson(POSITIONS_KEY, positions);
     writeJson('gulrating:bad_dubs', badDubs);
     writeJson('gulrating:recent_titles', recentTitles);
     writeJson('gulrating:search_queries', searchQueries);
