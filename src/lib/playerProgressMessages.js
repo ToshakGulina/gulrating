@@ -1,7 +1,10 @@
-// Parsers and commands for cross-origin HTML5 player iframes that expose a
-// documented postMessage API. Browsers cannot inspect an iframe's DOM directly.
+// Parsers and commands for iframe players that expose a postMessage API.
+// Normal web pages cannot inspect a cross-origin iframe's DOM.
 const PLAYERJS_CONTEXT = 'player.js';
-const PROGRESS_EVENTS = new Set(['timeupdate', 'progress', 'playbackprogress', 'pause', 'seeked', 'ended', 'play', 'state', 'playerstatus']);
+const PROGRESS_EVENTS = new Set([
+  'timeupdate', 'progress', 'playbackprogress', 'watchinglog',
+  'playprogress', 'pause', 'seeked', 'ended', 'play', 'state', 'playerstatus'
+]);
 
 function objectValue(value) {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value;
@@ -33,7 +36,7 @@ export function parsePlayerProgressMessage(raw) {
   const playerJs = message.context === PLAYERJS_CONTEXT;
   const eventName = normalizeEvent(message.event || message.eventName || message.name || message.type);
   const payload = objectValue(message.data) || objectValue(message.detail)
-    || objectValue(message.value) || message;
+    || objectValue(message.info) || objectValue(message.value) || message;
 
   if (playerJs && eventName === 'ready') {
     return {
@@ -53,17 +56,30 @@ export function parsePlayerProgressMessage(raw) {
     return d === null ? null : { kind: 'duration', d, listener: String(message.listener || '') };
   }
 
-  // Support Player.js and common parent-window progress event shapes, but only
-  // accept messages with a recognizable playback event and a real duration.
-  const nestedEvent = normalizeEvent(payload.event || payload.eventName || payload.name);
-  const event = nestedEvent || eventName;
+  // Documented player APIs use both nested event names and status fields.
+  // VidLink uses data.event/currentTime/duration; VidAPI uses
+  // data.player_status/player_progress/player_duration; some emit watching-log.
+  const nestedEvent = normalizeEvent(
+    payload.event || payload.eventName || payload.name || payload.player_status
+  );
+  let event = nestedEvent || eventName;
+  if (event === 'playing') event = 'play';
+  if (event === 'paused') event = 'pause';
+  if (event === 'completed') event = 'ended';
+  if (event === 'playerevent' && (payload.currentTime != null || payload.player_progress != null)) event = 'timeupdate';
+  if (event === 'watchinglog') event = 'timeupdate';
+  if (event === 'playprogress') event = 'timeupdate';
+
+  // YouTube's IFrame API sends position snapshots as infoDelivery messages.
+  if (event === 'infodelivery') event = 'timeupdate';
   if (!PROGRESS_EVENTS.has(event)) return null;
 
   const t = numberFrom(
     payload.currentTime, payload.seconds, payload.time, payload.position,
+    payload.player_progress, payload.watched,
     message.currentTime, message.seconds, message.time, message.position
   );
-  const d = numberFrom(payload.duration, message.duration);
+  const d = numberFrom(payload.duration, payload.player_duration, message.duration);
   if (t === null || d === null || d <= 0 || t > d + 30) return null;
   return { kind: 'progress', event, t, d, playerJs };
 }
@@ -73,4 +89,21 @@ export function createPlayerJsMessage(method, value, listener) {
   if (value !== undefined) message.value = value;
   if (listener) message.listener = listener;
   return JSON.stringify(message);
+}
+
+// VidLink documents startAt as its cross-device resume parameter.
+export function addSupportedResumeParameter(url, provider, position) {
+  const seconds = Number(position);
+  if (!Number.isFinite(seconds) || seconds < 30) return url;
+  try {
+    const parsed = new URL(url, globalThis.location && globalThis.location.href);
+    const providerName = String(provider || '').toLowerCase();
+    if (parsed.hostname === 'vidlink.pro' || providerName === 'vidlink') {
+      parsed.searchParams.set('startAt', String(Math.floor(seconds)));
+      return parsed.href;
+    }
+    return url;
+  } catch (error) {
+    return url;
+  }
 }

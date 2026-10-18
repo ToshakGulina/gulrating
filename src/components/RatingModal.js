@@ -7,7 +7,7 @@ import { addRecentTitle } from '../lib/history.js';
 import { enqueueRating, getPendingRatings, networkLikeError } from '../lib/offline.js';
 import { addWatchEntry, reportWatchNative, isApk, getPositions, saveWatchPosition } from '../lib/watchHistory.js';
 import { fetchKinoboxPlayers, qualityRank } from '../lib/kinobox.js';
-import { parsePlayerProgressMessage, createPlayerJsMessage } from '../lib/playerProgressMessages.js';
+import { parsePlayerProgressMessage, createPlayerJsMessage, addSupportedResumeParameter } from '../lib/playerProgressMessages.js';
 import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
 import { friendRatingsLabel } from '../lib/ratingLabels.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
@@ -150,10 +150,30 @@ export function openWatchOverlay(opts) {
     }
   }
 
+  function isFromActivePlayer(frame, source) {
+    if (!frame || !source) return false;
+    const pending = [frame.contentWindow];
+    const visited = new Set();
+    // A provider may wrap its actual player in another iframe and relay
+    // postMessage events straight to an ancestor. Traverse WindowProxy frame
+    // references only; never read a cross-origin document or DOM.
+    while (pending.length && visited.size < 64) {
+      const current = pending.shift();
+      if (!current || visited.has(current)) continue;
+      if (current === source) return true;
+      visited.add(current);
+      try {
+        const count = Math.min(Number(current.length) || 0, 32);
+        for (let index = 0; index < count; index += 1) pending.push(current.frames[index]);
+      } catch (e) { /* cross-origin frame enumeration can be restricted */ }
+    }
+    return false;
+  }
+
   function sendPlayerJsCommand(frame, state, method, value, listener) {
-    if (!frame || !state || !state.origin || state.origin === 'null') return;
+    if (!frame || !state || !state.targetWindow || !state.origin || state.origin === 'null') return;
     try {
-      frame.contentWindow.postMessage(
+      state.targetWindow.postMessage(
         createPlayerJsMessage(method, value, listener),
         state.origin
       );
@@ -177,12 +197,13 @@ export function openWatchOverlay(opts) {
     state.resumeAttempted = true;
   }
 
-  function handlePlayerJsReady(frame, origin, message) {
-    if (!frame || !origin || origin === 'null') return;
+  function handlePlayerJsReady(frame, origin, source, message) {
+    if (!frame || !origin || origin === 'null' || !source) return;
     const state = remotePlayerProgress.get(frame) || { methods: new Set(), events: new Set() };
     if (state.ready) return;
     state.ready = true;
     state.origin = origin;
+    state.targetWindow = source;
     state.methods = new Set((message.methods || []).map(value => String(value).toLowerCase()));
     state.events = new Set((message.events || []).map(value => String(value).toLowerCase()));
     remotePlayerProgress.set(frame, state);
@@ -205,12 +226,12 @@ export function openWatchOverlay(opts) {
 
   function onPlayerMessage(event) {
     const frame = stage.querySelector('#watch-frame');
-    if (!frame || event.source !== frame.contentWindow || !watchKey) return;
+    if (!frame || !watchKey || !isFromActivePlayer(frame, event.source)) return;
     const message = parsePlayerProgressMessage(event.data);
     if (!message) return;
 
     if (message.kind === 'ready') {
-      handlePlayerJsReady(frame, event.origin, message);
+      handlePlayerJsReady(frame, event.origin, event.source, message);
       return;
     }
     const state = remotePlayerProgress.get(frame);
@@ -339,7 +360,7 @@ export function openWatchOverlay(opts) {
     // Большинство источников ожидает origin; по данным ShikiPlayer только
     // Gendit/Gencit и Flixcdn требуют no-referrer.
     frame.referrerPolicy = /^(gencit|gendit|flixcdn)$/i.test(provider) ? 'no-referrer' : 'origin';
-    frame.src = url;
+    frame.src = addSupportedResumeParameter(url, provider, savedPosition && savedPosition.t);
     stage.appendChild(frame);
     startProgressTracking(frame);
   }

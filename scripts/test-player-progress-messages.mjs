@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createPlayerJsMessage, parsePlayerProgressMessage } from '../src/lib/playerProgressMessages.js';
+import { addSupportedResumeParameter, createPlayerJsMessage, parsePlayerProgressMessage } from '../src/lib/playerProgressMessages.js';
 
 const ratingModal = readFileSync(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
 
@@ -24,6 +24,17 @@ assert.deepEqual(parsePlayerProgressMessage({
   data: { event: 'seeked', currentTime: 90, duration: 900 },
 }), { kind: 'progress', event: 'seeked', t: 90, d: 900, playerJs: false });
 
+// Actual documented VidAPI event shape (status/progress fields rather than event/currentTime).
+assert.deepEqual(parsePlayerProgressMessage({
+  type: 'PLAYER_EVENT',
+  data: { player_status: 'playing', player_progress: 246.5, player_duration: 7200 },
+}), { kind: 'progress', event: 'play', t: 246.5, d: 7200, playerJs: false });
+
+// Some providers use a separate watching-log message rather than PLAYER_EVENT.
+assert.deepEqual(parsePlayerProgressMessage({
+  type: 'watching-log', currentTime: 47, duration: 600,
+}), { kind: 'progress', event: 'timeupdate', t: 47, d: 600, playerJs: false });
+
 assert.deepEqual(parsePlayerProgressMessage({
   source: 'player-api', event: 'pause', currentTime: 46, duration: 3600,
 }), { kind: 'progress', event: 'pause', t: 46, d: 3600, playerJs: false });
@@ -37,8 +48,14 @@ assert.deepEqual(JSON.parse(createPlayerJsMessage('setCurrentTime', 321, 'resume
   context: 'player.js', version: '0.0.11', method: 'setCurrentTime', value: 321, listener: 'resume-1'
 });
 
-assert.match(ratingModal, /event\.source !== frame\.contentWindow/,
-  'cross-origin messages are accepted only from the selected iframe');
+const vidLinkUrl = addSupportedResumeParameter('https://vidlink.pro/movie/123', 'VidLink', 321.9);
+assert.equal(new URL(vidLinkUrl).searchParams.get('startAt'), '321',
+  'VidLink documents startAt as the cross-device resume parameter');
+assert.equal(addSupportedResumeParameter('https://player.example/embed/123', 'Unknown', 321),
+  'https://player.example/embed/123', 'unknown providers must not receive guessed query parameters');
+
+assert.match(ratingModal, /isFromActivePlayer\(frame, event\.source\)/,
+  'messages from nested descendants of the selected iframe are accepted without reading their DOM');
 assert.match(ratingModal, /parsePlayerProgressMessage\(event\.data\)/);
 assert.match(ratingModal, /saveRemoteProgress\(message\)/);
 assert.match(ratingModal, /sendPlayerJsCommand\(frame, state, 'setCurrentTime', target\)/,
