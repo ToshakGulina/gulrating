@@ -25,6 +25,12 @@ try {
     if (url.searchParams.get('list') === 'search') {
       const query = url.searchParams.get('srsearch') || '';
       if (url.hostname.startsWith('en.')) {
+        if (query.includes('The Truman Show')) {
+          return Response.json({ query: { search: [
+            { title: 'The Truman Show', snippet: '1998 American comedy-drama film' },
+            { title: 'Jim Carrey filmography', snippet: 'Filmography includes The Truman Show' },
+          ] } });
+        }
         if (query.includes('Chronology Alpha')) {
           return Response.json({ query: { search: [
             { title: 'Chronology Alpha (2000 film)', snippet: '2000 feature film' },
@@ -41,6 +47,12 @@ try {
           { title: 'Despicable Me (franchise)', snippet: 'American animated media franchise and film series' },
         ] } });
       }
+      if (query.includes('Шоу Трумана')) {
+        return Response.json({ query: { search: [
+          { title: 'Шоу Трумана', snippet: 'Фильм 1998 года' },
+          { title: 'Керри, Джим', snippet: 'Актёр, сыгравший в фильме Шоу Трумана' },
+        ] } });
+      }
       return Response.json({ query: { search: [
         { title: 'Гадкий я 4', snippet: 'Мультфильм 2024 года' },
       ] } });
@@ -48,6 +60,12 @@ try {
 
     if (url.searchParams.get('prop') === 'tocdata') {
       const title = url.searchParams.get('page');
+      if (title === 'Jim Carrey filmography') {
+        return Response.json({ parse: { tocdata: { sections: [
+          { index: '1', tocLevel: 1, line: 'Film' },
+          { index: '2', tocLevel: 1, line: 'Television' },
+        ] } } });
+      }
       if (title === 'Mystery (film series)') {
         return Response.json({ parse: { tocdata: { sections: [
           { index: '1', tocLevel: 1, line: 'Films' },
@@ -76,6 +94,12 @@ try {
 
     if (url.searchParams.get('prop') === 'links') {
       const section = url.searchParams.get('section');
+      if (url.searchParams.get('page') === 'Jim Carrey filmography' && section === '1') {
+        return Response.json({ parse: { links: [
+          { ns: 0, '*': 'Sonic the Hedgehog 3' },
+          { ns: 0, '*': 'Sonic the Hedgehog 4' },
+        ] } });
+      }
       const links = section === '2'
         ? filmLinks.map(({ title }) => ({ ns: 0, '*': title }))
         : [{ ns: 0, '*': 'Minions: The Rise of Gru' }];
@@ -125,6 +149,16 @@ try {
     'inspect each film article for chronology links');
   assert.equal(requests.slice(chronologyRequestStart).some(({ url }) => url.searchParams.get('prop') === 'tocdata'), false,
     'a valid chronology graph takes precedence over broader franchise article lists');
+
+  const trumanRequestStart = requests.length;
+  assert.deepEqual(
+    await getWikipediaFranchiseTitles('Шоу Трумана', 'The Truman Show', '1998-06-04', 'movie'),
+    [],
+    'a filmography from a person page must not be mistaken for this film’s franchise'
+  );
+  assert.equal(requests.slice(trumanRequestStart).some(({ url }) =>
+    url.searchParams.get('page') === 'Jim Carrey filmography'
+  ), false, 'a person’s filmography must not be used as a franchise list');
 
   const fallbackTitles = await getWikipediaFranchiseTitles('Мистика 2', 'Mystery Two');
   assert.deepEqual(fallbackTitles, [

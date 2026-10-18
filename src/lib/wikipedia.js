@@ -185,10 +185,27 @@ async function getSectionLinks(article, sections) {
   return [...linksByKey.values()];
 }
 
+// Search snippets often lead to actors' filmographies (for example, the
+// Truman Show query finds Jim Carrey's list, which also contains Sonic films).
+// Only inspect the exact title page or an explicitly named franchise/list page.
+function isTitleOrFranchiseArticle(article, titleCandidates) {
+  const normalizedArticleTitle = normalize(article.title);
+  const currentTitles = titleCandidates.map(normalize).filter(Boolean);
+  if (currentTitles.includes(normalizePageTitle(article.title))) return true;
+
+  const franchiseTitle = /(?:franchise|film series|movie series|series of films|list of .* films|франшиза|серия фильмов|список фильмов)/i
+    .test(article.title);
+  if (!franchiseTitle) return false;
+  return currentTitles.some(candidate => {
+    const words = candidate.split(' ').filter(word => word.length > 2);
+    return words.some(word => normalizedArticleTitle.includes(word));
+  });
+}
+
 async function inspectArticleCandidates(articles, titleCandidates) {
-  const ordered = [...articles].sort((a, b) =>
-    titleOverlapScore(b, titleCandidates) - titleOverlapScore(a, titleCandidates)
-  );
+  const ordered = articles
+    .filter(article => isTitleOrFranchiseArticle(article, titleCandidates))
+    .sort((a, b) => titleOverlapScore(b, titleCandidates) - titleOverlapScore(a, titleCandidates));
   for (const article of ordered) {
     const sections = await getArticleSections(article).catch(() => []);
     if (!sections.some(section => getSectionType(section.line || ''))) continue;
