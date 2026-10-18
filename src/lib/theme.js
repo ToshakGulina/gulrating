@@ -36,7 +36,7 @@ export const THEMES = [
     name: 'Nothing',
     description: 'Чёрный · монохром · Glyph Red',
     themeColor: '#000000',
-    preview: { bg: '0 0 0', card: '18 18 18', primary: '215 25 33', secondary: '145 145 145' },
+    preview: { bg: '0 0 0', card: '24 24 24', primary: '235 235 235', secondary: '142 142 142' },
   },
 ];
 

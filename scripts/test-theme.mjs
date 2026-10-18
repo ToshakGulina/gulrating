@@ -37,16 +37,21 @@ assert.equal(lightTheme.themeColor, '#f8fafc');
 assert.equal(lightTheme.preview.primary, '79 70 229');
 const nothingTheme = THEMES.find(theme => theme.id === 'nothing');
 assert.equal(nothingTheme.themeColor, '#000000');
-assert.equal(nothingTheme.preview.primary, '215 25 33');
+assert.equal(nothingTheme.preview.primary, '235 235 235');
+assert.equal(nothingTheme.preview.secondary, '142 142 142');
 assert.equal(setTheme('nothing'), 'nothing');
 assert.equal(root.dataset.theme, 'nothing');
 assert.equal(metas['meta[name="theme-color"]'].content, '#000000');
 const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 assert.ok(indexHtml.includes('--theme-bg: 248 250 252; --theme-deep: 226 232 240; --theme-card: 255 255 255;'));
 assert.ok(indexHtml.includes('--theme-secondary: 37 99 235; --p-rgb: 79 70 229; color-scheme: light;'));
-assert.ok(indexHtml.includes('--theme-bg: 0 0 0; --theme-deep: 0 0 0; --theme-card: 18 18 18;'));
-assert.ok(indexHtml.includes('--theme-secondary: 145 145 145; --p-rgb: 215 25 33; color-scheme: dark;'));
-assert.ok(indexHtml.includes(':root[data-theme="nothing"] body::before'), 'Nothing theme should show a subtle dot-matrix accent');
+assert.ok(indexHtml.includes('--theme-bg: 0 0 0; --theme-deep: 0 0 0; --theme-card: 24 24 24;'));
+assert.ok(indexHtml.includes('--theme-secondary: 142 142 142; --p-rgb: 235 235 235; --nothing-red: 215 25 33; color-scheme: dark;'));
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1') && indexHtml.includes('background-clip: text;'),
+  'Nothing display headings should use the CSS dot-matrix treatment');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] .nav-btn svg'),
+  'Nothing navigation icons should use circular Glyph-like buttons');
+assert.ok(indexHtml.includes('.theme-preview-nothing::after'), 'the palette preview should include the signature red glyph dot');
 assert.ok(indexHtml.includes("nothing: '#000000'"), 'first paint browser chrome color should match the selected Nothing theme');
 
 const generatedCss = await readFile(new URL('../assets/tw.css', import.meta.url), 'utf8');
