@@ -35,14 +35,21 @@ import android.webkit.WebViewClient;
 import android.webkit.WebResourceResponse;
 import android.webkit.ServiceWorkerClient;
 import android.webkit.ServiceWorkerController;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 /**
  * ГульРейтинг на Android без Google Play: тонкая WebView-обёртка поверх
  * PWA-сайта плюс возможности, которые без натива не дать:
  *  — плеер kinokino.vip открывается внутри приложения;
- *  — мост GulRatingBridge: сайт сообщает, какой тайтл смотрят, приложение
- *    опрашивает <video> плеера раз в 5 секунд и хранит позицию просмотра;
- *  — при повторном входе в плеер позиция подставляется (продолжить с места);
+ *  — мост GulRatingBridge: сайт сообщает, какой тайтл смотрят; скрипт
+ *    отслеживания внедряется в основную страницу и iframe плеера, включая
+ *    cross-origin кадры, а нативный опрос остаётся резервным способом;
+ *  — позиция сохраняется и подставляется при повторном входе в плеер;
  *  — нативные уведомления (новые сезоны досмотренных сериалов).
  *
  * Установка: sideload APK (файл собирается GitHub Actions, см. README).
@@ -78,6 +85,8 @@ public class MainActivity extends Activity {
     private NotificationManager notifManager;
     // Ключ тайтла, который сейчас смотрят: "tv:123" / "movie:456"
     private volatile String currentWatchKey = "";
+    private volatile boolean playbackTrackingEnabled = false;
+    private final Object positionsLock = new Object();
     // Идёт сеанс плеера: после входа на хост плеера держим внутри WebView
     // любые редиректы и смежные домены, пока пользователь не вернётся на сайт
     private volatile boolean inPlayerSession = false;
@@ -234,9 +243,13 @@ public class MainActivity extends Activity {
                 // Всё своё открываем внутри приложения, внешние ссылки
                 // (Кинопоиск, Телеграм) — в браузере телефона
                 if (host != null && host.equals(HOME_HOST)) {
-                    inPlayerSession = false;
-                    exitCinema();
-                    web.getSettings().setUserAgentString(homeUA);
+                    if (request.isForMainFrame()) {
+                        inPlayerSession = false;
+                        playbackTrackingEnabled = false;
+                        currentWatchKey = "";
+                        exitCinema();
+                        web.getSettings().setUserAgentString(homeUA);
+                    }
                     return false;
                 }
                 if (isPlayerHost(uri.toString())) {
@@ -259,6 +272,11 @@ public class MainActivity extends Activity {
                 super.onPageFinished(view, url);
                 if (!isPlayerHost(url) && !isPlayerSessionUrl(url)) {
                     if (isHomeShellUrl(url)) {
+                        // Back navigation may restore the home page without going
+                        // through shouldOverrideUrlLoading; stop tracking that session.
+                        inPlayerSession = false;
+                        playbackTrackingEnabled = false;
+                        currentWatchKey = "";
                         if (useBundledWebApp) checkRemoteBuildAndUpdate();
                         checkForAppUpdate(false);
                     }
@@ -275,7 +293,35 @@ public class MainActivity extends Activity {
             public void reportWatch(String json) {
                 try {
                     org.json.JSONObject o = new org.json.JSONObject(json);
-                    currentWatchKey = o.optString("type") + ":" + o.optString("id");
+                    String type = o.optString("type");
+                    String id = o.optString("id");
+                    if (!("movie".equals(type) || "tv".equals(type))
+                            || !id.matches("[A-Za-z0-9_-]{1,100}")) return;
+                    currentWatchKey = type + ":" + id;
+                    playbackTrackingEnabled = true;
+                } catch (Exception ignored) {
+                }
+            }
+
+            @JavascriptInterface
+            public boolean isPlaybackTrackingActive() {
+                return playbackTrackingEnabled;
+            }
+
+            @JavascriptInterface
+            public String getCurrentWatchKey() {
+                return playbackTrackingEnabled ? currentWatchKey : "";
+            }
+
+            @JavascriptInterface
+            public void savePlaybackPosition(String json) {
+                if (!playbackTrackingEnabled) return;
+                try {
+                    org.json.JSONObject o = new org.json.JSONObject(json);
+                    storePlaybackPosition(currentWatchKey,
+                            Math.round(o.optDouble("t", 0)),
+                            Math.round(o.optDouble("d", 0)),
+                            o.optBoolean("force", false));
                 } catch (Exception ignored) {
                 }
             }
@@ -286,22 +332,38 @@ public class MainActivity extends Activity {
             }
 
             @JavascriptInterface
-            public void mergePositions(String json) {
-                try {
-                    org.json.JSONObject local = new org.json.JSONObject(prefs().getString("positions", "{}"));
-                    org.json.JSONObject incoming = new org.json.JSONObject(json == null ? "{}" : json);
-                    java.util.Iterator<String> keys = incoming.keys();
-                    while (keys.hasNext()) {
-                        String key = keys.next();
-                        org.json.JSONObject remote = incoming.optJSONObject(key);
-                        org.json.JSONObject current = local.optJSONObject(key);
-                        if (remote != null && (current == null
-                                || remote.optLong("at", 0) >= current.optLong("at", 0))) {
-                            local.put(key, remote);
-                        }
+            public String getCurrentPosition() {
+                if (!playbackTrackingEnabled || currentWatchKey.isEmpty()) return "{}";
+                synchronized (positionsLock) {
+                    try {
+                        org.json.JSONObject all = new org.json.JSONObject(prefs().getString("positions", "{}"));
+                        org.json.JSONObject current = all.optJSONObject(currentWatchKey);
+                        return current == null ? "{}" : current.toString();
+                    } catch (Exception ignored) {
+                        return "{}";
                     }
-                    prefs().edit().putString("positions", local.toString()).apply();
-                } catch (Exception ignored) {
+                }
+            }
+
+            @JavascriptInterface
+            public void mergePositions(String json) {
+                synchronized (positionsLock) {
+                    try {
+                        org.json.JSONObject local = new org.json.JSONObject(prefs().getString("positions", "{}"));
+                        org.json.JSONObject incoming = new org.json.JSONObject(json == null ? "{}" : json);
+                        java.util.Iterator<String> keys = incoming.keys();
+                        while (keys.hasNext()) {
+                            String key = keys.next();
+                            org.json.JSONObject remote = incoming.optJSONObject(key);
+                            org.json.JSONObject current = local.optJSONObject(key);
+                            if (remote != null && (current == null
+                                    || remote.optLong("at", 0) >= current.optLong("at", 0))) {
+                                local.put(key, remote);
+                            }
+                        }
+                        prefs().edit().putString("positions", local.toString()).apply();
+                    } catch (Exception ignored) {
+                    }
                 }
             }
 
@@ -347,6 +409,7 @@ public class MainActivity extends Activity {
                 return BuildConfig.VERSION_NAME;
             }
         }, "GulRatingBridge");
+        installPlaybackProgressTracker();
 
         // Опрос <video> плеера: позиция и длительность для истории просмотра.
         // Сам опрос — короткий JS-сниппет, по энергии копеечный на фоне
@@ -878,8 +941,10 @@ public class MainActivity extends Activity {
     }
 
     private boolean isPlayerSessionUrl(String url) {
-        // Смежные домены сеанса плеера (зеркала любят скакать по хостам)
-        return inPlayerSession && url != null && !url.startsWith(HOME);
+        // Смежные домены сеанса плеера (зеркала любят скакать по хостам).
+        // Compare the parsed home origin instead of a string prefix so a URL
+        // without a trailing slash still ends the native progress session.
+        return inPlayerSession && url != null && !isHomeShellUrl(url);
     }
 
     private boolean onPlayer() {
@@ -967,6 +1032,53 @@ public class MainActivity extends Activity {
                     + "var v=findVideo(window,0);"
                     + "if(!v)return null;return {t:v.currentTime||0,d:v.duration||0};})()";
 
+    private void installPlaybackProgressTracker() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
+        try (InputStream input = getAssets().open("player-progress-tracker.js");
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int count;
+            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            String script = output.toString(StandardCharsets.UTF_8.name());
+            // The observer is intentionally tiny and only reports media timing.
+            // It must run in embedded cross-origin frames as well as the main page.
+            WebViewCompat.addDocumentStartJavaScript(web, script,
+                    java.util.Collections.singleton("*"));
+        } catch (Exception ignored) {
+            // On old System WebView builds the existing main-frame probe remains active.
+        }
+    }
+
+    private void storePlaybackPosition(String key, long t, long d, boolean force) {
+        if (!playbackTrackingEnabled || key == null || key.isEmpty()
+                || !key.equals(currentWatchKey) || t <= 0 || d <= 0
+                || d > 7L * 24L * 60L * 60L || t > d + 30) return;
+        long now = System.currentTimeMillis();
+        synchronized (positionsLock) {
+            if (!playbackTrackingEnabled || !key.equals(currentWatchKey)) return;
+            try {
+                org.json.JSONObject all = new org.json.JSONObject(prefs().getString("positions", "{}"));
+                org.json.JSONObject previous = all.optJSONObject(key);
+                if (previous != null) {
+                    long previousAt = previous.optLong("at", 0);
+                    long previousDuration = previous.optLong("d", 0);
+                    // Ignore tiny ad/preview clips that would otherwise replace
+                    // a saved feature-length movie or full episode position.
+                    if (previousDuration >= 600 && d * 3 < previousDuration) return;
+                    long minInterval = force ? 750L : 2500L;
+                    if (now - previousAt < minInterval) return;
+                }
+                org.json.JSONObject record = new org.json.JSONObject();
+                record.put("t", t);
+                record.put("d", d);
+                record.put("at", now);
+                all.put(key, record);
+                prefs().edit().putString("positions", all.toString()).apply();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     private void probePlayer() {
         final String key = currentWatchKey;
         if (key == null || key.isEmpty() || !onPlayer() || web == null) return;
@@ -984,14 +1096,7 @@ public class MainActivity extends Activity {
                 long t = Math.round(state.optDouble("t", 0));
                 long d = Math.round(state.optDouble("d", 0));
                 if (t <= 0 || d <= 0) return;
-                SharedPreferences p = prefs();
-                org.json.JSONObject all = new org.json.JSONObject(p.getString("positions", "{}"));
-                org.json.JSONObject rec = new org.json.JSONObject();
-                rec.put("t", t);
-                rec.put("d", d);
-                rec.put("at", System.currentTimeMillis());
-                all.put(key, rec);
-                p.edit().putString("positions", all.toString()).apply();
+                storePlaybackPosition(key, t, d, false);
             } catch (Exception ignored) {
             }
         });
