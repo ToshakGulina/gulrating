@@ -28,9 +28,9 @@ function formatPlaybackTime(value) {
 
 const PROFILE_SNAPSHOT_PREFIX = 'gulrating:profile_snapshot:';
 const PROFILE_ACTIVITY_TABS = [
-  { id: 'watchlist', label: 'Хочу посмотреть' },
   { id: 'in_progress', label: 'В процессе' },
   { id: 'watched', label: 'Просмотрено' },
+  { id: 'watchlist', label: 'Хочу посмотреть' },
   { id: 'dropped', label: 'Заброшено' },
 ];
 
@@ -61,8 +61,8 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   const pageRoot = page.root;
   if (!page.isNew && !force) return;
   const previousProfileSection = pageRoot.querySelector('.profile-section-tab[aria-selected="true"]')?.dataset.profileSection || 'overview';
-  const savedActivityTab = pageRoot.querySelector('.tab-btn.bg-primary')?.dataset.tab || 'watched';
-  const previousActivityTab = PROFILE_ACTIVITY_TABS.some(tab => tab.id === savedActivityTab) ? savedActivityTab : 'watched';
+  const savedActivityTab = pageRoot.querySelector('.tab-btn.bg-primary')?.dataset.tab || 'in_progress';
+  const previousActivityTab = PROFILE_ACTIVITY_TABS.some(tab => tab.id === savedActivityTab) ? savedActivityTab : 'in_progress';
   if (page.isNew) pageRoot.innerHTML = '<div class="p-8 text-center text-sm text-gray-400">Загружаем профиль…</div>';
 
   const cachedSnapshot = readProfileSnapshot(currentUser.id);
@@ -203,17 +203,6 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
               <div class="text-xs text-gray-400">В планах</div>
             </div>
           </div>
-        </div>
-
-        <!-- История просмотров и отслеживание новых выпусков -->
-        <div class="bg-card rounded-xl border border-slate-700/60 p-3">
-          <h3 class="font-semibold mb-3">История просмотров</h3>
-          <div id="watch-history" class="space-y-2"></div>
-        </div>
-        <div class="bg-card rounded-xl border border-slate-700/60 p-3">
-          <h3 class="font-semibold mb-1">Просмотрено</h3>
-          <p class="text-xs text-gray-500 mb-3">Здесь тайтлы, за которыми следим: уведомим о новых сезонах и сериях сериалов или частях фильма из коллекции TMDb.</p>
-          <div id="watched-history" class="space-y-2"></div>
         </div>
 
         <!-- Оценки и список просмотра -->
@@ -651,108 +640,102 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     paintCatStatus();
   });
 
-  // Историю просмотра разделяем на непросмотренное и отмеченное «Просмотрено».
-  const whBox = pageRoot.querySelector('#watch-history');
-  const watchedBox = pageRoot.querySelector('#watched-history');
-  function paintWatchHistory() {
-    const allItems = getWatchHistory();
-    const historyItems = allItems.filter(item => !item.done);
-    const watchedItems = allItems.filter(item => item.done);
+  function renderPlaybackRows(items, watched) {
+    if (!items.length) return '';
     const positions = getPositions();
-
-    function rowsHtml(items, watched) {
-      if (!items.length) return `<p class="text-xs text-gray-600">${watched ? 'Пока ничего не отмечено.' : 'Пока пусто: нажмите «Смотреть» в карточке фильма или сериала.'}</p>`;
-      return items.map(i => {
-        const pos = positions[i.key];
-        const savedSeconds = pos && Number.isFinite(Number(pos.t)) && Number(pos.t) > 0 ? Number(pos.t) : null;
-        const savedTime = savedSeconds === null ? null : formatPlaybackTime(savedSeconds);
-        const pct = pos && Number(pos.d) > 0 && savedSeconds !== null
-          ? Math.min(100, Math.round(savedSeconds / Number(pos.d) * 100)) : null;
-        const status = watched
-          ? (i.media_type === 'movie'
-            ? `Следим за новыми частями: ${escapeHtml(i.done.collectionName || 'список франшизы из Википедии')}`
-            : 'Следим за новыми сезонами и сериями')
-          : `${i.media_type === 'movie' ? 'фильм' : 'сериал'} • ${new Date(i.last_at).toLocaleDateString('ru-RU')}`;
-        return `
-          <div class="flex items-center gap-3 bg-slate-800/50 rounded-xl p-2" data-key="${escapeHtml(i.key)}">
-            <div class="watch-history-open flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" role="button" tabindex="0" aria-label="Открыть карточку: ${escapeHtml(i.title)}">
-              ${posterImg(i.poster_path, i.title, 'w-14 sm:w-16 flex-shrink-0 aspect-[2/3] rounded-md')}
-              <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm font-medium">${escapeHtml(i.title)}</span>
-                <span class="block text-[11px] text-gray-500">${status}</span>
-                ${watched ? `<span class="block text-[10px] text-gray-600">Отмечено ${new Date(i.done.at).toLocaleDateString('ru-RU')}</span>` : ''}
-                ${pct !== null ? `<span class="mt-1 block h-1 overflow-hidden rounded bg-slate-700"><span class="block h-full bg-red-500" style="width:${pct}%"></span></span>` : ''}
-                ${savedTime !== null ? `<span class="block text-[10px] text-gray-500">Запомнено: ${savedTime}${pct !== null ? ` · ${pct}%` : ''}</span>` : ''}
-              </span>
-            </div>
-            <div class="flex flex-col gap-1 flex-shrink-0 items-stretch">
-              ${(i.kp_url || i.kpId || i.query) ? '<button class="wh-continue px-2 py-1 text-[11px] bg-primary hover:bg-primary/90 text-white rounded-lg">Продолжить</button>' : ''}
-              ${watched ? '<button class="wh-unmark px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 text-gray-200 rounded-lg">Снять отметку</button>' : '<button class="wh-done px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 text-gray-200 rounded-lg">Просмотрено</button>'}
-              <button class="wh-del px-2 py-1 text-[11px] text-gray-500 hover:text-red-400" aria-label="Убрать из истории">&times;</button>
-            </div>
-          </div>`;
-      }).join('');
-    }
-
-    whBox.innerHTML = rowsHtml(historyItems, false);
-    watchedBox.innerHTML = rowsHtml(watchedItems, true);
-
-    [whBox, watchedBox].forEach(box => {
-      box.querySelectorAll('.watch-history-open').forEach(card => {
-        const openHistoryCard = () => {
-          const item = getWatchHistory().find(entry => entry.key === card.closest('[data-key]').dataset.key);
-          if (!item) return;
-          openRatingModal(item.id, item.media_type, currentUser, () => {
-            renderProfilePage(document.getElementById('app'), currentUser, { force: true });
-          });
-        };
-        card.addEventListener('click', openHistoryCard);
-        card.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            openHistoryCard();
-          }
-        });
-      });
-      box.querySelectorAll('.wh-continue').forEach(button => button.addEventListener('click', () => {
-        const item = getWatchHistory().find(x => x.key === button.closest('[data-key]').dataset.key);
-        if (!item || !(item.kp_url || item.kpId || item.query)) return;
-        reportWatchNative(item.id, item.media_type);
-        if (isApk() && item.kp_url) {
-          window.location.href = item.kp_url;
-          return;
-        }
-        openWatchOverlay({ kpId: item.kpId, query: item.query || item.title, titleText: item.title, mirrorUrl: item.kp_url, watchKey: item.key });
-      }));
-      box.querySelectorAll('.wh-done').forEach(button => button.addEventListener('click', async () => {
-        const key = button.closest('[data-key]').dataset.key;
-        button.disabled = true;
-        if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
-        try {
-          const item = await markWatchDone(key, {
-            offline: currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)
-          });
-          if (!item) throw new Error('Запись истории не найдена');
-          showToast(item.media_type === 'movie'
-            ? 'Отмечено. Проверим новые части франшизы по Википедии и TMDb'
-            : 'Отмечено. Проверим новые сезоны и серии', 'success', 5000);
-          paintWatchHistory();
-        } catch (error) {
-          button.disabled = false;
-          showToast('Не удалось отметить просмотренным: ' + error.message, 'error', 5000);
-        }
-      }));
-      box.querySelectorAll('.wh-unmark').forEach(button => button.addEventListener('click', () => {
-        unmarkWatchDone(button.closest('[data-key]').dataset.key);
-        paintWatchHistory();
-      }));
-      box.querySelectorAll('.wh-del').forEach(button => button.addEventListener('click', () => {
-        removeWatchEntry(button.closest('[data-key]').dataset.key);
-        paintWatchHistory();
-      }));
-    });
+    return items.map(item => {
+      const pos = positions[item.key];
+      const savedSeconds = pos && Number.isFinite(Number(pos.t)) && Number(pos.t) > 0 ? Number(pos.t) : null;
+      const savedTime = savedSeconds === null ? null : formatPlaybackTime(savedSeconds);
+      const pct = pos && Number(pos.d) > 0 && savedSeconds !== null
+        ? Math.min(100, Math.round(savedSeconds / Number(pos.d) * 100)) : null;
+      const status = watched
+        ? (item.media_type === 'movie'
+          ? `Следим за новыми частями: ${escapeHtml(item.done.collectionName || 'список франшизы из Википедии')}`
+          : 'Следим за новыми сезонами и сериями')
+        : `${item.media_type === 'movie' ? 'фильм' : 'сериал'} • ${new Date(item.last_at).toLocaleDateString('ru-RU')}`;
+      return `
+        <div class="flex items-center gap-3 bg-card rounded-xl border border-slate-700/50 p-2" data-key="${escapeHtml(item.key)}">
+          <div class="watch-history-open flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" role="button" tabindex="0" aria-label="Открыть карточку: ${escapeHtml(item.title)}">
+            ${posterImg(item.poster_path, item.title, 'w-14 sm:w-16 flex-shrink-0 aspect-[2/3] rounded-md')}
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-sm font-medium">${escapeHtml(item.title)}</span>
+              <span class="block text-[11px] text-gray-500">${status}</span>
+              ${watched ? `<span class="block text-[10px] text-gray-600">Отмечено ${new Date(item.done.at).toLocaleDateString('ru-RU')}</span>` : ''}
+              ${pct !== null ? `<span class="mt-1 block h-1 overflow-hidden rounded bg-slate-700"><span class="block h-full bg-red-500" style="width:${pct}%"></span></span>` : ''}
+              ${savedTime !== null ? `<span class="block text-[10px] text-gray-500">Запомнено: ${savedTime}${pct !== null ? ` · ${pct}%` : ''}</span>` : ''}
+            </span>
+          </div>
+          <div class="flex flex-col gap-1 flex-shrink-0 items-stretch">
+            ${(item.kp_url || item.kpId || item.query) ? '<button class="wh-continue px-2 py-1 text-[11px] bg-primary hover:bg-primary/90 text-white rounded-lg">Продолжить</button>' : ''}
+            ${watched ? '<button class="wh-unmark px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 text-gray-200 rounded-lg">Снять отметку</button>' : '<button class="wh-done px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 text-gray-200 rounded-lg">Просмотрено</button>'}
+            <button class="wh-del px-2 py-1 text-[11px] text-gray-500 hover:text-red-400" aria-label="Убрать тайтл из списка">&times;</button>
+          </div>
+        </div>`;
+    }).join('');
   }
-  paintWatchHistory();
+
+  function bindPlaybackRows() {
+    const box = pageRoot.querySelector('#profile-content');
+    box.querySelectorAll('.watch-history-open').forEach(card => {
+      const openHistoryCard = () => {
+        const item = getWatchHistory().find(entry => entry.key === card.closest('[data-key]').dataset.key);
+        if (!item) return;
+        openRatingModal(item.id, item.media_type, currentUser, () => {
+          renderProfilePage(document.getElementById('app'), currentUser, { force: true });
+        });
+      };
+      card.addEventListener('click', openHistoryCard);
+      card.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openHistoryCard();
+        }
+      });
+    });
+    box.querySelectorAll('.wh-continue').forEach(button => button.addEventListener('click', () => {
+      const item = getWatchHistory().find(entry => entry.key === button.closest('[data-key]').dataset.key);
+      if (!item || !(item.kp_url || item.kpId || item.query)) return;
+      reportWatchNative(item.id, item.media_type);
+      if (isApk() && item.kp_url) {
+        window.location.href = item.kp_url;
+        return;
+      }
+      openWatchOverlay({ kpId: item.kpId, query: item.query || item.title, titleText: item.title, mirrorUrl: item.kp_url, watchKey: item.key });
+    }));
+    box.querySelectorAll('.wh-done').forEach(button => button.addEventListener('click', async () => {
+      const key = button.closest('[data-key]').dataset.key;
+      button.disabled = true;
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+      try {
+        const item = await markWatchDone(key, {
+          offline: currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)
+        });
+        if (!item) throw new Error('Запись не найдена');
+        showToast(item.media_type === 'movie'
+          ? 'Отмечено. Проверим новые части франшизы по Википедии и TMDb'
+          : 'Отмечено. Проверим новые сезоны и серии', 'success', 5000);
+        paintWatchHistory();
+      } catch (error) {
+        button.disabled = false;
+        showToast('Не удалось отметить просмотренным: ' + error.message, 'error', 5000);
+      }
+    }));
+    box.querySelectorAll('.wh-unmark').forEach(button => button.addEventListener('click', () => {
+      unmarkWatchDone(button.closest('[data-key]').dataset.key);
+      paintWatchHistory();
+    }));
+    box.querySelectorAll('.wh-del').forEach(button => button.addEventListener('click', () => {
+      removeWatchEntry(button.closest('[data-key]').dataset.key);
+      paintWatchHistory();
+    }));
+  }
+
+  function paintWatchHistory() {
+    const activeTab = pageRoot.querySelector('.tab-btn[aria-selected="true"]')?.dataset.tab || 'in_progress';
+    setActivityTab(activeTab);
+    initTitleCards(pageRoot, currentUser, updateProfileStatus);
+  }
 
   // Установка на телефон: кнопка системного install-промта либо подсказка
   const installBox = pageRoot.querySelector('#install-box');
@@ -904,9 +887,16 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       button.classList.toggle('hover:bg-slate-700', !selected);
       button.setAttribute('aria-selected', String(selected));
     });
-    pageRoot.querySelector('#profile-content').innerHTML = renderProfileStatusTab(
-      tab, myRatingsList, watchlistList, titleStatusesList, statusByTitleId, currentUser
+    const playbackItems = tab === 'in_progress'
+      ? getWatchHistory().filter(item => !item.done)
+      : tab === 'watched'
+        ? getWatchHistory().filter(item => item.done)
+        : [];
+    const profileContent = pageRoot.querySelector('#profile-content');
+    profileContent.innerHTML = renderPlaybackRows(playbackItems, tab === 'watched') + renderProfileStatusTab(
+      tab, myRatingsList, watchlistList, titleStatusesList, statusByTitleId, currentUser, playbackItems.length > 0
     );
+    bindPlaybackRows();
   }
   pageRoot.querySelectorAll('.tab-btn').forEach(button => {
     button.addEventListener('click', () => {
@@ -1071,7 +1061,7 @@ function renderMyRatings(ratings, statusByTitleId, currentUser) {
   }).join('');
 }
 
-function renderProfileStatusTab(tab, ratings, watchlist, titleStatuses, statusByTitleId, currentUser) {
+function renderProfileStatusTab(tab, ratings, watchlist, titleStatuses, statusByTitleId, currentUser, hasPlaybackItems = false) {
   if (tab === 'watchlist') {
     const ratedIds = new Set((ratings || []).map(row => String(row.title_id)));
     return renderWatchlist((watchlist || []).filter(item => !ratedIds.has(String(item.title_id))), currentUser);
@@ -1087,7 +1077,7 @@ function renderProfileStatusTab(tab, ratings, watchlist, titleStatuses, statusBy
     item.status === tab && !allRatedIds.has(String(item.title_id))
   );
 
-  if (!ratedTitles.length && !unratedStatuses.length) {
+  if (!ratedTitles.length && !unratedStatuses.length && !hasPlaybackItems) {
     const label = PROFILE_ACTIVITY_TABS.find(item => item.id === tab)?.label || 'этот статус';
     return `<div class="col-span-full text-center py-10 text-sm text-gray-500">Нет тайтлов в статусе «${escapeHtml(label)}».</div>`;
   }
