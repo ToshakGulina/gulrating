@@ -24,7 +24,7 @@
         document.documentElement.classList.add('skip-entry-motion');
       }
       const savedTheme = localStorage.getItem('gulrating:theme');
-      const themeColors = { classic: '#0f172a', ocean: '#07131d', forest: '#0c1714', light: '#f8fafc' };
+      const themeColors = { classic: '#0f172a', ocean: '#07131d', forest: '#0c1714', light: '#f8fafc', nothing: '#000000' };
       if (Object.prototype.hasOwnProperty.call(themeColors, savedTheme)) {
         document.documentElement.dataset.theme = savedTheme;
         document.querySelector('meta[name="theme-color"]').content = themeColors[savedTheme];
@@ -337,6 +337,13 @@
       --theme-text-400: 71 85 105; --theme-text-500: 100 116 139; --theme-text-600: 71 85 105; --theme-text-700: 51 65 81;
       --theme-secondary: 37 99 235; --p-rgb: 79 70 229; color-scheme: light;
     }
+    :root[data-theme="nothing"] {
+      --theme-bg: 0 0 0; --theme-deep: 0 0 0; --theme-card: 18 18 18;
+      --theme-raised: 29 29 29; --theme-hover: 43 43 43; --theme-border: 52 52 52;
+      --theme-text-100: 255 255 255; --theme-text-200: 235 235 235; --theme-text-300: 207 207 207;
+      --theme-text-400: 165 165 165; --theme-text-500: 128 128 128; --theme-text-600: 98 98 98; --theme-text-700: 72 72 72;
+      --theme-secondary: 145 145 145; --p-rgb: 215 25 33; color-scheme: dark;
+    }
     body { background-color: rgb(var(--theme-bg)); }
     body::before {
       background:
@@ -348,6 +355,33 @@
     *::-webkit-scrollbar-thumb { background: rgb(var(--theme-border)); }
     #ratings-list .title-card { border-color: rgb(var(--theme-border) / .65); }
     #ratings-list .title-card:hover { border-color: rgb(var(--p-rgb) / .75); }
+
+    /* Nothing-inspired: near-black canvas, a restrained Glyph-like dot field,
+       crisp monochrome surfaces, and red reserved for active signals. */
+    :root[data-theme="nothing"] body::before {
+      background: radial-gradient(circle at 1px 1px, rgb(255 255 255 / .2) 1px, transparent 1.3px);
+      background-size: 16px 16px;
+      mask-image: radial-gradient(ellipse 72% 48% at 96% 0%, #000 0%, transparent 100%);
+      opacity: .48;
+    }
+    :root[data-theme="nothing"] h1,
+    :root[data-theme="nothing"] h2,
+    :root[data-theme="nothing"] h3 {
+      letter-spacing: .025em;
+    }
+    :root[data-theme="nothing"] .title-card,
+    :root[data-theme="nothing"] .rec-card,
+    :root[data-theme="nothing"] .history-title,
+    :root[data-theme="nothing"] .catalog-item {
+      box-shadow: none;
+    }
+    :root[data-theme="nothing"] .title-card:hover,
+    :root[data-theme="nothing"] .catalog-item:hover {
+      box-shadow: 0 0 0 1px rgb(var(--p-rgb) / .24);
+    }
+    :root[data-theme="nothing"] .theme-option[aria-pressed="true"] {
+      box-shadow: 0 0 0 1px rgb(var(--p-rgb) / .38);
+    }
 
     [class~="focus-visible:outline-primary"]:focus-visible { outline-color: rgb(var(--p-rgb)) !important; }
     [data-theme="light"] [class~="text-white"] { color: rgb(var(--theme-text-100)) !important; }
