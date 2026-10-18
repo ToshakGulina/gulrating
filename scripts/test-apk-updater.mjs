@@ -19,6 +19,7 @@ assert.match(activity, /Settings\.ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
 assert.match(activity, /archive\.applicationInfo\.packageName/);
 assert.match(activity, /downloaded > 300L \* 1024L \* 1024L/);
 assert.match(manifest, /android\.permission\.REQUEST_INSTALL_PACKAGES/);
+assert.match(gradle, /buildConfig\s+true/);
 assert.match(manifest, /android\.permission\.POST_NOTIFICATIONS/);
 assert.match(profile, /isApk\(\) \? `[^`]*check-apk-update/s);
 assert.match(profile, /GulRatingBridge\.checkForUpdate\(\)/);

@@ -17,6 +17,10 @@ android {
     namespace 'dev.gulrating.app'
     compileSdk 34
 
+    buildFeatures {
+        buildConfig true
+    }
+
     defaultConfig {
         applicationId 'dev.gulrating.app'
         minSdk 24
