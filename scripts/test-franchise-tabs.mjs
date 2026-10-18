@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Regression test: franchise tabs combine TMDb movie collections and matching TV series.
+// Regression test: article-listed franchise titles are matched exactly to TMDb IDs.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
@@ -7,6 +7,9 @@ let source = await readFile(new URL('../src/lib/tmdb.js', import.meta.url), 'utf
 source = source.replace(
   "import { CONFIG } from '../config.js';",
   "const CONFIG = { TMDB_PROXY_URL: '', TMDB_API_KEY: 'test-key' };"
+).replace(
+  "import { getWikipediaFranchiseTitles } from './wikipedia.js';",
+  "const getWikipediaFranchiseTitles = async (title, originalTitle) => {\n  const key = [title, originalTitle].filter(Boolean).join('|');\n  return globalThis.__wikipediaTitlesByTitle?.[key] || globalThis.__wikipediaTitlesByTitle?.[title] || [];\n};"
 );
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const { getFranchiseTitles } = await import(moduleUrl);
@@ -104,16 +107,22 @@ try {
         parts: [
           { id: 42, title: 'Galaxy Saga', release_date: '2020-01-01' },
           { id: 43, title: 'Galaxy Saga: Chapter Two', release_date: '2022-01-01' },
+          { id: 88, title: 'Galaxy Saga: Unrelated Film', release_date: '2019-01-01' },
         ],
       });
     }
     if (url.pathname.endsWith('/search/multi')) {
       const query = url.searchParams.get('query');
-      if (query === 'Последний богатырь') {
+      if (query.startsWith('Последний богатырь')) {
         return Response.json({ results: [
           { id: 101, media_type: 'movie', title: 'Последний богатырь. Колобок', release_date: '2026-01-01' },
           { id: 102, media_type: 'movie', title: 'Последний богатырь: Начало', release_date: '2017-01-01' },
           { id: 103, media_type: 'movie', title: 'Последний богатырь: Корень зла', release_date: '2021-01-01' },
+        ] });
+      }
+      if (query === 'Dune: Prophecy') {
+        return Response.json({ results: [
+          { id: 402, media_type: 'tv', name: 'Dune: Prophecy', first_air_date: '2024-01-01' },
         ] });
       }
       if (query === 'Dune') {
@@ -123,7 +132,7 @@ try {
         ] });
       }
       if (query === 'Гадкий я') return Response.json({ results: [] });
-      if (query === 'Despicable Me') {
+      if (query.startsWith('Despicable Me')) {
         return Response.json({ results: [
           { id: 201, media_type: 'movie', title: 'Гадкий я 4', original_title: 'Despicable Me 4', release_date: '2024-01-01' },
           { id: 202, media_type: 'movie', title: 'Гадкий я', original_title: 'Despicable Me', release_date: '2010-01-01' },
@@ -142,32 +151,59 @@ try {
     throw new Error(`Unexpected TMDb request: ${url}`);
   };
 
+  globalThis.__wikipediaTitlesByTitle = {
+    'Galaxy Saga': [
+      { title: 'Galaxy Saga', media_type: 'movie', year: 2022 },
+      { title: 'Galaxy Saga: Chapter Two', media_type: 'movie', year: 2020 },
+      { title: 'Galaxy Saga: The Series', media_type: 'tv', year: 2021 },
+    ],
+    'Galaxy Saga: The Series': [
+      { title: 'Galaxy Saga', media_type: 'movie', year: 2022 },
+      { title: 'Galaxy Saga: Chapter Two', media_type: 'movie', year: 2020 },
+      { title: 'Galaxy Saga: The Series', media_type: 'tv', year: 2021 },
+    ],
+    'Последний богатырь. Колобок': [
+      { title: 'Последний богатырь: Начало', media_type: 'movie', year: 2017 },
+      { title: 'Последний богатырь: Корень зла', media_type: 'movie', year: 2021 },
+      { title: 'Последний богатырь. Колобок', media_type: 'movie', year: 2026 },
+    ],
+    'Гадкий я 4|Despicable Me 4': [
+      { title: 'Despicable Me', media_type: 'movie', year: 2010 },
+      { title: 'Despicable Me 3', media_type: 'movie', year: 2017 },
+      { title: 'Despicable Me 4', media_type: 'movie', year: 2024 },
+    ],
+    Dune: [
+      { title: 'Dune', media_type: 'tv', year: 2021 },
+      { title: 'Dune: Prophecy', media_type: 'tv', year: 2024 },
+    ],
+  };
+
   const parts = await getFranchiseTitles(42, 'movie');
   assert.deepEqual(
     parts.map(part => `${part.media_type}:${part.id}`),
     ['movie:43', 'tv:99', 'movie:42'],
-    'include only official collection movies and directly titled TV series, sorted by release date'
+    'use the article list as authoritative and exclude a mismatched TMDb collection entry'
   );
 
   const tvParts = await getFranchiseTitles(99, 'tv');
   assert.deepEqual(
     tvParts.map(part => `${part.media_type}:${part.id}`),
     ['movie:43', 'tv:99', 'movie:42'],
-    'a directly related series includes only movies from its verified official collection'
+    'opening another tab reuses the same article-derived part list'
   );
 
   const lastWarriorParts = await getFranchiseTitles(101, 'movie');
   assert.deepEqual(
     lastWarriorParts.map(part => part.id),
     [102, 103, 101],
-    'a dot subtitle is reduced to the franchise root and films are recovered from their official collection'
+    'Russian article-listed sequel titles are matched to exact TMDb titles and years'
   );
 
   const despicableMeParts = await getFranchiseTitles(201, 'movie');
   assert.deepEqual(
     despicableMeParts.map(part => part.id),
     [202, 203, 201],
-    'localized movie titles use their original title to find the official collection'
+    'the localized title is searched in Wikipedia and English article titles map by exact name and year'
   );
 
   const longSeriesParts = await getFranchiseTitles(315, 'movie');
@@ -177,7 +213,7 @@ try {
   assert.deepEqual(
     duneParts.map(part => part.id),
     [401, 402],
-    'one-word titles require a real franchise separator and do not pull in arbitrary title prefixes'
+    'the article list maps the related series directly and excludes similarly named but unlisted titles'
   );
 
   const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
@@ -188,4 +224,4 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-console.log('Franchise tabs combine movie collections and matching TV series: OK');
+console.log('Franchise tabs use Wikipedia article lists with exact TMDb ID matching: OK');

@@ -7,6 +7,9 @@ let source = await readFile(new URL('../src/lib/tmdb.js', import.meta.url), 'utf
 source = source.replace(
   "import { CONFIG } from '../config.js';",
   "const CONFIG = { TMDB_PROXY_URL: '', TMDB_API_KEY: 'test-key' };"
+).replace(
+  "import { getWikipediaFranchiseTitles } from './wikipedia.js';",
+  "const getWikipediaFranchiseTitles = async () => [];"
 );
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const { searchTitles } = await import(moduleUrl);
