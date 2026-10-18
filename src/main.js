@@ -64,7 +64,10 @@ window.addEventListener('offline', () => {
 window.addEventListener('online', () => {
   const genuinelyReconnected = networkWasOffline || offlineOnlySession;
   networkWasOffline = false;
-  if (genuinelyReconnected) showToast('Снова в сети', 'success', 2000);
+  if (genuinelyReconnected) {
+    showToast('Снова в сети', 'success', 2000);
+    if (!offlineOnlySession) getCurrentUser().then(syncQueuedTitleStatuses).catch(() => {});
+  }
   // Полная перерисовка ленты здесь сбрасывала видимый экран и запускала
   // анимации заново при возврате во вкладку. Обновляем приложение только
   // если оно действительно было запущено без сети.
@@ -73,6 +76,16 @@ window.addEventListener('online', () => {
   // Дозакачиваем офлайн-базу фильмов (только в приложении)
   if (isAppContext()) syncOfflineCatalog().catch(() => {});
 });
+
+function syncQueuedTitleStatuses(user) {
+  if (!user || user.offlineOnly) return;
+  import('./lib/ratings.js')
+    .then(({ syncPendingTitleStatuses }) => syncPendingTitleStatuses(user.id))
+    .then(count => {
+      if (count) showToast(`Синхронизировано статусов: ${count}`, 'success', 2500);
+    })
+    .catch(() => {});
+}
 
 function hideSplash() {
   const html = document.documentElement;
@@ -97,6 +110,7 @@ async function renderApp() {
   rendering = true;
   try {
     const currentUser = await getCurrentUser();
+    syncQueuedTitleStatuses(currentUser);
     renderedAuthUserSignature = authUserSignature(currentUser);
     offlineOnlySession = Boolean(currentUser && currentUser.offlineOnly);
     setSyncUser(currentUser);
