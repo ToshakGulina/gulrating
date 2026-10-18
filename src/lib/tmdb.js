@@ -128,6 +128,10 @@ function readTitleCache() {
   }
 }
 
+export function getCachedTitleDetails(id, mediaType) {
+  return readTitleCache()[`${mediaType}:${id}`] || null;
+}
+
 function writeTitleCache(cache, key, details) {
   try {
     cache[key] = details;
@@ -179,11 +183,13 @@ export async function getPopularPage(mediaType, page) {
 }
 
 export async function getTitleDetails(id, mediaType) {
+  const cached = getCachedTitleDetails(id, mediaType);
+  if (typeof navigator !== 'undefined' && navigator.onLine === false && cached) return cached;
+
   let data;
   try {
     data = await tmdbFetch(`/${mediaType}/${id}`);
   } catch (e) {
-    const cached = readTitleCache()[`${mediaType}:${id}`];
     if (cached) return cached;
     throw e;
   }

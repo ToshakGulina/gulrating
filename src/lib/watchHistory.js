@@ -4,11 +4,11 @@
 // APK хранит прогресс в нативном мосте; браузер — в localStorage, если плеер
 // доступен странице (same-origin HTML5 video).
 
-import { getTitleDetails, getMovieCollection } from './tmdb.js';
+import { getTitleDetails, getCachedTitleDetails, getMovieCollection, getFranchiseTitles } from './tmdb.js';
 
 const HIST_KEY = 'gulrating:watch_history';
 const NOTIF_KEY = 'gulrating:notifications';
-const CHECK_KEY = 'gulrating:season_check_at';
+const CHECK_KEY = 'gulrating:season_check_at_v2';
 const POSITIONS_KEY = 'gulrating:watch_positions';
 // Проверка только при входе в приложение и не чаще раза в неделю:
 // фоном ничего не крутится совсем
@@ -111,15 +111,18 @@ export function notifyNative(text) {
 
 // Отметка «Просмотрено»: для сериалов фиксируем сезоны/серии,
 // для фильмов — франшизу TMDb и дату, после которой ищем новые части.
-export async function markWatchDone(key) {
+export async function markWatchDone(key, { offline = false } = {}) {
   const list = read(HIST_KEY, []);
   const entry = list.find(i => i.key === key);
   if (!entry) return null;
-  const d = await getTitleDetails(entry.id, entry.media_type);
+  const d = offline
+    ? getCachedTitleDetails(entry.id, entry.media_type)
+    : await getTitleDetails(entry.id, entry.media_type);
+  if (!d) throw new Error('Нет локальных сведений о тайтле; подключитесь к интернету и откройте карточку один раз.');
   const at = Date.now();
   if (entry.media_type === 'movie') {
     let collection = null;
-    if (d.collection_id) {
+    if (d.collection_id && !offline) {
       try { collection = await getMovieCollection(d.collection_id); } catch (e) { /* пометку просмотра не блокируем */ }
     }
     entry.done = {
@@ -176,21 +179,22 @@ function pushNotification(n) {
 // У досмотренных сериалов проверяем новые сезоны/серии, у просмотренных
 // фильмов — новые релизы в коллекции TMDb после отметки «Просмотрено».
 // Уведомления появляются в колокольчике и, если можно, в системе.
-export async function checkNewSeasons() {
+export async function checkNewSeasons({ offlineOnly = false } = {}) {
+  if (offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)) return [];
   const last = Number(localStorage.getItem(CHECK_KEY) || 0);
   if (Date.now() - last < CHECK_EVERY) return [];
-  localStorage.setItem(CHECK_KEY, String(Date.now()));
 
   const fresh = [];
+  let lookupFailed = false;
   const list = read(HIST_KEY, []);
   for (const entry of list) {
     if (!entry.done) continue;
     if (entry.media_type === 'tv') {
-      let d;
-      try { d = await getTitleDetails(entry.id, 'tv'); }
-      catch (e) { continue; } // офлайн — проверим в следующий раз
-      const seasons = d.seasons || 0;
-      const episodes = d.episodes || 0;
+      let details;
+      try { details = await getTitleDetails(entry.id, 'tv'); }
+      catch (e) { lookupFailed = true; continue; }
+      const seasons = details.seasons || 0;
+      const episodes = details.episodes || 0;
       const moreSeasons = seasons > entry.done.seasons;
       const moreEpisodes = seasons === entry.done.seasons && episodes > entry.done.episodes;
       if (moreSeasons || moreEpisodes) {
@@ -205,27 +209,36 @@ export async function checkNewSeasons() {
     }
 
     if (entry.media_type !== 'movie') continue;
-    let details;
-    try { details = await getTitleDetails(entry.id, 'movie'); }
-    catch (e) { continue; }
-    const collectionId = entry.done.collectionId || details.collection_id;
-    if (!collectionId) continue;
-    let collection;
-    try { collection = await getMovieCollection(collectionId); }
-    catch (e) { continue; }
-    if (!collection) continue;
+    let parts = [];
+    try {
+      const discovered = await getFranchiseTitles(entry.id, 'movie');
+      parts = Array.isArray(discovered) ? discovered : [];
+    } catch (e) { lookupFailed = true; }
+
+    // Wiki-backed franchise discovery is primary. Keep TMDb collection as
+    // a fallback for older entries or titles with no matched Wikipedia parts.
+    if (parts.length < 2 && entry.done.collectionId) {
+      try {
+        const collection = await getMovieCollection(entry.done.collectionId);
+        if (collection) {
+          parts = (collection.parts || []).map(part => ({ ...part, media_type: 'movie' }));
+          entry.done.collectionName = collection.name || entry.done.collectionName || '';
+          entry.done.collectionId = collection.id || entry.done.collectionId;
+        }
+      } catch (e) { lookupFailed = true; }
+    }
+    if (parts.length < 2) continue;
 
     const markedAt = Number(entry.done.at) || Date.now();
     const markedDate = new Date(markedAt).toISOString().slice(0, 10);
     const today = new Date().toISOString().slice(0, 10);
     const notified = new Set((entry.done.notifiedPartIds || []).map(String));
-    entry.done.collectionId = collection.id;
-    entry.done.collectionName = collection.name || entry.done.collectionName || details.collection_name || '';
 
-    for (const part of collection.parts || []) {
+    for (const part of parts) {
+      if (part.media_type && part.media_type !== 'movie') continue;
       const partId = String(part.id);
       const releaseDate = part.release_date;
-      if (partId === String(entry.id) || notified.has(partId) || !releaseDate || releaseDate < markedDate || releaseDate > today) continue;
+      if (!part.id || partId === String(entry.id) || notified.has(partId) || !releaseDate || releaseDate < markedDate || releaseDate > today) continue;
       const text = `«${entry.title}»: вышла новая часть — «${part.title || entry.done.collectionName || 'фильм'}»`;
       pushNotification({
         kind: 'new_movie_part',
@@ -242,6 +255,7 @@ export async function checkNewSeasons() {
     entry.done.updatedAt = Date.now();
   }
   write(HIST_KEY, list);
+  if (!lookupFailed) localStorage.setItem(CHECK_KEY, String(Date.now()));
 
   if (fresh.length) {
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('gulrating:notifications-changed'));

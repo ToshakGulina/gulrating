@@ -66,6 +66,7 @@ window.addEventListener('online', () => {
   networkWasOffline = false;
   if (genuinelyReconnected) {
     showToast('Снова в сети', 'success', 2000);
+    checkNewSeasons().catch(() => {});
     if (!offlineOnlySession) getCurrentUser().then(syncQueuedTitleStatuses).catch(() => {});
   }
   // Полная перерисовка ленты здесь сбрасывала видимый экран и запускала
@@ -211,7 +212,7 @@ async function init() {
   if (isAppContext()) syncOfflineCatalog().catch(() => {});
 
   // Досмотренные сериалы: вышел новый сезон/серии — уведомление (троттлинг внутри)
-  checkNewSeasons().catch(() => {});
+  checkNewSeasons({ offlineOnly: offlineOnlySession }).catch(() => {});
 
   // Интерфейс отдаётся из кэша мгновенно (sw.js), а здесь фоном проверяем,
   // не появился ли новый деплой: если сборка отличается — ненавязчивый тост

@@ -10,6 +10,10 @@ assert.ok(!profileSource.includes("${currentUser.offlineOnly ? 'disabled' : ''}"
 const statusControls = [...profileSource.matchAll(/<select class="profile-status-select([^\"]*)"/g)];
 assert.equal(statusControls.length, 3, 'each profile card type has a status control');
 assert.ok(statusControls.every(([, classes]) => classes.includes('w-[112px]')), 'status labels have enough width to remain readable');
+const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+assert.ok(modalSource.includes('getCachedTitleDetails') && modalSource.includes('getCachedUserTitleStatus'), 'offline title cards open from local data');
+assert.ok(!modalSource.includes('disabled title="Недоступно офлайн"'), 'title-card status selector is enabled offline');
+assert.ok(modalSource.includes('queueUserTitleStatus'), 'title-card status selection queues offline');
 const match = profileSource.match(/function renderProfileStatusTab\([\s\S]*?(?=\nfunction renderWatchlist\()/);
 assert.ok(match, 'profile status tab renderer exists');
 
