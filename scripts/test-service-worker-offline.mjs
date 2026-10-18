@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Regression test: cached app shell wins when the host returns an HTTP block.
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
 import vm from 'node:vm';
 
 const origin = 'https://gulrating.pages.dev';
@@ -25,6 +26,21 @@ const self = {
 };
 
 const source = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
+const shellAssetsText = source.match(/const SHELL_ASSETS = \[([\s\S]*?)\];/)?.[1] || '';
+const shellAssets = new Set([...shellAssetsText.matchAll(/'([^']+)'/g)].map(match => match[1]));
+const srcRoot = new URL('../src/', import.meta.url);
+async function collectModules(directory, prefix = '') {
+  const files = [];
+  for (const entry of await readdir(new URL(prefix, directory), { withFileTypes: true })) {
+    const relative = path.posix.join(prefix, entry.name);
+    if (entry.isDirectory()) files.push(...await collectModules(directory, relative));
+    else if (entry.isFile() && entry.name.endsWith('.js')) files.push(`/src/${relative}`);
+  }
+  return files;
+}
+for (const modulePath of await collectModules(srcRoot)) {
+  assert.ok(shellAssets.has(modulePath), `service worker must precache local module ${modulePath}`);
+}
 vm.runInNewContext(source, { self, caches, URL, Response, fetch: async () => new Response('blocked', { status: 403 }) });
 
 async function requestFromWorker(url, mode = 'cors') {
