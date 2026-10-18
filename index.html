@@ -359,27 +359,47 @@
     /* Nothing Phone-inspired geometry and Glyph language: mono display labels,
        dotted glyphs, round toggles, quiet surfaces, and one red signal. */
     :root[data-theme="nothing"] body::before {
-      background: radial-gradient(circle at 1px 1px, rgb(255 255 255 / .46) 1px, transparent 1.35px);
-      background-size: 7px 7px;
-      mask-image: radial-gradient(ellipse 70% 48% at 98% 0%, #000 0%, transparent 100%);
-      opacity: .38;
+      /* Keep the Glyph-like dot field as atmosphere, never competing with text. */
+      background: radial-gradient(circle at 1px 1px, rgb(255 255 255 / .32) .7px, transparent 1px);
+      background-size: 8px 8px;
+      mask-image: radial-gradient(ellipse 34% 18% at 100% 0%, #000 0%, transparent 100%);
+      opacity: .14;
     }
     :root[data-theme="nothing"] h1,
     :root[data-theme="nothing"] h2 {
       font-family: "Roboto Mono", "Noto Sans Mono", ui-monospace, monospace;
       font-weight: 600;
-      letter-spacing: .06em;
-      text-transform: uppercase;
+      letter-spacing: .02em;
+      color: rgb(var(--theme-text-100)) !important;
+      -webkit-text-fill-color: currentColor;
+    }
+    :root[data-theme="nothing"] h3,
+    :root[data-theme="nothing"] .nav-btn span {
+      letter-spacing: .02em;
+    }
+    :root[data-theme="nothing"] .rating-score-badge {
+      background: transparent !important;
+      border: 1px solid currentColor;
+      border-radius: 9999px !important;
+      box-shadow: none !important;
+      color: var(--rating-score-color) !important;
+    }
+    :root[data-theme="nothing"] .rating-score-badge.rating-score-high { --rating-score-color: #00c878; }
+    :root[data-theme="nothing"] .rating-score-badge.rating-score-mid { --rating-score-color: #d69e16; }
+    :root[data-theme="nothing"] .rating-score-badge.rating-score-low { --rating-score-color: #f05a67; }
+    :root[data-theme="nothing"] .rating-score-value {
       color: transparent !important;
-      background-image: radial-gradient(circle, #f1f1f1 0 .9px, transparent 1.15px) !important;
+      background-image: radial-gradient(circle, var(--rating-score-color) 0 1.05px, transparent 1.25px);
       background-size: 4px 4px;
       background-clip: text;
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
+      text-shadow: none;
     }
-    :root[data-theme="nothing"] h3,
-    :root[data-theme="nothing"] .nav-btn span {
-      letter-spacing: .035em;
+    :root[data-theme="nothing"] .group-average-badge .rating-score-label,
+    :root[data-theme="nothing"] .group-average-badge .rating-count-label {
+      color: rgb(var(--theme-text-400));
+      opacity: 1;
     }
     :root[data-theme="nothing"] .title-card,
     :root[data-theme="nothing"] .rec-card,

@@ -651,6 +651,7 @@ async function loadRatings(currentUser, filter = 'all') {
 
     const year = releaseYear(title.release_date);
     const ratingColor = item.rating >= 8 ? 'bg-green-600' : item.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+    const ratingScoreTone = item.rating >= 8 ? 'rating-score-high' : item.rating >= 5 ? 'rating-score-mid' : 'rating-score-low';
     const groupRows = item.groupedRatings || [];
     const visibleGroupRows = groupRows.slice(0, 4);
     const hiddenGroupCount = Math.max(0, groupRows.length - visibleGroupRows.length);
@@ -667,14 +668,14 @@ async function loadRatings(currentUser, filter = 'all') {
                 <p class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${title.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
               </div>
               ${!isWatchlistView ? (item.groupedRatings && groupRows.length > 1 ? `
-                <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
-                  <span class="text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
-                  <strong class="text-lg leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
-                  <span class="text-[10px] opacity-80">${ratingCountLabel(groupRows.length)}</span>
+                <div class="group-average-badge rating-score-badge ${ratingScoreTone} ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
+                  <span class="rating-score-label text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
+                  <strong class="rating-score-value text-lg leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
+                  <span class="rating-count-label text-[10px] opacity-80">${ratingCountLabel(groupRows.length)}</span>
                 </div>
               ` : `
-                <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
-                  ${escapeHtml(formatRating(item.rating))}
+                <div class="rating-score-badge ${ratingScoreTone} ${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
+                  <span class="rating-score-value">${escapeHtml(formatRating(item.rating))}</span>
                 </div>
               `) : `
                 <div class="px-2 py-1 rounded-lg bg-slate-700 text-yellow-400 font-medium text-sm">
