@@ -51,45 +51,77 @@ function ratingTone(value) {
   return score >= 8 ? 'rating-score-high' : score >= 5 ? 'rating-score-mid' : 'rating-score-low';
 }
 
-function renderSearchRatingBadge(value) {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '';
-  const score = Number(value);
-  const tone = ratingTone(score);
-  const ratingColor = score >= 8 ? 'bg-green-600' : score >= 5 ? 'bg-yellow-600' : 'bg-red-600';
-  const label = escapeHtml(formatRating(score));
-  return `<span role="img" aria-label="Ваша оценка: ${label}" class="search-user-rating rating-score-badge ${tone} ${ratingColor} text-white">
-    <span class="rating-score-value"><span class="rating-score-plain">${label}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(score)}</span></span>
-  </span>`;
+function renderSearchRatings(rows = []) {
+  if (!rows.length) return '';
+  return `<div class="search-ratings-list" aria-label="Оценки участников">${rows.map(row => {
+    const score = Number(row.rating);
+    const tone = ratingTone(score);
+    const username = escapeHtml(row.username || 'Участник');
+    const label = escapeHtml(formatRating(score));
+    return `<span class="search-rating-item" title="${username}: ${label}">
+      <span class="search-rating-name">${username}</span>
+      <strong class="search-rating-score ${tone}" role="img" aria-label="${username}: ${label}">
+        <span class="rating-score-plain">${label}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(score)}</span>
+      </strong>
+    </span>`;
+  }).join('')}</div>`;
 }
 
-async function getUserSearchRatings(results, currentUser) {
+async function getSearchRatings(results, currentUser) {
   const result = new Map();
   const ids = [...new Set((results || []).map(item => String(item.id)))];
-  if (!ids.length || !currentUser?.id) return result;
+  if (!ids.length) return result;
+  const rowsByTitle = new Map(ids.map(id => [id, new Map()]));
+  const addRating = row => {
+    const id = String(row.title_id);
+    const rows = rowsByTitle.get(id);
+    const score = Number(row.rating);
+    if (!rows || !Number.isFinite(score)) return;
+    const personId = String(row.user_id || row.username || 'participant');
+    rows.set(personId, {
+      user_id: personId,
+      username: row.profiles?.username || row.username || 'Участник',
+      rating: score,
+    });
+  };
 
-  // Show cached and queued scores immediately even when search is offline.
-  for (const id of ids) {
-    const cached = getCachedUserTitleStatus(currentUser.id, id).rating;
-    if (cached && Number.isFinite(Number(cached.rating))) result.set(id, Number(cached.rating));
-  }
-  for (const pending of getPendingRatings()) {
-    const id = String(pending.title_id);
-    if (ids.includes(id) && Number.isFinite(Number(pending.rating))) result.set(id, Number(pending.rating));
-  }
-
-  if (currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)) return result;
-  try {
-    const { data, error } = await supabase.from('ratings').select('title_id, rating')
-      .eq('user_id', currentUser.id).in('title_id', ids);
-    if (!error) {
-      for (const row of data || []) result.set(String(row.title_id), Number(row.rating));
+  // Reuse the all-participants feed cache when offline or while the request runs.
+  for (const cachedRow of readFeedCache('all', 'all') || []) addRating(cachedRow);
+  if (currentUser?.id) {
+    for (const id of ids) {
+      const cached = getCachedUserTitleStatus(currentUser.id, id).rating;
+      if (cached && Number.isFinite(Number(cached.rating))) {
+        addRating({ title_id: id, user_id: currentUser.id, username: currentUser.profile?.username, rating: cached.rating });
+      }
     }
-  } catch (error) { /* keep any locally cached scores */ }
+  }
 
-  // A queued offline edit is newer than the last server snapshot.
-  for (const pending of getPendingRatings()) {
-    const id = String(pending.title_id);
-    if (ids.includes(id) && Number.isFinite(Number(pending.rating))) result.set(id, Number(pending.rating));
+  const addPendingRatings = () => {
+    for (const pending of getPendingRatings()) {
+      const id = String(pending.title_id);
+      if (ids.includes(id)) addRating({
+        title_id: id,
+        user_id: currentUser?.id,
+        username: currentUser?.profile?.username,
+        rating: pending.rating,
+      });
+    }
+  };
+  addPendingRatings();
+
+  if (!currentUser?.offlineOnly && !(typeof navigator !== 'undefined' && navigator.onLine === false)) {
+    try {
+      const { data, error } = await supabase.from('ratings')
+        .select('title_id, rating, user_id, profiles!inner(username)')
+        .in('title_id', ids).order('updated_at', { ascending: false });
+      if (!error) for (const row of data || []) addRating(row);
+    } catch (error) { /* retain cached scores */ }
+  }
+
+  // Locally queued changes are newer than their last server copy.
+  addPendingRatings();
+  for (const [id, rows] of rowsByTitle) {
+    result.set(id, [...rows.values()]);
   }
   return result;
 }
@@ -1357,7 +1389,7 @@ function initSearch(currentUser) {
         return;
       }
 
-      const userRatings = await getUserSearchRatings(results, currentUser);
+      const ratingsByTitle = await getSearchRatings(results, currentUser);
       if (!overlay.isConnected) return;
       count.textContent = `Найдено: ${results.length}`;
       content.innerHTML = `${offlineNote ? `<p class="mb-4 text-xs text-gray-500">📴 ${escapeHtml(offlineNote)}</p>` : ''}
@@ -1366,9 +1398,10 @@ function initSearch(currentUser) {
             const year = releaseYear(item.release_date);
             primeTitleCache(item.media_type, item.id, item);
             return `<button type="button" class="search-page-result group min-w-0 text-left" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
-              <div class="search-result-poster relative mb-2">${posterImg(item.poster_path, item.title, 'aspect-[2/3] w-full rounded-xl object-cover transition-opacity group-hover:opacity-80')}${renderSearchRatingBadge(userRatings.get(String(item.id)))}</div>
+              ${posterImg(item.poster_path, item.title, 'mb-2 aspect-[2/3] w-full rounded-xl object-cover transition-opacity group-hover:opacity-80')}
               <span class="block truncate text-sm font-medium">${escapeHtml(item.title)}</span>
               <span class="block text-xs text-gray-400">${year ? `${escapeHtml(year)} · ` : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</span>
+              <div class="search-results-ratings">${renderSearchRatings(ratingsByTitle.get(String(item.id)))}</div>
             </button>`;
           }).join('')}
         </div>`;
@@ -1470,7 +1503,7 @@ function initSearch(currentUser) {
 
     searchTimeout = setTimeout(async () => {
       const { results, errorText, offlineNote } = await searchForQuery(query, resultsContainer);
-      const userRatings = results.length ? await getUserSearchRatings(results, currentUser) : new Map();
+      const ratingsByTitle = results.length ? await getSearchRatings(results, currentUser) : new Map();
       if (searchInput.value.trim() !== query) return;
 
       if (errorText) {
@@ -1485,14 +1518,14 @@ function initSearch(currentUser) {
           primeTitleCache(item.media_type, item.id, item);
           return `
             <div class="search-result-item p-3 hover:bg-slate-700 cursor-pointer flex gap-3 transition-colors" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
-              <div class="search-result-poster relative flex-shrink-0 w-14">
+              <div class="flex-shrink-0 w-14">
                 ${posterImg(item.poster_path, item.title, 'w-14 aspect-[2/3] rounded')}
-                ${renderSearchRatingBadge(userRatings.get(String(item.id)))}
               </div>
-              <div class="min-w-0">
+              <div class="min-w-0 flex-1">
                 <div class="font-medium truncate">${escapeHtml(item.title)}</div>
                 <div class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
               </div>
+              <div class="search-result-ratings ml-auto self-center">${renderSearchRatings(ratingsByTitle.get(String(item.id)))}</div>
             </div>
           `;
         }).join('');
