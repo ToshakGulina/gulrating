@@ -177,40 +177,6 @@ export async function getPopularPage(mediaType, page) {
   }));
 }
 
-const WATCH_PROVIDER_CACHE_KEY = 'gulrating:watch_provider_cache';
-const WATCH_PROVIDER_CACHE_TTL = 24 * 60 * 60 * 1000;
-
-function readWatchProviderCache() {
-  try {
-    const value = JSON.parse(localStorage.getItem(WATCH_PROVIDER_CACHE_KEY) || '{}');
-    return value && typeof value === 'object' ? value : {};
-  } catch (e) {
-    return {};
-  }
-}
-
-export async function getTitleWatchProviders(id, mediaType, region = 'RU') {
-  if (!id || !['movie', 'tv'].includes(mediaType)) return null;
-  const country = String(region || 'RU').toUpperCase();
-  if (!/^[A-Z]{2}$/.test(country)) return null;
-  const cache = readWatchProviderCache();
-  const key = `${mediaType}:${id}:${country}`;
-  const saved = cache[key];
-  if (saved && Date.now() - Number(saved.at || 0) < WATCH_PROVIDER_CACHE_TTL) return saved.data || null;
-
-  try {
-    const response = await tmdbFetch(`/${mediaType}/${encodeURIComponent(id)}/watch/providers`);
-    const result = response && response.results && response.results[country] || null;
-    cache[key] = { at: Date.now(), data: result };
-    const keys = Object.keys(cache);
-    while (keys.length > 100) delete cache[keys.shift()];
-    try { localStorage.setItem(WATCH_PROVIDER_CACHE_KEY, JSON.stringify(cache)); } catch (e) { /* private mode */ }
-    return result;
-  } catch (e) {
-    return saved ? saved.data || null : null;
-  }
-}
-
 export async function getTitleDetails(id, mediaType) {
   let data;
   try {

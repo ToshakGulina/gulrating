@@ -37,8 +37,8 @@ jobs:
         run: node scripts/test-watch-progress.mjs
       - name: Test independent rating and status updates
         run: node scripts/test-title-statuses.mjs
-      - name: Test streaming provider links and availability
-        run: node scripts/test-watch-provider-links.mjs
+      - name: Test Kinopoisk watchability and direct service links
+        run: node scripts/test-kinopoisk-watchability.mjs
       - name: Verify release notes can be generated
         run: scripts/release-notes.sh v1.0.20 > /dev/null
       - name: Verify compiled Tailwind CSS

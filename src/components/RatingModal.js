@@ -1,5 +1,5 @@
 import { saveRating, getUserTitleStatus, deleteRating, setUserTitleStatus } from '../lib/ratings.js';
-import { getTitleDetails, getFranchiseTitles, getTitleWatchProviders } from '../lib/tmdb.js';
+import { getTitleDetails, getFranchiseTitles } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
@@ -7,7 +7,7 @@ import { addRecentTitle } from '../lib/history.js';
 import { enqueueRating, networkLikeError } from '../lib/offline.js';
 import { addWatchEntry, reportWatchNative, isApk, getPositions, saveWatchPosition } from '../lib/watchHistory.js';
 import { fetchKinoboxPlayers, qualityRank } from '../lib/kinobox.js';
-import { findWatchProviderOffer, kinopoiskOfficialTitleUrl, iviSearchUrl } from '../lib/watchProviders.js';
+import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -629,7 +629,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
     // Без сети статус и оценки друзей недоступны — карточка всё равно
     // открывается (детали из кэша), оценку можно поставить в очередь
-    const [status, allRatings, kpRatings, watchProviderData] = await Promise.all([
+    const [status, allRatings, kpRatings] = await Promise.all([
       getUserTitleStatus(currentUser.id, titleId)
         .catch(() => ({ hasRating: false, rating: null, isInWatchlist: false, currentStatus: '' })),
       supabase
@@ -639,8 +639,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         .order('rating', { ascending: false })
         .then(({ data }) => data || [])
         .catch(() => []),
-      getKinopoiskRatings(title.title, title.original_title, year),
-      getTitleWatchProviders(titleId, mediaType, 'RU').catch(() => null)
+      getKinopoiskRatings(title.title, title.original_title, year)
     ]);
 
     // Запоминаем тайтл в «недавно открытых» для истории поиска
@@ -712,29 +711,15 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const visibleRows = ratingRows.slice(0, 2);
     const extraRows = ratingRows.slice(2);
     const kpPageUrl = kinopoiskPageUrl(kpRatings && kpRatings.kpId);
-    const kpOffer = findWatchProviderOffer(watchProviderData, 'kinopoisk');
-    const iviOffer = findWatchProviderOffer(watchProviderData, 'ivi');
-    const kpOfficialUrl = kpOffer
-      ? kinopoiskOfficialTitleUrl(kpRatings && kpRatings.kpId, mediaType) : '';
-    const iviUrl = iviOffer ? iviSearchUrl(title.title || title.name, year) : '';
+    const kpWatchUrl = getOfficialWatchUrl(kpRatings && kpRatings.watchability, 'kinopoisk');
+    const iviWatchUrl = getOfficialWatchUrl(kpRatings && kpRatings.watchability, 'ivi');
     const platformWatchLinks = [
-      kpOfficialUrl ? {
-        name: 'Кинопоиск',
-        url: kpOfficialUrl,
-        access: kpOffer.accessLabel,
-        title: 'Официальная карточка Кинопоиска; доступность указана TMDb для России.'
-      } : null,
-      iviUrl ? {
-        name: 'Иви',
-        url: iviUrl,
-        access: iviOffer.accessLabel,
-        title: 'TMDb указывает Иви для России; откроется поиск по названию, так как прямого ID Иви у тайтла нет.'
-      } : null
+      kpWatchUrl ? { name: 'Кинопоиск', url: kpWatchUrl } : null,
+      iviWatchUrl ? { name: 'Иви', url: iviWatchUrl } : null
     ].filter(Boolean);
     const platformWatchLinksHtml = platformWatchLinks.length
-      ? `<div class="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Онлайн-сервисы по данным TMDb для России">
-          <span class="w-full text-[10px] text-gray-500">Сервисы в России по данным TMDb:</span>
-          ${platformWatchLinks.map(link => `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" title="${escapeHtml(link.title)}" class="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:border-primary/60 hover:text-white">${escapeHtml(link.name)}<span class="text-[10px] text-gray-500">· ${escapeHtml(link.access)}</span></a>`).join('')}
+      ? `<div class="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Прямые ссылки просмотра">
+          ${platformWatchLinks.map(link => `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" title="Прямая ссылка просмотра из watchability API Кинопоиска" class="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-gray-200 hover:border-primary/60 hover:text-white">▶ Смотреть на ${escapeHtml(link.name)}</a>`).join('')}
         </div>`
       : '';
     modal.querySelector('h2').textContent = title.title || 'Фильм';

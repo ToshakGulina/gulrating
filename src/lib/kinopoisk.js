@@ -136,6 +136,23 @@ async function fetchMovieDetails(base, sendKey, kpId) {
   }
 }
 
+// Стриминговые ссылки берём только из watchability самого API Кинопоиска:
+// это конкретные карточки сервисов, а не просто существование страницы фильма.
+function extractWatchability(details) {
+  const items = details && details.watchability && details.watchability.items;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap(item => {
+    if (!item || !item.name || !item.url) return [];
+    try {
+      const url = new URL(item.url);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') return [];
+      return [{ name: String(item.name), url: url.toString() }];
+    } catch (e) {
+      return [];
+    }
+  });
+}
+
 // budget/fees приходят объектами { value, currency } — вытаскиваем числа
 function extractMoney(details) {
   if (!details) return null;
@@ -172,17 +189,42 @@ async function fetchItems(base, sendKey, query) {
   }
 }
 
+async function refreshKinopoiskWatchability(result, cacheKey) {
+  if (!result || !result.kpId) return result;
+  const checkedAt = Number(result.watchabilityAt) || 0;
+  if (Array.isArray(result.watchability) && checkedAt > 0 && Date.now() - checkedAt < 24 * 60 * 60 * 1000) {
+    return result;
+  }
+
+  for (const { base, sendKey } of baseList()) {
+    const details = await fetchMovieDetails(base, sendKey, result.kpId);
+    if (!details) continue;
+    const refreshed = {
+      ...result,
+      watchability: extractWatchability(details),
+      watchabilityAt: Date.now()
+    };
+    const money = extractMoney(details);
+    if (money) Object.assign(refreshed, money);
+    cache.set(cacheKey, refreshed);
+    kpDiskWrite(cacheKey, refreshed);
+    return refreshed;
+  }
+  return result;
+}
+
 // Ищем рейтинги Кинопоиска и IMDb по названию и году.
 // Возвращает { kp, imdb } (любое из полей может быть null) или null.
 export async function getKinopoiskRatings(title, originalTitle, year) {
   if (!kinopoiskConfigured() || !title) return null;
 
   const cacheKey = `${title}|${year || ''}`;
-  if (cache.has(cacheKey)) return cache.get(cacheKey);
+  if (cache.has(cacheKey)) return refreshKinopoiskWatchability(cache.get(cacheKey), cacheKey);
   const diskHit = kpDiskRead(cacheKey);
   if (diskHit !== undefined) {
-    cache.set(cacheKey, diskHit);
-    return diskHit;
+    const refreshed = await refreshKinopoiskWatchability(diskHit, cacheKey);
+    cache.set(cacheKey, refreshed);
+    return refreshed;
   }
 
   const queries = [title];
@@ -212,20 +254,12 @@ export async function getKinopoiskRatings(title, originalTitle, year) {
         : answer.items[0];
 
       const ratings = extractRatings(matched);
-      if (ratings && Object.values(ratings).some((x) => x !== null)) {
-        const rawId = matched && (matched.id !== undefined ? matched.id : matched.kinopoiskId);
-        result = { ...ratings, kpId: rawId !== undefined && rawId !== null ? Number(rawId) : null };
-        // Добираем бюджет и сборы из карточки тайтла (кэш сессии + кэш прокси)
-        if (result.kpId) {
-          const tries = [{ base, sendKey }, ...baseList().filter(b => b.base !== base)];
-          for (const t of tries) {
-            const money = extractMoney(await fetchMovieDetails(t.base, t.sendKey, result.kpId));
-            if (money) {
-              Object.assign(result, money);
-              break;
-            }
-          }
-        }
+      const rawId = matched && (matched.id !== undefined ? matched.id : matched.kinopoiskId);
+      const kpId = /^\d+$/.test(String(rawId ?? '')) ? Number(rawId) : null;
+      const matchedWatchability = extractWatchability(matched);
+      const hasRatings = ratings && Object.values(ratings).some(value => value !== null);
+      if (ratings && (hasRatings || kpId || matchedWatchability.length)) {
+        result = { ...ratings, kpId, watchability: matchedWatchability };
         break;
       }
     }
@@ -233,6 +267,7 @@ export async function getKinopoiskRatings(title, originalTitle, year) {
     if (reachable || result !== null) break;
   }
 
+  if (result) result = await refreshKinopoiskWatchability(result, cacheKey);
   cache.set(cacheKey, result);
   kpDiskWrite(cacheKey, result);
   return result;
