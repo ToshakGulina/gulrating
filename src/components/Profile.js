@@ -252,6 +252,10 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
 
           <h3 class="font-semibold mt-6 mb-3">Приложение на устройстве</h3>
           <div id="install-box" class="text-sm text-gray-300 space-y-2 mb-2"></div>
+          ${isApk() ? `<div class="mt-3 rounded-lg bg-slate-800/70 p-3 text-sm text-gray-300">
+            <p class="mb-2">Версия Android-приложения: ${escapeHtml(window.GulRatingBridge.getAppVersion())}</p>
+            <button id="check-apk-update" type="button" class="w-full rounded-lg bg-primary px-3 py-2 font-medium text-white hover:bg-primary/90">Проверить обновления</button>
+          </div>` : ''}
 
           <h3 class="font-semibold mt-6 mb-3">Лента</h3>
           <div class="space-y-3 text-sm">
@@ -787,6 +791,11 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       </p>`;
   }
   paintInstallBox();
+  if (isApk()) {
+    pageRoot.querySelector('#check-apk-update')?.addEventListener('click', () => {
+      window.GulRatingBridge.checkForUpdate();
+    });
+  }
   if (installBoxUpdateHandler) {
     window.removeEventListener('gulrating:installable', installBoxUpdateHandler);
     window.removeEventListener('gulrating:appinstalled', installBoxUpdateHandler);

@@ -2,21 +2,31 @@ package dev.gulrating.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.pm.PackageInstaller;
+import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.AssetManager;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.ProgressBar;
+import android.widget.Toast;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -53,6 +63,15 @@ public class MainActivity extends Activity {
             "kurolesya.link", "obrut.show", "nextembed.ws"
     };
     private static final String CHANNEL = "gulrating-watch";
+    private static final String UPDATE_CHANNEL = "gulrating-updates";
+    private static final String RELEASE_API = "https://api.github.com/repos/ToshakGulina/gulrating/releases/latest";
+    private static final String ACTION_DOWNLOAD_UPDATE = "dev.gulrating.app.DOWNLOAD_UPDATE";
+    private static final String ACTION_INSTALL_STATUS = "dev.gulrating.app.UPDATE_INSTALL_STATUS";
+    private static final String EXTRA_UPDATE_URL = "gulrating.update.url";
+    private static final String EXTRA_UPDATE_VERSION = "gulrating.update.version";
+    private static final int UPDATE_NOTIFICATION_ID = 2601;
+    private static final int REQUEST_UNKNOWN_SOURCES = 2602;
+    private static final int REQUEST_POST_NOTIFICATIONS = 2603;
 
     private WebView web;
     private Handler handler;
@@ -68,6 +87,14 @@ public class MainActivity extends Activity {
     private volatile boolean useBundledWebApp = true;
     private volatile boolean triedBundledFallback = false;
     private volatile boolean remoteBuildCheckStarted = false;
+    private volatile boolean appUpdateCheckStarted = false;
+    private volatile boolean appUpdateCheckRunning = false;
+    private volatile boolean updateDownloadRunning = false;
+    private volatile String pendingUpdateUrl = "";
+    private volatile String pendingUpdateVersion = "";
+    private java.io.File pendingInstallFile;
+    private AlertDialog updateProgressDialog;
+    private ProgressBar updateProgressBar;
     // Автофуллскрин с тапа по озвучке: ландшафт + иммерсив сразу;
     // выход — Back или возврат домой
     private boolean cinema = false;
@@ -85,8 +112,12 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         notifManager = getSystemService(NotificationManager.class);
-        NotificationChannel ch = new NotificationChannel(CHANNEL, "Просмотр и новые сезоны", NotificationManager.IMPORTANCE_DEFAULT);
-        notifManager.createNotificationChannel(ch);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch = new NotificationChannel(CHANNEL, "Просмотр и новые сезоны", NotificationManager.IMPORTANCE_DEFAULT);
+            NotificationChannel updateChannel = new NotificationChannel(UPDATE_CHANNEL, "Обновления приложения", NotificationManager.IMPORTANCE_DEFAULT);
+            notifManager.createNotificationChannel(ch);
+            notifManager.createNotificationChannel(updateChannel);
+        }
         handler = new Handler(Looper.getMainLooper());
         // Система иногда возвращает полоски сама (уведомления и т.п.) —
         // пока мы в фуллскрине, восстанавливаем иммерсивность
@@ -227,7 +258,10 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (!isPlayerHost(url) && !isPlayerSessionUrl(url)) {
-                    if (useBundledWebApp && isHomeShellUrl(url)) checkRemoteBuildAndUpdate();
+                    if (isHomeShellUrl(url)) {
+                        if (useBundledWebApp) checkRemoteBuildAndUpdate();
+                        checkForAppUpdate(false);
+                    }
                     scheduleBundledBootCheck(url);
                     return;
                 }
@@ -302,6 +336,16 @@ public class MainActivity extends Activity {
             public void notify(final String text) {
                 handler.post(() -> showNotification(text));
             }
+
+            @JavascriptInterface
+            public void checkForUpdate() {
+                checkForAppUpdate(true);
+            }
+
+            @JavascriptInterface
+            public String getAppVersion() {
+                return BuildConfig.VERSION_NAME;
+            }
         }, "GulRatingBridge");
 
         // Опрос <video> плеера: позиция и длительность для истории просмотра.
@@ -320,6 +364,7 @@ public class MainActivity extends Activity {
             web.loadUrl(HOME);
         }
         setContentView(root);
+        handleUpdaterIntent(getIntent());
     }
 
     private boolean isBundledShellPath(String path) {
@@ -441,6 +486,352 @@ public class MainActivity extends Activity {
                 .compile("APP_BUILD\\s*=\\s*\\\"([^\\\"]+)\\\"")
                 .matcher(source);
         return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private static final class AppUpdate {
+        final String version;
+        final String apkUrl;
+
+        AppUpdate(String version, String apkUrl) {
+            this.version = version;
+            this.apkUrl = apkUrl;
+        }
+    }
+
+    private void checkForAppUpdate(boolean manual) {
+        if (isFinishing()) return;
+        if (appUpdateCheckRunning) {
+            if (manual) handler.post(() -> Toast.makeText(this, "Проверка обновлений уже выполняется", Toast.LENGTH_SHORT).show());
+            return;
+        }
+        long lastCheck = prefs().getLong("apk_update_last_check", 0L);
+        if (!manual && System.currentTimeMillis() - lastCheck < 6 * 60 * 60 * 1000L) return;
+        if (!manual && appUpdateCheckStarted) return;
+        appUpdateCheckStarted = true;
+        appUpdateCheckRunning = true;
+        if (manual) handler.post(() -> Toast.makeText(this, "Проверяем обновления…", Toast.LENGTH_SHORT).show());
+        new Thread(() -> {
+            AppUpdate update = fetchLatestAppUpdate();
+            prefs().edit().putLong("apk_update_last_check", System.currentTimeMillis()).apply();
+            appUpdateCheckRunning = false;
+            appUpdateCheckStarted = false;
+            handler.post(() -> {
+                if (isFinishing()) return;
+                if (update == null) {
+                    if (manual) Toast.makeText(this, "Новых обновлений нет или GitHub недоступен", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                pendingUpdateUrl = update.apkUrl;
+                pendingUpdateVersion = update.version;
+                postUpdateNotification(update);
+                showUpdateAvailable(update, manual);
+            });
+        }, "gulrating-apk-update-check").start();
+    }
+
+    private AppUpdate fetchLatestAppUpdate() {
+        java.net.HttpURLConnection connection = null;
+        try {
+            java.net.URL url = new java.net.URL(RELEASE_API);
+            connection = (java.net.HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(7000);
+            connection.setReadTimeout(7000);
+            connection.setRequestProperty("Accept", "application/vnd.github+json");
+            connection.setRequestProperty("User-Agent", "GulRating-Android/" + BuildConfig.VERSION_NAME);
+            if (connection.getResponseCode() != 200) return null;
+            try (java.io.InputStream input = connection.getInputStream()) {
+                org.json.JSONObject release = new org.json.JSONObject(readUtf8(input));
+                if (release.optBoolean("draft", true) || release.optBoolean("prerelease", true)) return null;
+                String version = release.optString("tag_name", "").replaceFirst("^[vV]", "");
+                if (!isNewerAppVersion(version, BuildConfig.VERSION_NAME)) return null;
+                org.json.JSONArray assets = release.optJSONArray("assets");
+                if (assets == null) return null;
+                for (int i = 0; i < assets.length(); i++) {
+                    org.json.JSONObject asset = assets.optJSONObject(i);
+                    if (asset == null) continue;
+                    String name = asset.optString("name", "");
+                    String downloadUrl = asset.optString("browser_download_url", "");
+                    if (name.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")
+                            && downloadUrl.startsWith("https://github.com/ToshakGulina/gulrating/releases/download/")) {
+                        return new AppUpdate(version, downloadUrl);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Проверка обновлений не должна мешать офлайн-запуску приложения.
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+        return null;
+    }
+
+    private boolean isNewerAppVersion(String candidate, String installed) {
+        int[] latest = versionParts(candidate);
+        int[] current = versionParts(installed);
+        if (latest == null || current == null) return false;
+        for (int i = 0; i < Math.max(latest.length, current.length); i++) {
+            int a = i < latest.length ? latest[i] : 0;
+            int b = i < current.length ? current[i] : 0;
+            if (a != b) return a > b;
+        }
+        return false;
+    }
+
+    private int[] versionParts(String version) {
+        if (version == null || !version.matches("[0-9]+(?:\\.[0-9]+)*")) return null;
+        String[] parts = version.split("\\.");
+        int[] numbers = new int[parts.length];
+        try {
+            for (int i = 0; i < parts.length; i++) numbers[i] = Integer.parseInt(parts[i]);
+            return numbers;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private void postUpdateNotification(AppUpdate update) {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            if (!update.version.equals(prefs().getString("apk_update_notification_prompted", ""))) {
+                prefs().edit().putString("apk_update_notification_prompted", update.version).apply();
+                requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQUEST_POST_NOTIFICATIONS);
+            }
+            return;
+        }
+        Intent intent = new Intent(this, MainActivity.class)
+                .setAction(ACTION_DOWNLOAD_UPDATE)
+                .putExtra(EXTRA_UPDATE_URL, update.apkUrl)
+                .putExtra(EXTRA_UPDATE_VERSION, update.version);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, UPDATE_NOTIFICATION_ID, intent, flags);
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(this, UPDATE_CHANNEL) : new Notification.Builder(this);
+        Notification notification = builder
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("Доступно обновление ГульРейтинга")
+                .setContentText("Версия " + update.version + " — нажмите, чтобы скачать и установить")
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setPriority(Notification.PRIORITY_DEFAULT)
+                .build();
+        notifManager.notify(UPDATE_NOTIFICATION_ID, notification);
+    }
+
+    private void showUpdateAvailable(AppUpdate update, boolean manual) {
+        String dismissed = prefs().getString("apk_update_dismissed", "");
+        if (!manual && update.version.equals(dismissed)) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Доступно обновление")
+                .setMessage("Новая версия ГульРейтинга " + update.version + ". Скачать APK и установить сейчас?")
+                .setPositiveButton("Скачать и установить", (dialog, which) -> downloadAndInstallUpdate(update.apkUrl, update.version))
+                .setNegativeButton("Позже", (dialog, which) -> prefs().edit().putString("apk_update_dismissed", update.version).apply())
+                .show();
+    }
+
+    private void downloadAndInstallUpdate(String url, String version) {
+        if (updateDownloadRunning) {
+            Toast.makeText(this, "Загрузка обновления уже выполняется", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (url == null || !url.startsWith("https://github.com/ToshakGulina/gulrating/releases/download/")) {
+            Toast.makeText(this, "Некорректная ссылка на обновление", Toast.LENGTH_LONG).show();
+            return;
+        }
+        updateDownloadRunning = true;
+        showUpdateProgress();
+        new Thread(() -> {
+            java.io.File apkFile = downloadUpdateFile(url, version);
+            updateDownloadRunning = false;
+            handler.post(() -> {
+                hideUpdateProgress();
+                if (isFinishing()) return;
+                if (apkFile == null) {
+                    Toast.makeText(this, "Не удалось скачать обновление. Проверьте подключение к интернету.", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                pendingInstallFile = apkFile;
+                beginApkInstall(apkFile, version);
+            });
+        }, "gulrating-apk-update-download").start();
+    }
+
+    private java.io.File downloadUpdateFile(String url, String version) {
+        java.net.HttpURLConnection connection = null;
+        java.io.File outputFile = null;
+        boolean verifiedApk = false;
+        try {
+            java.io.File downloadDir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            if (downloadDir == null) downloadDir = getFilesDir();
+            if (!downloadDir.exists() && !downloadDir.mkdirs()) return null;
+            String safeVersion = version.replaceAll("[^A-Za-z0-9._-]", "_");
+            outputFile = new java.io.File(downloadDir, "gulrating-v" + safeVersion + ".apk");
+            connection = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(30000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("User-Agent", "GulRating-Android/" + BuildConfig.VERSION_NAME);
+            if (connection.getResponseCode() != 200) return null;
+            long total = connection.getContentLengthLong();
+            if (total > 300L * 1024L * 1024L) return null;
+            try (java.io.InputStream input = connection.getInputStream();
+                 java.io.FileOutputStream output = new java.io.FileOutputStream(outputFile)) {
+                byte[] buffer = new byte[32 * 1024];
+                long downloaded = 0;
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    downloaded += count;
+                    if (downloaded > 300L * 1024L * 1024L) return null;
+                    output.write(buffer, 0, count);
+                    if (total > 0) {
+                        int progress = (int) Math.min(100, downloaded * 100 / total);
+                        handler.post(() -> updateDownloadProgress(progress));
+                    }
+                }
+                output.getFD().sync();
+                if (total > 0 && downloaded != total) return null;
+            }
+            PackageInfo archive = getPackageManager().getPackageArchiveInfo(outputFile.getAbsolutePath(), 0);
+            if (archive == null || archive.applicationInfo == null
+                    || !getPackageName().equals(archive.applicationInfo.packageName)
+                    || !version.equals(archive.versionName)
+                    || !isNewerAppVersion(archive.versionName, BuildConfig.VERSION_NAME)) return null;
+            verifiedApk = true;
+            return outputFile;
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (connection != null) connection.disconnect();
+            if (!verifiedApk && outputFile != null && outputFile.exists()) outputFile.delete();
+        }
+    }
+
+    private void showUpdateProgress() {
+        updateProgressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        updateProgressBar.setMax(100);
+        updateProgressBar.setIndeterminate(true);
+        int padding = (int) (24 * getResources().getDisplayMetrics().density);
+        FrameLayout container = new FrameLayout(this);
+        container.setPadding(padding, padding, padding, padding);
+        container.addView(updateProgressBar, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+        updateProgressDialog = new AlertDialog.Builder(this)
+                .setTitle("Скачивание обновления…")
+                .setView(container)
+                .setNegativeButton("Скрыть", (dialog, which) -> { })
+                .create();
+        updateProgressDialog.show();
+    }
+
+    private void updateDownloadProgress(int progress) {
+        if (updateProgressBar != null) {
+            updateProgressBar.setIndeterminate(false);
+            updateProgressBar.setProgress(progress);
+        }
+    }
+
+    private void hideUpdateProgress() {
+        if (updateProgressDialog != null && updateProgressDialog.isShowing()) updateProgressDialog.dismiss();
+        updateProgressDialog = null;
+        updateProgressBar = null;
+    }
+
+    private void beginApkInstall(java.io.File apkFile, String version) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getPackageManager().canRequestPackageInstalls()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Разрешите установку APK")
+                    .setMessage("Android попросит разрешить установку приложений из этого источника. После выдачи разрешения откроется системное окно установки обновления.")
+                    .setPositiveButton("Открыть настройки", (dialog, which) -> {
+                        Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:" + getPackageName()));
+                        startActivityForResult(settings, REQUEST_UNKNOWN_SOURCES);
+                    })
+                    .setNegativeButton("Отмена", null)
+                    .show();
+            return;
+        }
+        try {
+            PackageInstaller installer = getPackageManager().getPackageInstaller();
+            PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+            int sessionId = installer.createSession(params);
+            try (PackageInstaller.Session session = installer.openSession(sessionId);
+                 java.io.InputStream input = new java.io.FileInputStream(apkFile);
+                 java.io.OutputStream output = session.openWrite("gulrating-update.apk", 0, apkFile.length())) {
+                byte[] buffer = new byte[32 * 1024];
+                int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                session.fsync(output);
+                Intent statusIntent = new Intent(this, MainActivity.class).setAction(ACTION_INSTALL_STATUS);
+                statusIntent.putExtra(EXTRA_UPDATE_VERSION, version);
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
+                PendingIntent statusPendingIntent = PendingIntent.getActivity(this, sessionId, statusIntent, flags);
+                session.commit(statusPendingIntent.getIntentSender());
+            }
+            Toast.makeText(this, "Откройте системное окно Android и подтвердите установку", Toast.LENGTH_LONG).show();
+        } catch (Exception error) {
+            Toast.makeText(this, "Не удалось запустить установщик: " + error.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void handleUpdaterIntent(Intent intent) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        if (ACTION_DOWNLOAD_UPDATE.equals(action)) {
+            String url = intent.getStringExtra(EXTRA_UPDATE_URL);
+            String version = intent.getStringExtra(EXTRA_UPDATE_VERSION);
+            pendingUpdateUrl = url == null ? "" : url;
+            pendingUpdateVersion = version == null ? "" : version;
+            downloadAndInstallUpdate(pendingUpdateUrl, pendingUpdateVersion);
+            intent.setAction(null);
+        } else if (ACTION_INSTALL_STATUS.equals(action)) {
+            handleInstallStatus(intent);
+            intent.setAction(null);
+        }
+    }
+
+    private void handleInstallStatus(Intent intent) {
+        int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
+        if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            Intent confirmation;
+            if (Build.VERSION.SDK_INT >= 33) confirmation = intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class);
+            else confirmation = (Intent) intent.getParcelableExtra(Intent.EXTRA_INTENT);
+            if (confirmation != null) startActivity(confirmation);
+        } else if (status == PackageInstaller.STATUS_SUCCESS) {
+            Toast.makeText(this, "Обновление установлено", Toast.LENGTH_LONG).show();
+        } else if (status != PackageInstaller.STATUS_FAILURE_ABORTED) {
+            String message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
+            Toast.makeText(this, "Установка не завершена: " + (message == null ? "ошибка Android" : message), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleUpdaterIntent(intent);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_POST_NOTIFICATIONS && grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED
+                && !pendingUpdateUrl.isEmpty() && !pendingUpdateVersion.isEmpty()) {
+            postUpdateNotification(new AppUpdate(pendingUpdateVersion, pendingUpdateUrl));
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_UNKNOWN_SOURCES && pendingInstallFile != null) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || getPackageManager().canRequestPackageInstalls()) {
+                beginApkInstall(pendingInstallFile, pendingUpdateVersion);
+            } else {
+                Toast.makeText(this, "Разрешение на установку APK не выдано", Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private WebResourceResponse bundledWebResponse(String requestPath) {

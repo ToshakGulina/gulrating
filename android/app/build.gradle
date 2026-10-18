@@ -17,12 +17,16 @@ android {
     namespace 'dev.gulrating.app'
     compileSdk 34
 
+    buildFeatures {
+        buildConfig true
+    }
+
     defaultConfig {
         applicationId 'dev.gulrating.app'
         minSdk 24
         targetSdk 34
-        versionCode 26
-        versionName '1.0.26'
+        versionCode 27
+        versionName '1.0.27'
     }
 
     // Подпись подключается только при наличии всех переменных окружения.
