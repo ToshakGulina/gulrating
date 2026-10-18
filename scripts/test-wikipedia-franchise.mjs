@@ -98,8 +98,10 @@ try {
   ], 'a targeted film-series article search is tried when basic title results have no list');
 
   const proxyRequests = [];
-  globalThis.fetch = async input => {
+  const proxyOptions = [];
+  globalThis.fetch = async (input, options = {}) => {
     proxyRequests.push(new URL(String(input)));
+    proxyOptions.push(options);
     return new Response('{"ok":true}', { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
   const proxyResponse = await onRequestGet({
@@ -110,6 +112,7 @@ try {
   assert.equal(proxyRequests[0].hostname, 'ru.wikipedia.org');
   assert.equal(proxyRequests[0].pathname, '/w/api.php');
   assert.equal(proxyRequests[0].searchParams.get('action'), 'query');
+  assert.match(proxyOptions[0].headers['User-Agent'], /github\.com\/ToshakGulina\/gulrating/);
   assert.equal((await onRequestGet({
     request: new Request('https://gulrating.pages.dev/wiki/other'),
     params: { path: ['other'] },

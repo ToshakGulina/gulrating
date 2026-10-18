@@ -19,7 +19,10 @@ export async function onRequestGet(context) {
   const requestUrl = new URL(request.url);
   const target = new URL(upstreamUrl);
   requestUrl.searchParams.forEach((value, key) => target.searchParams.set(key, value));
-  const headers = { Accept: 'application/json' };
+  const headers = {
+    Accept: 'application/json',
+    'User-Agent': 'GulRating/1.0 (https://github.com/ToshakGulina/gulrating; franchise article lookup)',
+  };
 
   let upstream;
   try {
