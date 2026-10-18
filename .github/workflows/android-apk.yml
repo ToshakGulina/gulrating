@@ -65,7 +65,18 @@ jobs:
 
       - name: Build unsigned preview APK
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cd android && gradle --no-daemon -q assembleRelease
+        run: |
+          cd android
+          if ! gradle --no-daemon --stacktrace assembleRelease > "$RUNNER_TEMP/android-gradle.log" 2>&1; then
+            {
+              echo '### Android Gradle build failure'
+              echo '```text'
+              tail -n 100 "$RUNNER_TEMP/android-gradle.log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            tail -n 100 "$RUNNER_TEMP/android-gradle.log"
+            exit 1
+          fi
 
       - name: Prepare release assets
         run: |
