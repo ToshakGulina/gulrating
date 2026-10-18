@@ -6,7 +6,7 @@ import android.app.AlertDialog;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.app.PackageInstaller;
+import android.content.pm.PackageInstaller;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.SharedPreferences;
