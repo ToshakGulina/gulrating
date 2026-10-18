@@ -37,6 +37,8 @@ jobs:
         run: node scripts/test-watch-progress.mjs
       - name: Test independent rating and status updates
         run: node scripts/test-title-statuses.mjs
+      - name: Test per-member home-feed filter
+        run: node scripts/test-feed-user-filter.mjs
       - name: Test Kinopoisk watchability and direct service links
         run: node scripts/test-kinopoisk-watchability.mjs
       - name: Verify release notes can be generated

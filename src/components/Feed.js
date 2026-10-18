@@ -11,6 +11,7 @@ import { searchOfflineCatalog, getPopularOffline, getOfflineCatalogStats } from 
 import { isFullCatalogInstalled, searchFullCatalog } from '../lib/fullCatalog.js';
 import { getNotifications, markNotificationsRead, unreadNotifications } from '../lib/watchHistory.js';
 import { mountPage } from '../lib/pageState.js';
+import { feedUserOptions, selectedFeedUserId, feedRatingsCacheKey } from '../lib/feedPeople.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -46,6 +47,7 @@ let lastRenderedTrendTab = null;
 let ratingsHavePainted = false;
 let lastRenderedRatingsFilter = null;
 let lastRenderedRatingsSort = null;
+let lastRenderedRatingsUser = null;
 const feedEl = (id) => feedRoot?.querySelector(`#${id}`) || null;
 const feedAll = (selector) => feedRoot?.querySelectorAll(selector) || [];
 let activeSort = readSort();   // сортировка ленты: new | rating_desc | rating_asc
@@ -77,20 +79,63 @@ let mergeRatingsHandler = null;
 
 // Офлайн-копия ленты: последний успешный срез по каждому фильтру
 const FEED_CACHE_KEY = 'gulrating:feed_cache';
-function writeFeedCache(filter, items) {
+const FEED_USER_KEY = 'gulrating:feed_user';
+const FEED_PEOPLE_CACHE_KEY = 'gulrating:feed_people';
+let activeRatingsUserId = readActiveRatingsUser();
+let feedPeople = [];
+let feedPeopleRequestGeneration = 0;
+
+function readActiveRatingsUser() {
+  try { return localStorage.getItem(FEED_USER_KEY) || 'all'; } catch (e) { return 'all'; }
+}
+function saveActiveRatingsUser(value) {
+  activeRatingsUserId = value || 'all';
+  try { localStorage.setItem(FEED_USER_KEY, activeRatingsUserId); } catch (e) { /* приватный режим */ }
+}
+function writeFeedCache(filter, items, userSelection = activeRatingsUserId) {
   try {
     const all = JSON.parse(localStorage.getItem(FEED_CACHE_KEY) || '{}');
-    all[filter] = (items || []).slice(0, 20);
+    all[feedRatingsCacheKey(filter, userSelection)] = (items || []).slice(0, 20);
     localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(all));
   } catch (e) { /* приватный режим */ }
 }
-function readFeedCache(filter) {
+function readFeedCache(filter, userSelection = activeRatingsUserId) {
   try {
     const all = JSON.parse(localStorage.getItem(FEED_CACHE_KEY) || '{}');
-    const items = all[filter];
+    const key = feedRatingsCacheKey(filter, userSelection);
+    const items = all[key] || (userSelection === 'all' ? all[filter] : null);
     return Array.isArray(items) && items.length ? items : null;
   } catch (e) {
     return null;
+  }
+}
+function readFeedPeopleCache() {
+  try {
+    const people = JSON.parse(localStorage.getItem(FEED_PEOPLE_CACHE_KEY) || '[]');
+    return Array.isArray(people) ? people : [];
+  } catch (e) { return []; }
+}
+function writeFeedPeopleCache(people) {
+  try { localStorage.setItem(FEED_PEOPLE_CACHE_KEY, JSON.stringify(people)); } catch (e) { /* приватный режим */ }
+}
+function feedUserLabel(userId) {
+  return feedPeople.find(person => person.id === String(userId))?.username || 'участника';
+}
+function renderFeedUserOptions(currentUser, profiles = []) {
+  const select = feedEl('ratings-user-select');
+  if (!select) return;
+  feedPeople = feedUserOptions(profiles, currentUser);
+  if (activeRatingsUserId !== 'all' && !feedPeople.some(person => person.id === activeRatingsUserId)) {
+    const cached = readFeedPeopleCache().find(person => String(person.id) === activeRatingsUserId);
+    if (cached) feedPeople.push({ ...cached, id: String(cached.id) });
+  }
+  select.innerHTML = `<option value="all">Все участники</option>${feedPeople.map(person =>
+    `<option value="${escapeHtml(person.id)}">${escapeHtml(person.username)}${person.isCurrentUser ? ' — вы' : ''}</option>`
+  ).join('')}`;
+  select.value = activeRatingsUserId;
+  if (select.value !== activeRatingsUserId) {
+    saveActiveRatingsUser('all');
+    select.value = 'all';
   }
 }
 
@@ -108,7 +153,30 @@ async function feedRequest(promise) {
   }
 }
 
+async function loadFeedPeople(currentUser) {
+  const generation = ++feedPeopleRequestGeneration;
+  const cachedPeople = readFeedPeopleCache();
+  renderFeedUserOptions(currentUser, cachedPeople);
+  if (currentUser.offlineOnly) return;
+
+  const { data, error } = await feedRequest(
+    supabase.from('profiles').select('id, username').order('username', { ascending: true })
+  );
+  if (error || !Array.isArray(data) || generation !== feedPeopleRequestGeneration || !feedEl('ratings-user-select')) return;
+
+  const previousSelection = activeRatingsUserId;
+  const people = feedUserOptions(data, currentUser);
+  const storedPeople = people.map(({ id, username }) => ({ id, username }));
+  writeFeedPeopleCache(storedPeople);
+  if (previousSelection !== 'all' && !people.some(person => person.id === previousSelection)) {
+    saveActiveRatingsUser('all');
+  }
+  renderFeedUserOptions(currentUser, data);
+  if (activeRatingsUserId !== previousSelection) await loadRatings(currentUser, activeFilter);
+}
+
 export function cleanupFeed() {
+  feedPeopleRequestGeneration += 1;
   if (feedChannel) {
     supabase.removeChannel(feedChannel);
     feedChannel = null;
@@ -161,7 +229,9 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
   ratingsHavePainted = false;
   lastRenderedRatingsFilter = null;
   lastRenderedRatingsSort = null;
+  lastRenderedRatingsUser = null;
   activeFilter = 'all';
+  activeRatingsUserId = readActiveRatingsUser();
   activeSort = readSort(); // сортировку могли поменять из профиля
 
   page.root.innerHTML = `
@@ -202,8 +272,15 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
           <button class="filter-btn px-4 py-2 bg-primary text-white rounded-full text-sm font-medium whitespace-nowrap" data-filter="all">Все оценки</button>
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="movies">Фильмы</button>
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="tv">Сериалы</button>
-          <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="mine">Мои оценки</button>
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="watchlist">Хочу посмотреть</button>
+        </div>
+
+        <div class="flex items-center gap-2 mb-2">
+          <label for="ratings-user-select" class="flex-shrink-0 text-xs text-gray-400">Чьи оценки:</label>
+          <select id="ratings-user-select" class="min-w-0 max-w-full flex-1 rounded-xl border border-slate-700 bg-card px-3 py-2 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary" aria-label="Чьи оценки показывать">
+            <option value="all">Все участники</option>
+            <option value="${escapeHtml(currentUser.id)}">${escapeHtml(currentUser.profile.username)} — вы</option>
+          </select>
         </div>
 
         <div class="flex items-center gap-2 text-xs text-gray-400">
@@ -254,6 +331,8 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
     </div>
   `;
 
+  // Список участников нужен для фильтра; его загрузка не блокирует первую отрисовку.
+  loadFeedPeople(currentUser);
   // Загружаем оценки и рекомендации (рекомендации — параллельно, не ждём их)
   loadRecs(currentUser);
   await loadRatings(currentUser, activeFilter);
@@ -400,27 +479,38 @@ function rememberRatingsPaint(filter) {
   ratingsHavePainted = true;
   lastRenderedRatingsFilter = filter;
   lastRenderedRatingsSort = activeSort;
+  lastRenderedRatingsUser = activeRatingsUserId;
 }
 
 async function loadRatings(currentUser, filter = 'all') {
   const listEl = feedEl('ratings-list');
   const noteEl = feedEl('feed-note');
   if (!listEl) return;
+  const userSelection = activeRatingsUserId;
+  const selectedUserId = selectedFeedUserId(userSelection);
 
-  // Примечание для режима «хочу посмотреть» (показываем всю компанию)
-  if (noteEl) noteEl.classList.toggle('hidden', filter !== 'watchlist');
+  // Примечание для режима «хочу посмотреть»; фильтр участника применяется и здесь.
+  if (noteEl) {
+    noteEl.classList.toggle('hidden', filter !== 'watchlist');
+    noteEl.textContent = userSelection === 'all'
+      ? 'Показаны списки «хочу посмотреть» друзей и ваш'
+      : `Показан список «хочу посмотреть»: ${feedUserLabel(userSelection)}`;
+  }
 
   let data;
   let offlineCopy = false;
 
   if (filter === 'watchlist') {
-    const { data: watchlist, error } = await feedRequest(supabase
+    let watchlistQuery = supabase
       .from('watchlist')
       .select(`*, titles!inner(*), profiles!inner(*)`)
-      .order('created_at', { ascending: false }));
+      .order('created_at', { ascending: false });
+    if (selectedUserId) watchlistQuery = watchlistQuery.eq('user_id', selectedUserId);
+    const { data: watchlist, error } = await feedRequest(watchlistQuery);
 
+    if (filter !== activeFilter || userSelection !== activeRatingsUserId) return;
     if (error) {
-      const cached = readFeedCache(filter);
+      const cached = readFeedCache(filter, userSelection);
       if (!cached) {
         listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
         return;
@@ -429,7 +519,7 @@ async function loadRatings(currentUser, filter = 'all') {
       offlineCopy = true;
     } else {
       data = watchlist;
-      writeFeedCache(filter, watchlist);
+      writeFeedCache(filter, watchlist, userSelection);
     }
   } else {
     // titles!inner — внутренний join: фильтр по типу тайтла применяется к строкам
@@ -447,11 +537,13 @@ async function loadRatings(currentUser, filter = 'all') {
     } else if (filter === 'mine') {
       query = query.eq('user_id', currentUser.id);
     }
+    if (selectedUserId && filter !== 'mine') query = query.eq('user_id', selectedUserId);
 
     const { data: ratings, error } = await feedRequest(query);
+    if (filter !== activeFilter || userSelection !== activeRatingsUserId) return;
 
     if (error) {
-      const cached = readFeedCache(filter);
+      const cached = readFeedCache(filter, userSelection);
       if (!cached) {
         listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
         return;
@@ -460,7 +552,7 @@ async function loadRatings(currentUser, filter = 'all') {
       offlineCopy = true;
     } else {
       data = ratings;
-      writeFeedCache(filter, ratings);
+      writeFeedCache(filter, ratings, userSelection);
     }
   }
 
@@ -478,11 +570,12 @@ async function loadRatings(currentUser, filter = 'all') {
 
   const shouldAnimateCards = !ratingsHavePainted
     || filter !== lastRenderedRatingsFilter
-    || activeSort !== lastRenderedRatingsSort;
+    || activeSort !== lastRenderedRatingsSort
+    || userSelection !== lastRenderedRatingsUser;
   listEl.classList.toggle('suppress-card-animation', !shouldAnimateCards);
 
   if (!data || data.length === 0) {
-    if (filter === 'all') {
+    if (filter === 'all' && !selectedUserId) {
       // Первое впечатление: не пустое полотно, а онбординг + живые постеры трендов
       listEl.innerHTML = `
         <div class="bg-card border border-slate-700/70 rounded-2xl p-5 mb-6">
@@ -499,8 +592,14 @@ async function loadRatings(currentUser, filter = 'all') {
       return;
     }
 
-    let emptyText = 'Пока нет оценок. Найдите фильм через поиск и поставьте первую оценку.';
-    if (filter === 'watchlist') emptyText = 'В списке «Хочу посмотреть» пока ничего нет. Найдите фильм и добавьте его.';
+    let emptyText = selectedUserId
+      ? `У ${feedUserLabel(selectedUserId)} пока нет оценок.`
+      : 'Пока нет оценок. Найдите фильм через поиск и поставьте первую оценку.';
+    if (filter === 'watchlist') {
+      emptyText = selectedUserId
+        ? `У ${feedUserLabel(selectedUserId)} пока нет тайтлов в списке «Хочу посмотреть».`
+        : 'В списке «Хочу посмотреть» пока ничего нет. Найдите фильм и добавьте его.';
+    }
     if (filter === 'mine') emptyText = 'Вы еще не поставили ни одной оценки.';
 
     listEl.innerHTML = `
@@ -1434,6 +1533,14 @@ function initSearch(currentUser) {
       openSearchResultsPage(query);
     }
   });
+
+  const ratingsUserSelect = feedEl('ratings-user-select');
+  if (ratingsUserSelect) {
+    ratingsUserSelect.addEventListener('change', () => {
+      saveActiveRatingsUser(ratingsUserSelect.value);
+      loadRatings(currentUser, activeFilter);
+    });
+  }
 
   // Обработчики фильтров
   feedAll('.filter-btn').forEach(btn => {
