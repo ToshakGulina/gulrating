@@ -9,7 +9,7 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v49';
+const CACHE_VERSION = 'gulrating-v50';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
