@@ -41,6 +41,8 @@ jobs:
         run: node scripts/test-feed-user-filter.mjs
       - name: Test friend rating label
         run: node scripts/test-friend-rating-label.mjs
+      - name: Test small horizontal overflow fitting
+        run: node scripts/test-horizontal-scroll-ui.mjs
       - name: Test Kinopoisk watchability and direct service links
         run: node scripts/test-kinopoisk-watchability.mjs
       - name: Verify release notes can be generated

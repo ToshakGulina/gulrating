@@ -13,6 +13,21 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+  .overflow-fit-small {
+    column-gap: 0.25rem !important;
+  }
+  .overflow-fit-small > * {
+    flex-shrink: 1 !important;
+    min-width: 0 !important;
+  }
+  .overflow-fit-small > * img {
+    width: 100%;
+    max-width: 100%;
+  }
+  .overflow-fit-small > * > * {
+    min-width: 0;
+    max-width: 100%;
+  }
   .backdrop-blur-card {
     backdrop-filter: blur(12px);
   }
