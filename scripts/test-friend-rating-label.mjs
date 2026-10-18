@@ -2,10 +2,14 @@
 import assert from 'node:assert/strict';
 import { friendRatingsLabel } from '../src/lib/ratingLabels.js';
 
-assert.equal(friendRatingsLabel([]), 'Ваша оценка');
-assert.equal(friendRatingsLabel([{ profiles: { username: 'Тимоха' } }]), 'Тимоха');
-assert.equal(friendRatingsLabel([{ profiles: { username: 'Тимоха' } }, { profiles: { username: 'Алиса' } }]), 'Друзья');
-assert.equal(friendRatingsLabel([{ profiles: {} }]), 'Участник');
-assert.equal(friendRatingsLabel(null), 'Ваша оценка');
+const oneFriend = [{ profiles: { username: 'Тимоха' } }];
+const twoFriends = [...oneFriend, { profiles: { username: 'Алиса' } }];
 
-console.log('A single friend rating is labeled with the friend’s name: OK');
+assert.equal(friendRatingsLabel([], 0), 'Ваша оценка');
+assert.equal(friendRatingsLabel(oneFriend, 1), 'Тимоха');
+assert.equal(friendRatingsLabel(oneFriend, 2), 'Друзья', 'two total ratings, including own, use the plural label');
+assert.equal(friendRatingsLabel(twoFriends, 2), 'Друзья');
+assert.equal(friendRatingsLabel([{ profiles: {} }], 1), 'Участник');
+assert.equal(friendRatingsLabel(null, 0), 'Ваша оценка');
+
+console.log('One total friend rating shows the friend name; multiple ratings show Друзья: OK');
