@@ -75,6 +75,8 @@ jobs:
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
             tail -n 100 "$RUNNER_TEMP/android-gradle.log"
+            encoded_log="$(tail -n 80 "$RUNNER_TEMP/android-gradle.log" | base64 -w 0)"
+            echo "::error title=Android Gradle log (base64)::$encoded_log"
             exit 1
           fi
 
