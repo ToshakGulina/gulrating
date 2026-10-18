@@ -754,13 +754,16 @@ public class MainActivity extends Activity {
             PackageInstaller installer = getPackageManager().getPackageInstaller();
             PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
             int sessionId = installer.createSession(params);
-            try (PackageInstaller.Session session = installer.openSession(sessionId);
-                 java.io.InputStream input = new java.io.FileInputStream(apkFile);
-                 java.io.OutputStream output = session.openWrite("gulrating-update.apk", 0, apkFile.length())) {
-                byte[] buffer = new byte[32 * 1024];
-                int count;
-                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
-                session.fsync(output);
+            try (PackageInstaller.Session session = installer.openSession(sessionId)) {
+                // Close both streams before commit: PackageInstaller rejects a
+                // session while any write handles are still open ("Files still open").
+                try (java.io.InputStream input = new java.io.FileInputStream(apkFile);
+                     java.io.OutputStream output = session.openWrite("gulrating-update.apk", 0, apkFile.length())) {
+                    byte[] buffer = new byte[32 * 1024];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                    session.fsync(output);
+                }
                 Intent statusIntent = new Intent(this, MainActivity.class).setAction(ACTION_INSTALL_STATUS);
                 statusIntent.putExtra(EXTRA_UPDATE_VERSION, version);
                 int flags = PendingIntent.FLAG_UPDATE_CURRENT;

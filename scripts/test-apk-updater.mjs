@@ -15,6 +15,7 @@ assert.match(activity, /isNewerAppVersion\(version, BuildConfig\.VERSION_NAME\)/
 assert.match(activity, /if \(isHomeShellUrl\(url\)\)[\s\S]*?checkForAppUpdate\(false\)/);
 assert.match(activity, /@JavascriptInterface\s+public void checkForUpdate\(\)/);
 assert.match(activity, /PackageInstaller\.SessionParams\.MODE_FULL_INSTALL/);
+assert.match(activity, /try \(PackageInstaller\.Session session = installer\.openSession\(sessionId\)\) \{[\s\S]*?try \(java\.io\.InputStream input = new java\.io\.FileInputStream\(apkFile\);[\s\S]*?session\.fsync\(output\);\s*\}[\s\S]*?session\.commit\(/, 'write streams close before PackageInstaller commits the session');
 assert.match(activity, /Settings\.ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
 assert.match(activity, /archive\.applicationInfo\.packageName/);
 assert.match(activity, /downloaded > 300L \* 1024L \* 1024L/);
