@@ -54,8 +54,35 @@ export async function saveRating(userId, tmdbId, mediaType, rating, comment = ''
 
   if (error) throw error;
 
-  // Сохранение оценки не меняет статус тайтла. Статус пользователь задаёт
-  // отдельно в карточке фильма или сериала.
+  // Оценка означает статус «Просмотрено»: не оставляем такой тайтл
+  // одновременно в списке «Хочу посмотреть».
+  const { error: watchlistError } = await supabase
+    .from('watchlist')
+    .delete()
+    .eq('user_id', userId)
+    .eq('title_id', tmdbId);
+
+  if (watchlistError) {
+    const partialError = new Error(`Оценка сохранена, но не удалось убрать тайтл из «Хочу посмотреть»: ${watchlistError.message}`);
+    partialError.ratingSaved = true;
+    throw partialError;
+  }
+
+  const { error: statusError } = await supabase
+    .from('title_statuses')
+    .upsert({
+      user_id: userId,
+      title_id: tmdbId,
+      status: 'watched',
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id,title_id' });
+
+  if (statusError) {
+    const partialError = new Error(`Оценка сохранена, но статус не обновлён: ${statusError.message}`);
+    partialError.ratingSaved = true;
+    throw partialError;
+  }
+
   return data;
 }
 
@@ -104,6 +131,15 @@ export async function setUserTitleStatus(userId, tmdbId, mediaType, status) {
   if (!allowed.has(status)) throw new Error('Неизвестный статус тайтла');
 
   if (status === 'watchlist') {
+    const { data: rating, error: ratingError } = await supabase
+      .from('ratings')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('title_id', tmdbId)
+      .maybeSingle();
+    if (ratingError) throw ratingError;
+    if (rating) throw new Error('Оценённый тайтл остаётся «Просмотрено»; оценка не будет удалена.');
+
     await addToWatchlist(userId, tmdbId, mediaType);
     const { error: statusError } = await supabase
       .from('title_statuses')
@@ -194,7 +230,7 @@ export async function getUserTitleStatus(userId, titleId) {
   const rating = ratingState.data;
   const watchlistItem = watchlistState.data;
   const explicitStatus = statusState.data?.status || '';
-  const currentStatus = explicitStatus || (watchlistItem ? 'watchlist' : '');
+  const currentStatus = explicitStatus || (rating ? 'watched' : watchlistItem ? 'watchlist' : '');
 
   return {
     hasRating: !!rating,

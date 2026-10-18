@@ -39,15 +39,18 @@ const { saveRating, setUserTitleStatus } = await import(`data:text/javascript;ba
 
 await saveRating('user-1', 42, 'movie', 8.3, 'Great');
 assert.equal(ratings.get('42')?.rating, 8.3, 'saving an 8.3 rating preserves the rating row');
-assert.equal(calls.some(call => call.table === 'watchlist'), false, 'saving a rating does not change watchlist status');
-assert.equal(calls.some(call => call.table === 'title_statuses'), false, 'saving a rating does not change title status');
+assert.ok(calls.some(call => call.table === 'watchlist' && call.action === 'delete'), 'saving a rating removes its watchlist entry');
+assert.ok(calls.some(call => call.table === 'title_statuses' && call.action === 'upsert' && call.payload.status === 'watched'), 'saving a rating sets status to watched');
 
-await setUserTitleStatus('user-1', 42, 'movie', 'watchlist');
-assert.ok(calls.some(call => call.table === 'watchlist' && call.action === 'upsert'), 'the title card can add a rated title to watch later');
+await assert.rejects(
+  setUserTitleStatus('user-1', 42, 'movie', 'watchlist'),
+  /Оценённый тайтл/,
+  'a rated title cannot be moved into the watchlist'
+);
 await setUserTitleStatus('user-1', 42, 'movie', 'in_progress');
 assert.equal(ratings.get('42')?.rating, 8.3, 'changing a title status never deletes its rating');
 assert.ok(calls.some(call => call.table === 'title_statuses' && call.action === 'upsert' && call.payload.status === 'in_progress'), 'the new status is saved');
 assert.equal(calls.some(call => call.table === 'ratings' && call.action === 'delete'), false, 'status changes never delete ratings');
 
 delete globalThis.__testSupabase;
-console.log('Saving ratings leaves status untouched; card status changes preserve ratings: OK');
+console.log('Title status transitions preserve ratings and clear watchlist after rating: OK');

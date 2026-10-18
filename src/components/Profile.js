@@ -907,7 +907,7 @@ function renderMyRatings(ratings, statusByTitleId, currentUser) {
     if (!title) return '';
     const year = releaseYear(title.release_date);
     const ratingColor = r.rating >= 8 ? 'bg-green-600' : r.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
-    const currentTitleStatus = statusByTitleId.get(String(title.id)) || '';
+    const currentTitleStatus = statusByTitleId.get(String(title.id)) || 'watched';
 
     return `
       <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
@@ -915,9 +915,9 @@ function renderMyRatings(ratings, statusByTitleId, currentUser) {
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
           <label class="mt-1 block">
             <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
-            <select class="profile-status-select w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${escapeHtml(currentTitleStatus)}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
+            <select class="profile-status-select w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${escapeHtml(currentTitleStatus)}" data-has-rating="true" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
               <option value="" ${!currentTitleStatus ? 'selected' : ''}>Не отмечено</option>
-              <option value="watchlist" ${currentTitleStatus === 'watchlist' ? 'selected' : ''}>Хочу посмотреть</option>
+              <option value="watchlist" ${currentTitleStatus === 'watchlist' ? 'selected' : ''} disabled>Хочу посмотреть</option>
               <option value="in_progress" ${currentTitleStatus === 'in_progress' ? 'selected' : ''}>В процессе</option>
               <option value="watched" ${currentTitleStatus === 'watched' ? 'selected' : ''}>Просмотрено</option>
               <option value="dropped" ${currentTitleStatus === 'dropped' ? 'selected' : ''}>Заброшено</option>
@@ -959,7 +959,7 @@ function renderWatchlist(items, currentUser) {
       <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="profile-card-poster flex-shrink-0">
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
-          <select class="profile-status-select mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="watchlist" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
+          <select class="profile-status-select mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="watchlist" data-has-rating="false" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
             <option value="watchlist" selected>Хочу посмотреть</option>
             <option value="in_progress">В процессе</option>
             <option value="watched">Просмотрено</option>
@@ -990,7 +990,7 @@ function renderTitleStatuses(items, ratings, currentUser) {
         ${posterImg(item.titles.poster_path, item.titles.title, 'w-full aspect-[2/3] rounded-lg')}
         <label class="mt-1 block">
           <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
-          <select class="profile-status-select w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(item.title_id)}" data-media-type="${escapeHtml(item.titles.media_type)}" data-current-status="${escapeHtml(item.status)}" aria-label="Статус: ${escapeHtml(item.titles.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
+          <select class="profile-status-select w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(item.title_id)}" data-media-type="${escapeHtml(item.titles.media_type)}" data-current-status="${escapeHtml(item.status)}" data-has-rating="false" aria-label="Статус: ${escapeHtml(item.titles.title)}" ${currentUser.offlineOnly ? 'disabled' : ''}>
             <option value="">Не отмечено</option>
             <option value="watchlist">Хочу посмотреть</option>
             <option value="in_progress" ${item.status === 'in_progress' ? 'selected' : ''}>В процессе</option>
@@ -1025,7 +1025,7 @@ function initTitleCards(pageRoot, currentUser) {
       select.disabled = true;
       try {
         await setUserTitleStatus(currentUser.id, titleId, mediaType, nextStatus);
-        const actualStatus = nextStatus;
+        const actualStatus = nextStatus || (select.dataset.hasRating === 'true' ? 'watched' : '');
         select.dataset.currentStatus = actualStatus;
         const labels = { watchlist: 'Хочу посмотреть', in_progress: 'В процессе', watched: 'Просмотрено', dropped: 'Заброшено', '': 'Не отмечено' };
         showToast(`Статус: ${labels[actualStatus] || labels['']}`, 'success');
