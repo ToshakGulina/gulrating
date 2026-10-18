@@ -8,6 +8,7 @@ import { enqueueRating, networkLikeError } from '../lib/offline.js';
 import { addWatchEntry, reportWatchNative, isApk, getPositions, saveWatchPosition } from '../lib/watchHistory.js';
 import { fetchKinoboxPlayers, qualityRank } from '../lib/kinobox.js';
 import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
+import { friendRatingsLabel } from '../lib/ratingLabels.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -653,7 +654,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
     const sharedRatings = allRatings;
     const friendRatings = sharedRatings.filter((r) => r.user_id !== currentUser.id);
-    const scoreLabel = friendRatings.length ? 'Друзья' : 'Ваша оценка';
+    const scoreLabel = friendRatingsLabel(friendRatings);
     const averageRating = sharedRatings.length > 0
       ? (sharedRatings.reduce((sum, r) => sum + Number(r.rating), 0) / sharedRatings.length).toFixed(1)
       : null;
@@ -672,7 +673,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     // можно посмотреть, чьи оценки вошли в среднее.
     const friendsBadge = averageRating
       ? `<div class="friends-score-details relative inline-block">
-          <button id="friends-score-trigger" type="button" class="friends-score-pill friends-score-trigger inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}. Показать список оценок`)}" aria-expanded="false" aria-controls="friends-score-popover" title="Наведите или нажмите, чтобы увидеть список оценок">${FRIENDS_ICON}<span class="text-gray-500">${scoreLabel}</span><b class="text-pink-300">${averageRating}</b><span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span></button>
+          <button id="friends-score-trigger" type="button" class="friends-score-pill friends-score-trigger inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}. Показать список оценок`)}" aria-expanded="false" aria-controls="friends-score-popover" title="Наведите или нажмите, чтобы увидеть список оценок">${FRIENDS_ICON}<span class="text-gray-500">${escapeHtml(scoreLabel)}</span><b class="text-pink-300">${averageRating}</b><span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span></button>
           <div id="friends-score-popover" class="friends-score-popover rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl" role="region" aria-label="Список оценок">
             <ul class="space-y-1">${friendRatingRows}</ul>
           </div>

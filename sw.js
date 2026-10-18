@@ -9,7 +9,7 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v38';
+const CACHE_VERSION = 'gulrating-v39';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -58,6 +58,7 @@ const SHELL_ASSETS = [
   '/src/lib/kinobox.js',
   '/src/lib/kinopoiskWatchLinks.js',
   '/src/lib/feedPeople.js',
+  '/src/lib/ratingLabels.js',
   '/src/components/Auth.js',
   '/src/components/Setup.js',
   '/src/components/AccessDenied.js',

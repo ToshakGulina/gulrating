@@ -39,6 +39,8 @@ jobs:
         run: node scripts/test-title-statuses.mjs
       - name: Test per-member home-feed filter
         run: node scripts/test-feed-user-filter.mjs
+      - name: Test friend rating label
+        run: node scripts/test-friend-rating-label.mjs
       - name: Test Kinopoisk watchability and direct service links
         run: node scripts/test-kinopoisk-watchability.mjs
       - name: Verify release notes can be generated
