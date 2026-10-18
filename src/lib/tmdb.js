@@ -228,7 +228,7 @@ export async function getMovieCollection(collectionId) {
 // из поиска не подтверждают, что они входят в одну франшизу. Сериалам достаточно
 // прямого совпадения названия с корнем франшизы.
 function franchiseRoot(title, collectionName = '') {
-  const source = collectionName || String(title || '').split(/[:(]/, 1)[0];
+  const source = collectionName || String(title || '').split(/[.:]\s+|[:(]/, 1)[0];
   return String(source)
     .replace(/\b(collection|franchise|коллекция|франшиза)\b/gi, '')
     .replace(/\b(part|chapter|volume|часть|том)\s*\d+\b/gi, '')
@@ -285,21 +285,26 @@ export async function getFranchiseTitles(id, mediaType) {
     .filter(match => !(Number(match.id) === Number(id) && mediaType === 'tv'))
     .map(match => [String(match.id), match]));
 
-  // Если открыли сериал, ищем фильмы с прямым названием бренда и проверяем,
-  // что их официальная коллекция TMDb соответствует этому же корню.
-  if (mediaType === 'tv') {
+  // Если открыли сериал или у фильма нет полной TMDb-коллекции, ищем фильмы
+  // с прямым названием бренда и подтверждаем связь их официальной коллекцией.
+  // Это подхватывает новые части, которым TMDb ещё не проставил collection_id.
+  const needsMovieDiscovery = mediaType === 'tv' || !collection || (collection.parts || []).length < 2;
+  if (needsMovieDiscovery) {
+    const franchiseNames = [...new Set([root, titleRoot].filter(Boolean))];
     const movieCandidates = matches
-      .filter(match => match?.media_type === 'movie' && hasDirectFranchiseName(match.title, root))
+      .filter(match => match?.media_type === 'movie' && franchiseNames.some(name => hasDirectFranchiseName(match.title, name)))
       .slice(0, 8);
     const movieDetails = await Promise.all(movieCandidates.map(match =>
-      getTitleDetails(match.id, 'movie').catch(() => null)
+      Number(match.id) === Number(id) && mediaType === 'movie'
+        ? Promise.resolve(current)
+        : getTitleDetails(match.id, 'movie').catch(() => null)
     ));
     const collectionIds = [...new Set(movieDetails.map(details => details?.collection_id).filter(Boolean))];
     const relatedCollections = await Promise.all(collectionIds.map(collectionId =>
       getMovieCollection(collectionId).catch(() => null)
     ));
     for (const relatedCollection of relatedCollections) {
-      if (!relatedCollection || !hasDirectFranchiseName(relatedCollection.name, root)) continue;
+      if (!relatedCollection || !franchiseNames.some(name => hasDirectFranchiseName(relatedCollection.name, name))) continue;
       for (const part of relatedCollection.parts || []) {
         byKey.set(`movie:${part.id}`, { ...part, media_type: 'movie', poster_path: null });
       }
