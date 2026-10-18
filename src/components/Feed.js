@@ -1316,7 +1316,7 @@ function initSearch(currentUser) {
       ` : ''}
       ${titles.length ? `
         <div class="p-2 border-t border-slate-700">
-          <div class="flex gap-2 overflow-x-auto pb-1">
+          <div class="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
             ${titles.map(t => `
               <div class="history-title cursor-pointer group flex-shrink-0" data-id="${escapeHtml(t.id)}" data-type="${escapeHtml(t.media_type)}">
                 ${posterImg(t.poster_path, t.title, 'w-full aspect-[2/3] rounded-md')}

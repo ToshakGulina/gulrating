@@ -669,15 +669,18 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       </li>`;
     }).join('');
 
-    // Подпись стоит перед средним баллом; по наведению/фокусу или нажатию
-    // можно посмотреть, чьи оценки вошли в среднее.
+    // Одна оценка уже подписана именем — список при наведении для неё не нужен.
+    const showFriendRatingsPopover = sharedRatings.length > 1;
+    const friendScoreContent = `${FRIENDS_ICON}<span class="text-gray-500">${escapeHtml(scoreLabel)}</span><b class="text-pink-300">${averageRating || ''}</b>${showFriendRatingsPopover ? `<span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span>` : ''}`;
     const friendsBadge = averageRating
-      ? `<div class="friends-score-details relative inline-block">
-          <button id="friends-score-trigger" type="button" class="friends-score-pill friends-score-trigger inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}. Показать список оценок`)}" aria-expanded="false" aria-controls="friends-score-popover" title="Наведите или нажмите, чтобы увидеть список оценок">${FRIENDS_ICON}<span class="text-gray-500">${escapeHtml(scoreLabel)}</span><b class="text-pink-300">${averageRating}</b><span class="text-gray-500">· ${formatRatingCount(sharedRatings.length)}</span></button>
-          <div id="friends-score-popover" class="friends-score-popover rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl" role="region" aria-label="Список оценок">
-            <ul class="space-y-1">${friendRatingRows}</ul>
-          </div>
-        </div>`
+      ? showFriendRatingsPopover
+        ? `<div class="friends-score-details relative inline-block">
+            <button id="friends-score-trigger" type="button" class="friends-score-pill friends-score-trigger inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}. Показать список оценок`)}" aria-expanded="false" aria-controls="friends-score-popover" title="Наведите или нажмите, чтобы увидеть список оценок">${friendScoreContent}</button>
+            <div id="friends-score-popover" class="friends-score-popover rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl" role="region" aria-label="Список оценок">
+              <ul class="space-y-1">${friendRatingRows}</ul>
+            </div>
+          </div>`
+        : `<span class="friends-score-pill inline-flex items-center gap-1.5 rounded-full border border-pink-400/20 bg-pink-400/10 px-2.5 py-1 text-xs text-gray-300" aria-label="${escapeHtml(`${scoreLabel}: ${averageRating}`)}">${friendScoreContent}</span>`
       : '';
 
     // Очередь внешних рейтингов: первые два доступных видны сразу,
@@ -727,10 +730,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
     document.getElementById('modal-content').innerHTML = `
       <div id="franchise-tabs" class="hidden -mx-4 -mt-4 mb-4 border-b border-slate-700 bg-slate-900/70 px-4 py-2.5">
-        <div class="flex items-center gap-1.5">
-          <button type="button" class="franchise-scroll-left hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700" aria-label="Прокрутить к предыдущим частям">‹</button>
-          <div class="franchise-tabs-list flex min-w-0 flex-1 gap-1.5 overflow-x-auto" role="tablist" aria-label="Другие части"></div>
-          <button type="button" class="franchise-scroll-right hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700" aria-label="Прокрутить к следующим частям">›</button>
+        <div class="franchise-tabs-viewport relative min-w-0">
+          <div class="franchise-tabs-list flex min-w-0 gap-1.5 overflow-x-auto scrollbar-hide" role="tablist" aria-label="Другие части"></div>
+          <button type="button" class="franchise-scroll-left hidden absolute left-0 top-1/2 z-10 h-8 w-8 -translate-y-1/2 rounded-lg bg-slate-800/95 text-gray-300 shadow-lg hover:bg-slate-700 disabled:opacity-30" aria-label="Прокрутить к предыдущим частям">‹</button>
+          <button type="button" class="franchise-scroll-right hidden absolute right-0 top-1/2 z-10 h-8 w-8 -translate-y-1/2 rounded-lg bg-slate-800/95 text-gray-300 shadow-lg hover:bg-slate-700 disabled:opacity-30" aria-label="Прокрутить к следующим частям">›</button>
         </div>
       </div>
       <div class="flex gap-4 mb-4">
@@ -871,14 +874,23 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       const scrollLeftButton = franchiseBox.querySelector('.franchise-scroll-left');
       const scrollRightButton = franchiseBox.querySelector('.franchise-scroll-right');
       const updateFranchiseScrollButtons = () => {
-        const maxScroll = tabs.scrollWidth - tabs.clientWidth;
+        if (tabs.scrollWidth > tabs.clientWidth + 2 && tabs.dataset.scrollGutters !== 'true') {
+          tabs.classList.add('pl-10', 'pr-10');
+          tabs.dataset.scrollGutters = 'true';
+        }
+        const maxScroll = Math.max(0, tabs.scrollWidth - tabs.clientWidth);
         const canScroll = maxScroll > 2;
-        scrollLeftButton.classList.toggle('hidden', !canScroll || tabs.scrollLeft <= 2);
-        scrollRightButton.classList.toggle('hidden', !canScroll || tabs.scrollLeft >= maxScroll - 2);
+        const atStart = tabs.scrollLeft <= 2;
+        const atEnd = tabs.scrollLeft >= maxScroll - 2;
+        scrollLeftButton.classList.toggle('hidden', !canScroll);
+        scrollRightButton.classList.toggle('hidden', !canScroll);
+        scrollLeftButton.disabled = !canScroll || atStart;
+        scrollRightButton.disabled = !canScroll || atEnd;
       };
       scrollLeftButton.addEventListener('click', () => tabs.scrollBy({ left: -Math.max(180, tabs.clientWidth * 0.75), behavior: 'smooth' }));
       scrollRightButton.addEventListener('click', () => tabs.scrollBy({ left: Math.max(180, tabs.clientWidth * 0.75), behavior: 'smooth' }));
       tabs.addEventListener('scroll', updateFranchiseScrollButtons, { passive: true });
+      updateFranchiseScrollButtons();
       requestAnimationFrame(() => {
         const selectedTab = tabs.querySelector('[aria-selected="true"]');
         if (selectedTab) {
