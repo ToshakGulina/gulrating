@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "GulRating — прогресс Alloha",
+  "version": "1.0.0",
+  "description": "Сохраняет и восстанавливает позицию просмотра Alloha в GulRating.",
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
+  "permissions": [],
+  "host_permissions": [
+    "https://stravers.live/*",
+    "https://*.stravers.live/*",
+    "https://alloha.tv/*",
+    "https://*.alloha.tv/*",
+    "https://alloha.cool/*",
+    "https://*.alloha.cool/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://stravers.live/*",
+        "https://*.stravers.live/*",
+        "https://alloha.tv/*",
+        "https://*.alloha.tv/*",
+        "https://alloha.cool/*",
+        "https://*.alloha.cool/*"
+      ],
+      "js": ["content.js"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "alloha-progress@gulrating.pages.dev",
+      "strict_min_version": "109.0"
+    }
+  }
+}
