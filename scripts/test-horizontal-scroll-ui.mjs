@@ -42,6 +42,8 @@ assert.match(modal, /franchise-scroll-left hidden h-8/);
 assert.match(modal, /franchise-scroll-right hidden h-8/);
 assert.doesNotMatch(modal, /franchise-scroll-(?:left|right)[^\"]*absolute/,
   'scroll controls should remain in normal flow and leave with the modal content while scrolling vertically');
+assert.match(feed, /id="search-results"[^>]*overflow-y-auto[^>]*scrollbar-hide/,
+  'the search history dropdown should keep vertical scrolling without showing a distracting scrollbar');
 assert.match(feed, /class="[^"]*history-titles-row[^"]*"/);
 assert.match(feed, /data-overflow-fit-tolerance="48"/);
 assert.match(feed, /fitSmallHorizontalOverflow\(historyTitlesRow\)/,

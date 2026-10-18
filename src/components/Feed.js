@@ -257,7 +257,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
           </svg>
           <button id="catalog-btn" class="absolute right-2 top-1.5 bottom-1.5 px-3 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs text-gray-300" title="Каталог: жанры, годы, рейтинг">Каталог</button>
         </div>
-        <div id="search-results" class="absolute left-4 right-4 mt-2 bg-card rounded-xl border border-slate-700 shadow-xl z-30 max-h-96 overflow-y-auto hidden"></div>
+        <div id="search-results" class="absolute left-4 right-4 mt-2 bg-card rounded-xl border border-slate-700 shadow-xl z-30 max-h-96 overflow-y-auto scrollbar-hide hidden"></div>
       </div>
 
       ${currentUser.offlineOnly ? `
