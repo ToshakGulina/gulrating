@@ -989,7 +989,7 @@ function renderMyRatings(ratings, statusByTitleId, currentUser) {
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
           <label class="mt-1 block">
             <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
-            <select class="profile-status-select w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${escapeHtml(currentTitleStatus)}" data-has-rating="true" aria-label="Статус: ${escapeHtml(title.title)}">
+            <select class="profile-status-select w-[112px] min-w-[112px] rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="${escapeHtml(currentTitleStatus)}" data-has-rating="true" aria-label="Статус: ${escapeHtml(title.title)}">
               <option value="" ${!currentTitleStatus ? 'selected' : ''}>Не отмечено</option>
               <option value="watchlist" ${currentTitleStatus === 'watchlist' ? 'selected' : ''} disabled>Хочу посмотреть</option>
               <option value="in_progress" ${currentTitleStatus === 'in_progress' ? 'selected' : ''}>В процессе</option>
@@ -1060,7 +1060,7 @@ function renderWatchlist(items, currentUser) {
       <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
         <div class="profile-card-poster flex-shrink-0">
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-lg')}
-          <select class="profile-status-select mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="watchlist" data-has-rating="false" aria-label="Статус: ${escapeHtml(title.title)}">
+          <select class="profile-status-select mt-1 w-[112px] min-w-[112px] rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}" data-current-status="watchlist" data-has-rating="false" aria-label="Статус: ${escapeHtml(title.title)}">
             <option value="watchlist" selected>Хочу посмотреть</option>
             <option value="in_progress">В процессе</option>
             <option value="watched">Просмотрено</option>
@@ -1091,7 +1091,7 @@ function renderTitleStatuses(items, ratings, currentUser) {
         ${posterImg(item.titles.poster_path, item.titles.title, 'w-full aspect-[2/3] rounded-lg')}
         <label class="mt-1 block">
           <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
-          <select class="profile-status-select w-full rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(item.title_id)}" data-media-type="${escapeHtml(item.titles.media_type)}" data-current-status="${escapeHtml(item.status)}" data-has-rating="false" aria-label="Статус: ${escapeHtml(item.titles.title)}">
+          <select class="profile-status-select w-[112px] min-w-[112px] rounded-lg border border-slate-700 bg-slate-900 px-1 py-1 text-[9px] leading-tight text-gray-200" data-title-id="${escapeHtml(item.title_id)}" data-media-type="${escapeHtml(item.titles.media_type)}" data-current-status="${escapeHtml(item.status)}" data-has-rating="false" aria-label="Статус: ${escapeHtml(item.titles.title)}">
             <option value="">Не отмечено</option>
             <option value="watchlist">Хочу посмотреть</option>
             <option value="in_progress" ${item.status === 'in_progress' ? 'selected' : ''}>В процессе</option>
