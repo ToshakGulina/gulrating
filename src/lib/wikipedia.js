@@ -1,7 +1,7 @@
-// Find the first relevant Wikipedia article with an explicit film/TV list.
-// Its section links are resolved to TMDb IDs by exact title matching in tmdb.js.
+// Follow Wikipedia's explicit previous/next chronology links first; use curated
+// franchise film-list sections only when no chronology chain is available.
 
-const CACHE_KEY = 'gulrating:wikipedia_franchise_cache';
+const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v2';
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 const EMPTY_CACHE_TTL = 6 * 60 * 60 * 1000;
 const memoryCache = new Map();
@@ -198,7 +198,131 @@ async function inspectArticleCandidates(articles, titleCandidates) {
   return [];
 }
 
-async function discover(title, originalTitle) {
+function normalizePageTitle(value) {
+  return normalize(String(value || '').replace(
+    /\s+\((?:(?:18|19|20)\d{2}\s+)?(?:film|movie|tv series|television series|фильм|мультфильм|сериал|телесериал)\)\s*$/i,
+    ''
+  ));
+}
+
+function decodeHtml(value) {
+  return String(value || '')
+    .replace(/&nbsp;|&#160;|&#xa0;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#x([\da-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)));
+}
+
+function plainHtmlText(value) {
+  return decodeHtml(String(value || '')
+    .replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi, ' ')
+    .replace(/<[^>]*>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function chronologyLinksFromHtml(html, defaultMediaType) {
+  const links = [];
+  const rows = String(html || '').match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || [];
+  for (const row of rows) {
+    const labelMatch = row.match(/<th\b[^>]*>([\s\S]*?)<\/th>/i);
+    if (!labelMatch) continue;
+    const label = normalize(plainHtmlText(labelMatch[1]));
+    const isPrevious = /(?:previous|preceded|prior|предыдущ|предшеств)/i.test(label);
+    const isNext = /(?:next|followed|following|следующ)/i.test(label);
+    if (isPrevious === isNext) continue;
+
+    const tv = /(?:tv|television|series|show|сериал|телесериал)/i.test(label);
+    const media_type = tv ? 'tv' : /(?:film|movie|фильм|мультфильм)/i.test(label)
+      ? 'movie'
+      : defaultMediaType;
+    const valueMatch = row.match(/<td\b[^>]*>([\s\S]*?)<\/td>/i);
+    if (!valueMatch) continue;
+    const anchorMatch = valueMatch[1].match(/<a\b([^>]*)>([\s\S]*?)<\/a>/i);
+    if (!anchorMatch) continue;
+
+    const href = anchorMatch[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1] || '';
+    if (!href.startsWith('/wiki/')) continue;
+    let title = href.slice('/wiki/'.length).split('#')[0].replace(/_/g, ' ');
+    try { title = decodeURIComponent(title); } catch (error) { /* retain the raw title */ }
+    title = plainHtmlText(title);
+    if (!title || /^(?:special|category|file|help|portal|wikipedia|template|talk|media|служебная|категория|файл|справка|портал|шаблон|обсуждение):/i.test(title)) continue;
+    links.push({ title, media_type });
+  }
+  return links;
+}
+
+async function findChronologySeed(language, query, titleCandidates) {
+  const articles = await searchArticles(language, query).catch(() => []);
+  const wanted = titleCandidates.map(normalize).filter(Boolean);
+  return articles
+    .filter(article => wanted.includes(normalizePageTitle(article.title)))
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, 1);
+}
+
+async function inspectChronologyPage(article, mediaType) {
+  const params = {
+    action: 'parse', format: 'json', page: article.title,
+    prop: 'text', section: '0', origin: '*',
+  };
+  const data = await requestJson(apiUrl(article.language, params));
+  const html = data?.parse?.text?.['*'] || data?.parse?.text || '';
+  return chronologyLinksFromHtml(html, mediaType);
+}
+
+async function discoverChronology(title, originalTitle, year, mediaType) {
+  const mediaHintRu = mediaType === 'tv' ? 'сериал' : 'фильм';
+  const mediaHintEn = mediaType === 'tv' ? 'television series' : 'film';
+  const searches = await Promise.all([
+    findChronologySeed('ru', `${title} ${mediaHintRu} ${year || ''}`.trim(), [title]),
+    findChronologySeed('en', `${originalTitle || title} ${mediaHintEn} ${year || ''}`.trim(), [originalTitle || title]),
+  ]);
+  const queue = searches.flat().map(article => ({ ...article, media_type: mediaType, depth: 0 }));
+  const visited = new Set();
+  const related = new Map();
+  let processed = 0;
+
+  while (queue.length && processed < 20) {
+    const batch = [];
+    while (queue.length && batch.length < 4 && processed + batch.length < 20) {
+      const article = queue.shift();
+      const key = `${article.language}:${normalize(article.title)}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      batch.push(article);
+    }
+    if (!batch.length) break;
+    processed += batch.length;
+    const discovered = await Promise.all(batch.map(article =>
+      inspectChronologyPage(article, article.media_type).catch(() => [])
+    ));
+
+    for (let index = 0; index < batch.length; index += 1) {
+      const article = batch[index];
+      for (const link of discovered[index]) {
+        const key = `${link.media_type}:${normalize(link.title)}`;
+        if (!related.has(key)) related.set(key, link);
+        if (article.depth < 5) {
+          queue.push({
+            language: article.language,
+            title: link.title,
+            media_type: link.media_type,
+            depth: article.depth + 1,
+          });
+        }
+      }
+    }
+  }
+  return [...related.values()];
+}
+
+async function discover(title, originalTitle, year, mediaType) {
+  const chronologyTitles = await discoverChronology(title, originalTitle, year, mediaType).catch(() => []);
+  if (chronologyTitles.length) return chronologyTitles;
+
   const titleCandidates = [title, originalTitle].filter(Boolean);
   const searches = await Promise.all([
     searchArticles('ru', title).catch(() => []),
@@ -219,14 +343,16 @@ async function discover(title, originalTitle) {
   return inspectArticleCandidates(followupArticles, titleCandidates);
 }
 
-export async function getWikipediaFranchiseTitles(title, originalTitle = '') {
+export async function getWikipediaFranchiseTitles(title, originalTitle = '', releaseDate = '', mediaType = 'movie') {
   const names = [String(title || '').trim(), String(originalTitle || '').trim()].filter(Boolean);
   if (!names.length) return [];
-  const cacheKey = names.map(normalize).sort().join('|');
+  const year = Number(String(releaseDate || '').slice(0, 4)) || null;
+  const normalizedNames = names.map(normalize).sort().join('|');
+  const cacheKey = `${normalizedNames}|${mediaType}|${year || ''}`;
   const cached = cacheRead(cacheKey);
   if (cached !== undefined) return cached;
   if (inflight.has(cacheKey)) return inflight.get(cacheKey);
-  const pending = discover(names[0], names[1] || names[0])
+  const pending = discover(names[0], names[1] || names[0], year, mediaType)
     .then(titles => {
       const result = Array.isArray(titles) ? titles : [];
       cacheWrite(cacheKey, result);

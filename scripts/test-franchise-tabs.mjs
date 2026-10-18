@@ -45,6 +45,12 @@ try {
     if (url.pathname.endsWith('/movie/88')) {
       return Response.json({ id: 88, title: 'Galaxy Saga: Unrelated Film', release_date: '2019-01-01' });
     }
+    if (url.pathname.endsWith('/movie/89')) {
+      return Response.json({
+        id: 89, title: 'Unknown Canon Film', release_date: '2020-01-01',
+        belongs_to_collection: { id: 77, name: 'Noisy Collection' },
+      });
+    }
     if (url.pathname.endsWith('/movie/101')) {
       return Response.json({ id: 101, title: 'Последний богатырь. Колобок', release_date: '2026-01-01' });
     }
@@ -68,6 +74,16 @@ try {
     }
     if (url.pathname.endsWith('/tv/401')) {
       return Response.json({ id: 401, name: 'Dune', first_air_date: '2021-01-01' });
+    }
+    if (url.pathname.endsWith('/collection/77')) {
+      return Response.json({
+        id: 77,
+        name: 'Noisy Collection',
+        parts: [
+          { id: 89, title: 'Unknown Canon Film', release_date: '2020-01-01' },
+          { id: 90, title: 'Unrelated Collection Entry', release_date: '2021-01-01' },
+        ],
+      });
     }
     if (url.pathname.endsWith('/collection/910')) {
       return Response.json({
@@ -113,6 +129,11 @@ try {
     }
     if (url.pathname.endsWith('/search/multi')) {
       const query = url.searchParams.get('query');
+      if (query === 'Unknown Canon Film') {
+        return Response.json({ results: [
+          { id: 89, media_type: 'movie', title: 'Unknown Canon Film', release_date: '2020-01-01' },
+        ] });
+      }
       if (query.startsWith('Последний богатырь')) {
         return Response.json({ results: [
           { id: 101, media_type: 'movie', title: 'Последний богатырь. Колобок', release_date: '2026-01-01' },
@@ -152,6 +173,10 @@ try {
   };
 
   globalThis.__wikipediaTitlesByTitle = {
+    'Unknown Canon Film': [
+      { title: 'Unknown Canon Film', media_type: 'movie', year: 2020 },
+      { title: 'Unknown Canon Sequel not in TMDb', media_type: 'movie', year: 2024 },
+    ],
     'Galaxy Saga': [
       { title: 'Galaxy Saga', media_type: 'movie', year: 2022 },
       { title: 'Galaxy Saga: Chapter Two', media_type: 'movie', year: 2020 },
@@ -177,6 +202,13 @@ try {
       { title: 'Dune: Prophecy', media_type: 'tv', year: 2024 },
     ],
   };
+
+  const unknownResolutionParts = await getFranchiseTitles(89, 'movie');
+  assert.deepEqual(
+    unknownResolutionParts.map(part => part.id),
+    [89],
+    'unresolved Wikipedia chronology entries must not trigger unrelated TMDb collection fallback'
+  );
 
   const parts = await getFranchiseTitles(42, 'movie');
   assert.deepEqual(
@@ -224,4 +256,4 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-console.log('Franchise tabs use Wikipedia article lists with exact TMDb ID matching: OK');
+console.log('Franchise tabs use authoritative Wikipedia parts and exact TMDb matching: OK');

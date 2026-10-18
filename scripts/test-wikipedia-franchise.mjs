@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Wikipedia article search locates a film-list section; its linked titles are returned for exact TMDb resolution.
+// Wikipedia chronology links are crawled before the curated film-list fallback.
 import assert from 'node:assert/strict';
 import { getWikipediaFranchiseTitles } from '../src/lib/wikipedia.js';
 import { onRequestGet } from '../functions/wiki/[[path]].js';
@@ -25,6 +25,11 @@ try {
     if (url.searchParams.get('list') === 'search') {
       const query = url.searchParams.get('srsearch') || '';
       if (url.hostname.startsWith('en.')) {
+        if (query.includes('Chronology Alpha')) {
+          return Response.json({ query: { search: [
+            { title: 'Chronology Alpha (2000 film)', snippet: '2000 feature film' },
+          ] } });
+        }
         if (query.includes('Mystery')) {
           const article = query.includes('film series')
             ? { title: 'Mystery (film series)', snippet: 'Mystery film series' }
@@ -77,6 +82,20 @@ try {
       return Response.json({ parse: { links } });
     }
 
+    if (url.searchParams.get('prop') === 'text') {
+      const page = url.searchParams.get('page');
+      const rows = {
+        'Chronology Alpha (2000 film)': `
+          <table><tr><th scope="row">Previous film</th><td><a href="/wiki/Chronology_Zero">Chronology Zero</a> (in the franchise <a href="/wiki/Chronology">Chronology</a>)</td></tr>
+          <tr><th scope="row">Next film</th><td><a href="/wiki/Chronology_Beta">Chronology Beta</a></td></tr>
+          <tr><th scope="row">Production</th><td><a href="/wiki/Unrelated_Title">Unrelated Title</a></td></tr></table>`,
+        'Chronology Zero': '<table><tr><th>Следующий фильм</th><td><a href="/wiki/Chronology_Alpha_(2000_film)">Chronology Alpha</a></td></tr></table>',
+        'Chronology Beta': '<table><tr><th>Previous film</th><td><a href="/wiki/Chronology_Alpha_(2000_film)">Chronology Alpha</a></td></tr><tr><th>Next film</th><td><a href="/wiki/Chronology_Gamma">Chronology Gamma</a></td></tr></table>',
+        'Chronology Gamma': '<table><tr><th>Previous film</th><td><a href="/wiki/Chronology_Beta">Chronology Beta</a></td></tr></table>',
+      };
+      return Response.json({ parse: { text: { '*': rows[page] || '' } } });
+    }
+
     throw new Error(`Unexpected Wikipedia API request: ${url}`);
   };
 
@@ -90,6 +109,22 @@ try {
   const requestCount = requests.length;
   assert.deepEqual(await getWikipediaFranchiseTitles('Despicable Me 4', 'Гадкий я 4'), titles);
   assert.equal(requests.length, requestCount, 'article-derived title lists are cached locally');
+
+  const chronologyRequestStart = requests.length;
+  const chronologyTitles = await getWikipediaFranchiseTitles(
+    'Chronology Alpha', 'Chronology Alpha', '2000-01-01', 'movie'
+  );
+  assert.deepEqual(
+    chronologyTitles.map(entry => entry.title).sort(),
+    ['Chronology Alpha (2000 film)', 'Chronology Beta', 'Chronology Gamma', 'Chronology Zero'],
+    'follow explicit previous/next film links in both directions and several steps'
+  );
+  assert.equal(chronologyTitles.some(entry => entry.title === 'Unrelated Title' || entry.title === 'Chronology'), false,
+    'ignore unrelated rows and secondary franchise links in the chronology infobox');
+  assert.ok(requests.slice(chronologyRequestStart).some(({ url }) => url.searchParams.get('prop') === 'text'),
+    'inspect each film article for chronology links');
+  assert.equal(requests.slice(chronologyRequestStart).some(({ url }) => url.searchParams.get('prop') === 'tocdata'), false,
+    'a valid chronology graph takes precedence over broader franchise article lists');
 
   const fallbackTitles = await getWikipediaFranchiseTitles('Мистика 2', 'Mystery Two');
   assert.deepEqual(fallbackTitles, [
@@ -121,4 +156,4 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-console.log('Wikipedia first relevant film-list article and section links: OK');
+console.log('Wikipedia chronology traversal, film-list fallback, and Pages proxy: OK');

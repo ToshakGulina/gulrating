@@ -276,7 +276,12 @@ async function resolveArticleTitles(articleTitles) {
 export async function getFranchiseTitles(id, mediaType) {
   const current = await getTitleDetails(id, mediaType);
   const [articleTitles, collection] = await Promise.all([
-    getWikipediaFranchiseTitles(current.title, current.original_title).catch(() => []),
+    getWikipediaFranchiseTitles(
+      current.title,
+      current.original_title,
+      current.release_date || current.first_air_date,
+      mediaType
+    ).catch(() => []),
     mediaType === 'movie' && current.collection_id
       ? getMovieCollection(current.collection_id).catch(() => null)
       : Promise.resolve(null),
@@ -284,12 +289,18 @@ export async function getFranchiseTitles(id, mediaType) {
   const articleParts = await resolveArticleTitles(articleTitles);
 
   const byKey = new Map();
-  // Если статья дала хотя бы одну другую часть, не смешиваем её список с
-  // более широкой или ошибочно размеченной TMDb-коллекцией.
+  // Если Wikipedia явно указала связанные части, не подмешиваем посторонние
+  // элементы коллекции TMDb даже когда точный поиск не нашёл часть в каталоге.
+  const currentArticleNames = new Set([current.title, current.original_title]
+    .map(normalizeArticleTitle)
+    .filter(Boolean));
+  const hasRelatedWikipediaTitle = articleTitles.some(entry =>
+    !currentArticleNames.has(normalizeArticleTitle(entry.title))
+  );
   const hasRelatedArticlePart = articleParts.some(part =>
     Number(part.id) !== Number(id) || part.media_type !== mediaType
   );
-  if (hasRelatedArticlePart) {
+  if (hasRelatedWikipediaTitle || hasRelatedArticlePart) {
     for (const part of articleParts) byKey.set(`${part.media_type}:${part.id}`, part);
     // Keep a listed film when TMDb search could not resolve its name, but only
     // if the official collection has the same title and compatible article year.
