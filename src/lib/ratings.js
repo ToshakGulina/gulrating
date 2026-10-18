@@ -1,6 +1,53 @@
 import { supabase } from './supabase.js';
 import { getTitleDetails } from './tmdb.js';
 
+const PENDING_TITLE_STATUS_PREFIX = 'gulrating:pending_title_statuses:';
+
+function readPendingTitleStatuses(userId) {
+  try {
+    const pending = JSON.parse(localStorage.getItem(`${PENDING_TITLE_STATUS_PREFIX}${userId}`) || '[]');
+    return Array.isArray(pending) ? pending : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function writePendingTitleStatuses(userId, pending) {
+  if (pending.length) localStorage.setItem(`${PENDING_TITLE_STATUS_PREFIX}${userId}`, JSON.stringify(pending));
+  else localStorage.removeItem(`${PENDING_TITLE_STATUS_PREFIX}${userId}`);
+}
+
+function removePendingTitleStatus(userId, titleId) {
+  const id = String(titleId);
+  writePendingTitleStatuses(userId, readPendingTitleStatuses(userId).filter(item => String(item.title_id) !== id));
+}
+
+export function queueUserTitleStatus(userId, tmdbId, mediaType, status) {
+  const allowed = new Set(['', 'watchlist', 'watched', 'in_progress', 'dropped']);
+  if (!allowed.has(status)) throw new Error('Неизвестный статус тайтла');
+  const id = String(tmdbId);
+  const pending = readPendingTitleStatuses(userId).filter(item => String(item.title_id) !== id);
+  pending.push({ title_id: tmdbId, media_type: mediaType, status, queued_at: Date.now() });
+  writePendingTitleStatuses(userId, pending);
+}
+
+export async function syncPendingTitleStatuses(userId) {
+  let synced = 0;
+  for (const item of readPendingTitleStatuses(userId)) {
+    try {
+      await setUserTitleStatus(userId, item.title_id, item.media_type, item.status);
+      const pending = readPendingTitleStatuses(userId).filter(candidate =>
+        String(candidate.title_id) !== String(item.title_id) || candidate.queued_at !== item.queued_at
+      );
+      writePendingTitleStatuses(userId, pending);
+      synced += 1;
+    } catch (e) {
+      // Keep failed writes queued for the next connection attempt.
+    }
+  }
+  return synced;
+}
+
 // Гарантируем, что тайтл есть в таблице titles.
 // Сначала дешёвая проверка существования, чтобы не дёргать TMDb лишний раз.
 // Сохраняем через upsert: если два друга одновременно добавят один и тот же
@@ -83,6 +130,7 @@ export async function saveRating(userId, tmdbId, mediaType, rating, comment = ''
     throw partialError;
   }
 
+  try { removePendingTitleStatus(userId, tmdbId); } catch (e) { /* status was already saved remotely */ }
   return data;
 }
 

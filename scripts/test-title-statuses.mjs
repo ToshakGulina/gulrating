@@ -5,6 +5,12 @@ import { readFile } from 'node:fs/promises';
 
 const calls = [];
 const ratings = new Map();
+const localValues = new Map();
+globalThis.localStorage = {
+  getItem(key) { return localValues.get(key) ?? null; },
+  setItem(key, value) { localValues.set(key, String(value)); },
+  removeItem(key) { localValues.delete(key); },
+};
 const fakeSupabase = {
   from(table) {
     const query = { table, action: 'select', payload: null, filters: [] };
@@ -35,7 +41,7 @@ let source = await readFile(new URL('../src/lib/ratings.js', import.meta.url), '
 source = source.replace("import { supabase } from './supabase.js';", 'const supabase = globalThis.__testSupabase;');
 source = source.replace("import { getTitleDetails } from './tmdb.js';", 'const getTitleDetails = async () => { throw new Error("unexpected title fetch"); };');
 globalThis.__testSupabase = fakeSupabase;
-const { saveRating, setUserTitleStatus } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { saveRating, setUserTitleStatus, queueUserTitleStatus, syncPendingTitleStatuses } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 await saveRating('user-1', 42, 'movie', 8.3, 'Great');
 assert.equal(ratings.get('42')?.rating, 8.3, 'saving an 8.3 rating preserves the rating row');
@@ -52,5 +58,15 @@ assert.equal(ratings.get('42')?.rating, 8.3, 'changing a title status never dele
 assert.ok(calls.some(call => call.table === 'title_statuses' && call.action === 'upsert' && call.payload.status === 'in_progress'), 'the new status is saved');
 assert.equal(calls.some(call => call.table === 'ratings' && call.action === 'delete'), false, 'status changes never delete ratings');
 
+queueUserTitleStatus('user-1', 42, 'movie', 'in_progress');
+queueUserTitleStatus('user-1', 42, 'movie', 'dropped');
+const queued = JSON.parse(localStorage.getItem('gulrating:pending_title_statuses:user-1'));
+assert.equal(queued.length, 1, 'a newer offline status replaces the older pending status for that title');
+assert.equal(queued[0].status, 'dropped');
+assert.equal(await syncPendingTitleStatuses('user-1'), 1, 'queued statuses sync when connectivity returns');
+assert.equal(localStorage.getItem('gulrating:pending_title_statuses:user-1'), null, 'synced queue is cleared');
+assert.ok(calls.some(call => call.table === 'title_statuses' && call.action === 'upsert' && call.payload.status === 'dropped'), 'offline status is eventually saved remotely');
+
 delete globalThis.__testSupabase;
-console.log('Title status transitions preserve ratings and clear watchlist after rating: OK');
+delete globalThis.localStorage;
+console.log('Title status transitions preserve ratings, and offline status changes queue for sync: OK');

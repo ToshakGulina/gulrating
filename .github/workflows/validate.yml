@@ -37,6 +37,8 @@ jobs:
         run: node scripts/test-watch-progress.mjs
       - name: Test independent rating and status updates
         run: node scripts/test-title-statuses.mjs
+      - name: Test profile status tabs
+        run: node scripts/test-profile-status-tabs.mjs
       - name: Test per-member home-feed filter
         run: node scripts/test-feed-user-filter.mjs
       - name: Test friend rating label
