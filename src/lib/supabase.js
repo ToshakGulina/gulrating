@@ -41,6 +41,34 @@ function cachedProfile(userId) {
   }
 }
 
+function cachedAuthUser() {
+  try {
+    const projectRef = new URL(CONFIG.SUPABASE_URL).hostname.split('.')[0];
+    const stored = JSON.parse(localStorage.getItem(`sb-${projectRef}-auth-token`) || 'null');
+    const session = stored && (stored.currentSession || stored.session || stored);
+    return session && session.user && session.user.id ? session.user : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function offlineUser(user) {
+  return {
+    ...user,
+    profile: cachedProfile(user.id) || {
+      id: user.id,
+      username: user.user_metadata && user.user_metadata.username
+        ? user.user_metadata.username
+        : (user.email ? user.email.split('@')[0] : 'Пользователь'),
+      avatar_url: null,
+      // Только локальный интерфейс; сервер всё равно проверяет доступ через RLS.
+      is_approved: true,
+      is_admin: false
+    },
+    offlineOnly: true
+  };
+}
+
 // Получаем пользователя из локально сохранённой Supabase-сессии: getUser()
 // всегда проверяет JWT по сети и из-за этого блокировал запуск без интернета.
 // Профиль обновляем по сети с коротким таймаутом, а офлайн берём проверенную
@@ -54,14 +82,22 @@ export async function getCurrentUser() {
     if (error) throw error;
     user = data && data.session ? data.session.user : null;
   } catch (e) {
-    return null;
+    // Если SDK не успел получить локальную сессию из-за зависшего lock/таймаута,
+    // читаем только сохранённого пользователя. Это открывает локальный UI, но
+    // не предоставляет доступ к серверным операциям.
+    user = cachedAuthUser();
+    if (!user) return null;
   }
   if (!user) return null;
+
+  // В настоящем офлайне не ждём бесполезные сетевые таймауты профиля.
+  // Supabase-сессия уже прочитана локально; используем сохранённую копию.
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return offlineUser(user);
 
   const profileKey = `gulrating:profile:${user.id}`;
   try {
     const query = supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-    const result = await withTimeout(query, 3000);
+    const result = await withTimeout(query, 1500);
     if (!result.error && result.data) {
       try { localStorage.setItem(profileKey, JSON.stringify(result.data)); } catch (e) { /* quota */ }
       return { ...user, profile: result.data };
@@ -71,18 +107,7 @@ export async function getCurrentUser() {
     // Недоступность сети — это не потеря аккаунта. Используем копию профиля.
   }
 
-  const profile = cachedProfile(user.id) || {
-    id: user.id,
-    username: user.user_metadata && user.user_metadata.username
-      ? user.user_metadata.username
-      : (user.email ? user.email.split('@')[0] : 'Пользователь'),
-    avatar_url: null,
-    // Только для локального интерфейса: все серверные операции всё равно
-    // контролируются RLS; при восстановлении сети статус читается заново.
-    is_approved: true,
-    is_admin: false
-  };
-  return { ...user, profile, offlineOnly: true };
+  return offlineUser(user);
 }
 
 // Получаем все профили пользователей (для списков участников)

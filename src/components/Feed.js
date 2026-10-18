@@ -333,9 +333,13 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
 
   // Список участников нужен для фильтра; его загрузка не блокирует первую отрисовку.
   loadFeedPeople(currentUser);
-  // Загружаем оценки и рекомендации (рекомендации — параллельно, не ждём их)
+  // Загружаем оценки и рекомендации в фоне: первая отрисовка оболочки не должна
+  // ждать сетевой таймаут, чтобы офлайн-вход не оставался на тёмной заставке.
   loadRecs(currentUser);
-  await loadRatings(currentUser, activeFilter);
+  loadRatings(currentUser, activeFilter).catch((error) => {
+    const list = feedEl('ratings-list');
+    if (list) list.innerHTML = `<div class="text-center py-12 text-red-400">Не удалось показать ленту: ${escapeHtml(error.message || 'ошибка загрузки')}</div>`;
+  });
 
   // Инициализируем поиск и навигацию
   initSearch(currentUser);
@@ -500,59 +504,84 @@ async function loadRatings(currentUser, filter = 'all') {
   let data;
   let offlineCopy = false;
 
-  if (filter === 'watchlist') {
-    let watchlistQuery = supabase
-      .from('watchlist')
-      .select(`*, titles!inner(*), profiles!inner(*)`)
-      .order('created_at', { ascending: false });
-    if (selectedUserId) watchlistQuery = watchlistQuery.eq('user_id', selectedUserId);
-    const { data: watchlist, error } = await feedRequest(watchlistQuery);
+  const useOfflineCopy = Boolean(currentUser.offlineOnly)
+    || (typeof navigator !== 'undefined' && navigator.onLine === false);
 
-    if (filter !== activeFilter || userSelection !== activeRatingsUserId) return;
-    if (error) {
-      const cached = readFeedCache(filter, userSelection);
+  if (filter === 'watchlist') {
+    const cached = readFeedCache(filter, userSelection);
+    if (useOfflineCopy) {
       if (!cached) {
-        listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+        listEl.innerHTML = '<div class="text-center py-12 text-gray-400">Нет сохранённого списка для офлайн-просмотра. Подключитесь к сети и откройте этот раздел один раз.</div>';
+        rememberRatingsPaint(filter);
         return;
       }
       data = cached;
       offlineCopy = true;
     } else {
-      data = watchlist;
-      writeFeedCache(filter, watchlist, userSelection);
+      let watchlistQuery = supabase
+        .from('watchlist')
+        .select(`*, titles!inner(*), profiles!inner(*)`)
+        .order('created_at', { ascending: false });
+      if (selectedUserId) watchlistQuery = watchlistQuery.eq('user_id', selectedUserId);
+      const { data: watchlist, error } = await feedRequest(watchlistQuery);
+
+      if (filter !== activeFilter || userSelection !== activeRatingsUserId) return;
+      if (error) {
+        if (!cached) {
+          listEl.innerHTML = `<div class="text-center py-12 text-red-400">Не удалось загрузить список: ${escapeHtml(error.message)}. Офлайн-копии пока нет.</div>`;
+          rememberRatingsPaint(filter);
+          return;
+        }
+        data = cached;
+        offlineCopy = true;
+      } else {
+        data = watchlist;
+        writeFeedCache(filter, watchlist, userSelection);
+      }
     }
   } else {
-    // titles!inner — внутренний join: фильтр по типу тайтла применяется к строкам
-    // ленты, а не к вложенному объекту (без !inner PostgREST вернул бы все оценки
-    // с пустым titles и страница падала бы на чтении title.title)
-    let query = supabase
-      .from('ratings')
-      .select(`*, profiles!inner(*), titles!inner(*)`)
-      .order('created_at', { ascending: false });
-
-    if (filter === 'movies') {
-      query = query.eq('titles.media_type', 'movie');
-    } else if (filter === 'tv') {
-      query = query.eq('titles.media_type', 'tv');
-    } else if (filter === 'mine') {
-      query = query.eq('user_id', currentUser.id);
-    }
-    if (selectedUserId && filter !== 'mine') query = query.eq('user_id', selectedUserId);
-
-    const { data: ratings, error } = await feedRequest(query);
-    if (filter !== activeFilter || userSelection !== activeRatingsUserId) return;
-
-    if (error) {
-      const cached = readFeedCache(filter, userSelection);
+    const cached = readFeedCache(filter, userSelection);
+    if (useOfflineCopy) {
       if (!cached) {
-        listEl.innerHTML = `<div class="text-center py-12 text-red-400">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+        listEl.innerHTML = '<div class="text-center py-12 text-gray-400">Нет сохранённых оценок для офлайн-просмотра. Подключитесь к сети и откройте ленту один раз.</div>';
+        rememberRatingsPaint(filter);
         return;
       }
       data = cached;
       offlineCopy = true;
     } else {
-      data = ratings;
-      writeFeedCache(filter, ratings, userSelection);
+      // titles!inner — внутренний join: фильтр по типу тайтла применяется к строкам
+      // ленты, а не к вложенному объекту (без !inner PostgREST вернул бы все оценки
+      // с пустыми titles и страница падала бы на чтении title.title)
+      let query = supabase
+        .from('ratings')
+        .select(`*, profiles!inner(*), titles!inner(*)`)
+        .order('created_at', { ascending: false });
+
+      if (filter === 'movies') {
+        query = query.eq('titles.media_type', 'movie');
+      } else if (filter === 'tv') {
+        query = query.eq('titles.media_type', 'tv');
+      } else if (filter === 'mine') {
+        query = query.eq('user_id', currentUser.id);
+      }
+      if (selectedUserId && filter !== 'mine') query = query.eq('user_id', selectedUserId);
+
+      const { data: ratings, error } = await feedRequest(query);
+      if (filter !== activeFilter || userSelection !== activeRatingsUserId) return;
+
+      if (error) {
+        if (!cached) {
+          listEl.innerHTML = `<div class="text-center py-12 text-red-400">Не удалось загрузить оценки: ${escapeHtml(error.message)}. Офлайн-копии пока нет.</div>`;
+          rememberRatingsPaint(filter);
+          return;
+        }
+        data = cached;
+        offlineCopy = true;
+      } else {
+        data = ratings;
+        writeFeedCache(filter, ratings, userSelection);
+      }
     }
   }
 
