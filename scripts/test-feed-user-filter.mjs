@@ -23,5 +23,8 @@ assert.match(source, /from\('profiles'\)\.select\('id, username'\)/);
 assert.match(source, /query\.eq\('user_id', selectedUserId\)/);
 assert.match(source, /watchlistQuery\.eq\('user_id', selectedUserId\)/);
 assert.match(source, /feedRatingsCacheKey\(filter, userSelection\)/);
+assert.doesNotMatch(source, /feed-status-select/, 'status control belongs in the title card, not the home feed');
+const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+assert.match(modalSource, /id="title-status-select"/, 'keep status selection in the title card under its poster');
 
 console.log('Main feed supports per-member ratings and watchlist filters with isolated offline caches: OK');
