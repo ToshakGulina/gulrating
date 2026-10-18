@@ -32,7 +32,8 @@ const feed = await readFile(new URL('../src/components/Feed.js', import.meta.url
 
 assert.match(main, /installHorizontalOverflowFit\(\)/,
   'tiny-overflow fit should cover dynamically rendered horizontal scrollers');
-assert.match(styles, /\.overflow-fit-small\s*\{/);
+assert.match(styles, /\.overflow-fit-small\s*\{[^}]*overflow-x:\s*hidden\s*!important/,
+  'once a row qualifies as a tiny overflow, it must not retain a few-pixel horizontal scroll');
 assert.match(styles, /\.overflow-fit-small\s*>\s*\*\s*\{[^}]*flex-shrink:\s*1/);
 assert.match(styles, /\.overflow-x-auto[^}]*scrollbar-width:\s*none/);
 assert.match(styles, /\.overflow-x-auto::-webkit-scrollbar[^}]*display:\s*none/);

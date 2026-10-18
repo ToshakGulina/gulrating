@@ -25,6 +25,7 @@
   }
   .overflow-fit-small {
     column-gap: 0.25rem !important;
+    overflow-x: hidden !important;
   }
   .overflow-fit-small > * {
     flex-shrink: 1 !important;
