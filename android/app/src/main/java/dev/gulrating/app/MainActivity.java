@@ -23,6 +23,8 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebResourceResponse;
+import android.webkit.ServiceWorkerClient;
+import android.webkit.ServiceWorkerController;
 
 /**
  * ГульРейтинг на Android без Google Play: тонкая WebView-обёртка поверх
@@ -148,6 +150,22 @@ public class MainActivity extends Activity {
                 exitFullscreen();
             }
         });
+        // Запросы, инициированные Service Worker, НЕ проходят через WebViewClient.
+        // Без этого офлайн-PWA пытается взять ES-модули из сети даже при наличии
+        // локального APK-бандла и остаётся на заставке. Обслуживаем их теми же
+        // ассетами, что и обычные WebView-запросы.
+        ServiceWorkerController.getInstance().setServiceWorkerClient(new ServiceWorkerClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if (useBundledWebApp && HOME_HOST.equals(uri.getHost())
+                        && "https".equalsIgnoreCase(uri.getScheme())) {
+                    return bundledWebResponse(uri.getPath());
+                }
+                return null;
+            }
+        });
+
         web.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
