@@ -575,7 +575,7 @@ const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" ari
 
 // Пока оценка не выбрана, пузырёк над бегунком показывает позицию серым
 
-export async function openRatingModal(titleId, mediaType, currentUser, onSaveCallback) {
+export async function openRatingModal(titleId, mediaType, currentUser, onSaveCallback, franchiseContext = null) {
   // Создаем оверлей модалки
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm';
@@ -850,7 +850,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     // Рядом с заголовком показываем вкладки других частей франшизы.
     // TMDb-коллекцию фильмов дополняем точными совпадениями поиска сериалов.
     const franchiseBox = modal.querySelector('#franchise-tabs');
-    getFranchiseTitles(titleId, mediaType).then(parts => {
+    const franchisePartsPromise = Array.isArray(franchiseContext?.parts)
+      ? Promise.resolve(franchiseContext.parts)
+      : getFranchiseTitles(titleId, mediaType);
+    franchisePartsPromise.then(parts => {
       if (!modal.isConnected || !franchiseBox || !Array.isArray(parts) || parts.length < 2) return;
       franchiseBox.classList.remove('hidden');
       const tabs = franchiseBox.querySelector('.franchise-tabs-list');
@@ -862,7 +865,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       tabs.querySelectorAll('.franchise-tab').forEach(tab => tab.addEventListener('click', () => {
         if (Number(tab.dataset.titleId) === Number(titleId) && tab.dataset.mediaType === mediaType) return;
         closeModal();
-        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback);
+        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback, { parts });
       }));
 
       const scrollLeftButton = franchiseBox.querySelector('.franchise-scroll-left');
@@ -876,7 +879,16 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       scrollLeftButton.addEventListener('click', () => tabs.scrollBy({ left: -Math.max(180, tabs.clientWidth * 0.75), behavior: 'smooth' }));
       scrollRightButton.addEventListener('click', () => tabs.scrollBy({ left: Math.max(180, tabs.clientWidth * 0.75), behavior: 'smooth' }));
       tabs.addEventListener('scroll', updateFranchiseScrollButtons, { passive: true });
-      requestAnimationFrame(updateFranchiseScrollButtons);
+      requestAnimationFrame(() => {
+        const selectedTab = tabs.querySelector('[aria-selected="true"]');
+        if (selectedTab) {
+          const tabsRect = tabs.getBoundingClientRect();
+          const selectedRect = selectedTab.getBoundingClientRect();
+          if (selectedRect.left < tabsRect.left) tabs.scrollLeft -= tabsRect.left - selectedRect.left;
+          else if (selectedRect.right > tabsRect.right) tabs.scrollLeft += selectedRect.right - tabsRect.right;
+        }
+        updateFranchiseScrollButtons();
+      });
     }).catch(() => {});
 
     // Статус живёт в карточке тайтла под постером, отдельно от блока оценки.

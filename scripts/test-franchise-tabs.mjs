@@ -52,13 +52,30 @@ try {
       return Response.json({ id: 103, title: 'Последний богатырь: Корень зла', release_date: '2021-01-01', belongs_to_collection: { id: 800 } });
     }
     if (url.pathname.endsWith('/movie/201')) {
-      return Response.json({ id: 201, title: 'Despicable Me 4', release_date: '2024-01-01' });
+      return Response.json({ id: 201, title: 'Гадкий я 4', original_title: 'Despicable Me 4', release_date: '2024-01-01' });
     }
     if (url.pathname.endsWith('/movie/202')) {
-      return Response.json({ id: 202, title: 'Despicable Me', release_date: '2010-01-01', belongs_to_collection: { id: 900 } });
+      return Response.json({ id: 202, title: 'Гадкий я', original_title: 'Despicable Me', release_date: '2010-01-01', belongs_to_collection: { id: 900 } });
     }
     if (url.pathname.endsWith('/movie/203')) {
-      return Response.json({ id: 203, title: 'Despicable Me 3', release_date: '2017-01-01', belongs_to_collection: { id: 900 } });
+      return Response.json({ id: 203, title: 'Гадкий я 3', original_title: 'Despicable Me 3', release_date: '2017-01-01', belongs_to_collection: { id: 900 } });
+    }
+    if (url.pathname.endsWith('/movie/315')) {
+      return Response.json({ id: 315, title: 'Endless Saga 15', release_date: '2014-01-01', belongs_to_collection: { id: 910 } });
+    }
+    if (url.pathname.endsWith('/tv/401')) {
+      return Response.json({ id: 401, name: 'Dune', first_air_date: '2021-01-01' });
+    }
+    if (url.pathname.endsWith('/collection/910')) {
+      return Response.json({
+        id: 910,
+        name: 'Endless Saga Collection',
+        parts: Array.from({ length: 15 }, (_, index) => ({
+          id: 301 + index,
+          title: `Endless Saga ${index + 1}`,
+          release_date: `${2000 + index}-01-01`,
+        })),
+      });
     }
     if (url.pathname.endsWith('/collection/800')) {
       return Response.json({
@@ -99,11 +116,18 @@ try {
           { id: 103, media_type: 'movie', title: 'Последний богатырь: Корень зла', release_date: '2021-01-01' },
         ] });
       }
-      if (query === 'Despicable Me 4') {
+      if (query === 'Dune') {
         return Response.json({ results: [
-          { id: 201, media_type: 'movie', title: 'Despicable Me 4', release_date: '2024-01-01' },
-          { id: 202, media_type: 'movie', title: 'Despicable Me', release_date: '2010-01-01' },
-          { id: 203, media_type: 'movie', title: 'Despicable Me 3', release_date: '2017-01-01' },
+          { id: 402, media_type: 'tv', name: 'Dune: Prophecy', first_air_date: '2024-01-01' },
+          { id: 403, media_type: 'tv', name: 'Dune Detective', first_air_date: '2024-01-01' }
+        ] });
+      }
+      if (query === 'Гадкий я') return Response.json({ results: [] });
+      if (query === 'Despicable Me') {
+        return Response.json({ results: [
+          { id: 201, media_type: 'movie', title: 'Гадкий я 4', original_title: 'Despicable Me 4', release_date: '2024-01-01' },
+          { id: 202, media_type: 'movie', title: 'Гадкий я', original_title: 'Despicable Me', release_date: '2010-01-01' },
+          { id: 203, media_type: 'movie', title: 'Гадкий я 3', original_title: 'Despicable Me 3', release_date: '2017-01-01' },
         ] });
       }
       return Response.json({ results: [
@@ -143,8 +167,23 @@ try {
   assert.deepEqual(
     despicableMeParts.map(part => part.id),
     [202, 203, 201],
-    'a new movie without collection_id can find the matching official movie collection'
+    'localized movie titles use their original title to find the official collection'
   );
+
+  const longSeriesParts = await getFranchiseTitles(315, 'movie');
+  assert.equal(longSeriesParts.length, 15, 'all parts of a long official collection are included');
+
+  const duneParts = await getFranchiseTitles(401, 'tv');
+  assert.deepEqual(
+    duneParts.map(part => part.id),
+    [401, 402],
+    'one-word titles require a real franchise separator and do not pull in arbitrary title prefixes'
+  );
+
+  const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+  assert.match(modalSource, /franchiseContext = null/);
+  assert.match(modalSource, /openRatingModal\(tab\.dataset\.titleId, tab\.dataset\.mediaType, currentUser, onSaveCallback, \{ parts \}\)/);
+  assert.match(modalSource, /franchisePartsPromise/);
 } finally {
   globalThis.fetch = originalFetch;
 }
