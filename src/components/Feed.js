@@ -10,6 +10,7 @@ import { searchOfflineCatalog, getPopularOffline, getOfflineCatalogStats } from 
 import { isFullCatalogInstalled, searchFullCatalog } from '../lib/fullCatalog.js';
 import { getNotifications, markNotificationsRead, unreadNotifications } from '../lib/watchHistory.js';
 import { mountPage } from '../lib/pageState.js';
+import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
 import { feedUserOptions, selectedFeedUserId, feedRatingsCacheKey } from '../lib/feedPeople.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
@@ -1316,9 +1317,9 @@ function initSearch(currentUser) {
       ` : ''}
       ${titles.length ? `
         <div class="p-2 border-t border-slate-700">
-          <div class="flex gap-2 overflow-x-auto pb-1">
+          <div class="history-titles-row flex gap-2 overflow-x-auto pb-1" data-overflow-fit-tolerance="48">
             ${titles.map(t => `
-              <div class="history-title cursor-pointer group flex-shrink-0" data-id="${escapeHtml(t.id)}" data-type="${escapeHtml(t.media_type)}">
+              <div class="history-title cursor-pointer group min-w-0" data-id="${escapeHtml(t.id)}" data-type="${escapeHtml(t.media_type)}">
                 ${posterImg(t.poster_path, t.title, 'w-full aspect-[2/3] rounded-md')}
                 <div class="text-[10px] leading-tight line-clamp-2 mt-1 group-hover:text-white">${escapeHtml(t.title)}</div>
               </div>
@@ -1328,6 +1329,8 @@ function initSearch(currentUser) {
       ` : ''}
     `;
     resultsContainer.classList.remove('hidden');
+    const historyTitlesRow = resultsContainer.querySelector('.history-titles-row');
+    if (historyTitlesRow) fitSmallHorizontalOverflow(historyTitlesRow);
 
     feedEl('clear-history-btn').addEventListener('click', (e) => {
       e.stopPropagation();

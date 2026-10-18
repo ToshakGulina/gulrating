@@ -731,10 +731,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
     document.getElementById('modal-content').innerHTML = `
       <div id="franchise-tabs" class="hidden -mx-4 -mt-4 mb-4 border-b border-slate-700 bg-slate-900/70 px-4 py-2.5">
-        <div class="franchise-tabs-viewport relative min-w-0">
-          <div class="franchise-tabs-list flex min-w-0 gap-1.5 overflow-x-auto" role="tablist" aria-label="Другие части"></div>
-          <button type="button" class="franchise-scroll-left hidden absolute left-0 top-1/2 z-10 h-8 w-8 -translate-y-1/2 rounded-lg bg-slate-800/95 text-gray-300 shadow-lg hover:bg-slate-700 disabled:opacity-30" aria-label="Прокрутить к предыдущим частям">‹</button>
-          <button type="button" class="franchise-scroll-right hidden absolute right-0 top-1/2 z-10 h-8 w-8 -translate-y-1/2 rounded-lg bg-slate-800/95 text-gray-300 shadow-lg hover:bg-slate-700 disabled:opacity-30" aria-label="Прокрутить к следующим частям">›</button>
+        <div class="franchise-tabs-viewport flex min-w-0 items-center gap-1.5">
+          <button type="button" class="franchise-scroll-left hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700 disabled:opacity-30" aria-label="Прокрутить к предыдущим частям">‹</button>
+          <div class="franchise-tabs-list flex min-w-0 flex-1 gap-1.5 overflow-x-auto" role="tablist" aria-label="Другие части"></div>
+          <button type="button" class="franchise-scroll-right hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700 disabled:opacity-30" aria-label="Прокрутить к следующим частям">›</button>
         </div>
       </div>
       <div class="flex gap-4 mb-4">
@@ -876,16 +876,18 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       const scrollRightButton = franchiseBox.querySelector('.franchise-scroll-right');
       const updateFranchiseScrollButtons = () => {
         let maxScroll = fitSmallHorizontalOverflow(tabs);
-        if (maxScroll > 24 && tabs.dataset.scrollGutters !== 'true') {
-          tabs.classList.add('pl-10', 'pr-10');
-          tabs.dataset.scrollGutters = 'true';
+        if (maxScroll > 24 && tabs.dataset.scrollControls !== 'true') {
+          tabs.dataset.scrollControls = 'true';
+          scrollLeftButton.classList.remove('hidden');
+          scrollRightButton.classList.remove('hidden');
           maxScroll = Math.max(0, tabs.scrollWidth - tabs.clientWidth);
         }
-        const canScroll = maxScroll > 2;
+        const controlsEnabled = tabs.dataset.scrollControls === 'true';
+        const canScroll = controlsEnabled && maxScroll > 2;
         const atStart = tabs.scrollLeft <= 2;
         const atEnd = tabs.scrollLeft >= maxScroll - 2;
-        scrollLeftButton.classList.toggle('hidden', !canScroll);
-        scrollRightButton.classList.toggle('hidden', !canScroll);
+        scrollLeftButton.classList.toggle('hidden', !controlsEnabled);
+        scrollRightButton.classList.toggle('hidden', !controlsEnabled);
         scrollLeftButton.disabled = !canScroll || atStart;
         scrollRightButton.disabled = !canScroll || atEnd;
       };

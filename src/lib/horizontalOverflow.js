@@ -5,9 +5,10 @@ const SMALL_OVERFLOW_PX = 24;
 // slightly instead of making the user swipe through the last few pixels.
 export function fitSmallHorizontalOverflow(element, tolerance = SMALL_OVERFLOW_PX) {
   if (!element?.classList) return 0;
+  const configuredTolerance = Number(element.dataset?.overflowFitTolerance) || tolerance;
   element.classList.remove(FIT_CLASS);
   const initialOverflow = Math.max(0, element.scrollWidth - element.clientWidth);
-  if (initialOverflow > 0 && initialOverflow <= tolerance) {
+  if (initialOverflow > 0 && initialOverflow <= configuredTolerance) {
     element.classList.add(FIT_CLASS);
   }
   return Math.max(0, element.scrollWidth - element.clientWidth);

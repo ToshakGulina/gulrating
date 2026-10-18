@@ -13,6 +13,16 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+  .overflow-x-auto,
+  .overflow-x-scroll {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .overflow-x-auto::-webkit-scrollbar,
+  .overflow-x-scroll::-webkit-scrollbar {
+    display: none;
+    height: 0;
+  }
   .overflow-fit-small {
     column-gap: 0.25rem !important;
   }
