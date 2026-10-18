@@ -7,6 +7,7 @@ import { addRecentTitle } from '../lib/history.js';
 import { enqueueRating, getPendingRatings, networkLikeError } from '../lib/offline.js';
 import { addWatchEntry, reportWatchNative, isApk, getPositions, saveWatchPosition } from '../lib/watchHistory.js';
 import { fetchKinoboxPlayers, qualityRank } from '../lib/kinobox.js';
+import { parsePlayerProgressMessage, createPlayerJsMessage } from '../lib/playerProgressMessages.js';
 import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
 import { friendRatingsLabel } from '../lib/ratingLabels.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
@@ -127,7 +128,10 @@ export function openWatchOverlay(opts) {
   let hasPlayed = false;
   let loadGeneration = 0;
   if (!apk && mirrorUrl) modeBtn.classList.remove('hidden');
-  const removeOverlayListeners = () => document.removeEventListener('keydown', ov._onKey);
+  const removeOverlayListeners = () => {
+    document.removeEventListener('keydown', ov._onKey);
+    window.removeEventListener('message', onPlayerMessage);
+  };
 
   let groups = [];        // [{ type, embed, dubs: [{name, quality, url}] }]
   let curType = null;
@@ -136,6 +140,92 @@ export function openWatchOverlay(opts) {
   let progressTimer = null;
   let savedPosition = (!apk && watchKey) ? getPositions()[watchKey] || null : null;
   const videoProgress = new WeakMap();
+  const remotePlayerProgress = new WeakMap();
+
+  function saveRemoteProgress(progress) {
+    if (!watchKey || !progress || !Number.isFinite(progress.t) || !Number.isFinite(progress.d)) return;
+    const force = ['pause', 'seeked', 'ended'].includes(progress.event);
+    if (saveWatchPosition(watchKey, progress.t, progress.d, force)) {
+      savedPosition = { t: Math.floor(progress.t), d: Math.floor(progress.d), at: Date.now() };
+    }
+  }
+
+  function sendPlayerJsCommand(frame, state, method, value, listener) {
+    if (!frame || !state || !state.origin || state.origin === 'null') return;
+    try {
+      frame.contentWindow.postMessage(
+        createPlayerJsMessage(method, value, listener),
+        state.origin
+      );
+    } catch (e) { /* this iframe may not implement Player.js */ }
+  }
+
+  function resumeRemotePlayer(frame, state) {
+    if (!savedPosition || state.resumeAttempted || state.currentTime == null) return;
+    const target = Number(savedPosition.t);
+    const duration = Number(state.duration || savedPosition.d);
+    if (!Number.isFinite(target) || target < 30 || !Number.isFinite(duration) || duration <= 0
+        || target >= duration - 10 || state.currentTime > 15) {
+      state.resumeAttempted = true;
+      return;
+    }
+    if (state.methods.size && !state.methods.has('setcurrenttime')) {
+      state.resumeAttempted = true;
+      return;
+    }
+    sendPlayerJsCommand(frame, state, 'setCurrentTime', target);
+    state.resumeAttempted = true;
+  }
+
+  function handlePlayerJsReady(frame, origin, message) {
+    if (!frame || !origin || origin === 'null') return;
+    const state = remotePlayerProgress.get(frame) || { methods: new Set(), events: new Set() };
+    if (state.ready) return;
+    state.ready = true;
+    state.origin = origin;
+    state.methods = new Set((message.methods || []).map(value => String(value).toLowerCase()));
+    state.events = new Set((message.events || []).map(value => String(value).toLowerCase()));
+    remotePlayerProgress.set(frame, state);
+
+    ['timeupdate', 'pause', 'seeked', 'ended'].forEach(eventName => {
+      if (state.events.size && !state.events.has(eventName)) return;
+      if (state.methods.size && !state.methods.has('addeventlistener')) return;
+      sendPlayerJsCommand(frame, state, 'addEventListener', eventName, `gulrating-${eventName}`);
+    });
+
+    if (!savedPosition || Number(savedPosition.t) < 30
+        || (state.methods.size && !state.methods.has('getcurrenttime'))) return;
+    state.currentTimeListener = `gulrating-current-${Date.now()}`;
+    sendPlayerJsCommand(frame, state, 'getCurrentTime', undefined, state.currentTimeListener);
+    if (!state.methods.size || state.methods.has('getduration')) {
+      state.durationListener = `gulrating-duration-${Date.now()}`;
+      sendPlayerJsCommand(frame, state, 'getDuration', undefined, state.durationListener);
+    }
+  }
+
+  function onPlayerMessage(event) {
+    const frame = stage.querySelector('#watch-frame');
+    if (!frame || event.source !== frame.contentWindow || !watchKey) return;
+    const message = parsePlayerProgressMessage(event.data);
+    if (!message) return;
+
+    if (message.kind === 'ready') {
+      handlePlayerJsReady(frame, event.origin, message);
+      return;
+    }
+    const state = remotePlayerProgress.get(frame);
+    if (message.kind === 'current-time' && state && message.listener === state.currentTimeListener) {
+      state.currentTime = message.t;
+      resumeRemotePlayer(frame, state);
+      return;
+    }
+    if (message.kind === 'duration' && state && message.listener === state.durationListener) {
+      state.duration = message.d;
+      resumeRemotePlayer(frame, state);
+      return;
+    }
+    if (message.kind === 'progress') saveRemoteProgress(message);
+  }
 
   function saveVideoPosition(video, state, force = false) {
     if (!watchKey || !state.resumeAttempted || !video) return;
@@ -482,7 +572,7 @@ export function openWatchOverlay(opts) {
         }
         hint.textContent = apk
           ? 'Тап по источнику — только выбор; тап по озвучке — запуск сразу во весь экран (ландшафт). Back — обычный вид. У источников с одной кнопкой озвучки переключает меню самого плеера.'
-          : 'Выберите озвучку для запуска. Список источников остаётся видимым; позиция запоминается, если источник разрешает браузеру её прочитать.';
+          : 'Выберите озвучку для запуска. Источники остаются видимыми; позиция сохраняется, если плеер передаёт её странице или видео доступно для чтения.';
       })
       .catch((err) => {
         if (generation === loadGeneration && !mirrorMode) {
@@ -532,6 +622,10 @@ export function openWatchOverlay(opts) {
       ? 'Зеркало откроется внутри приложения со своим меню озвучек.'
       : 'Останьтесь в GulRating и повторите поиск позже; источник не открывается во вкладке браузера.';
   }
+
+  // Catch timing messages from same-origin videos and cross-origin frames that
+  // expose Player.js or a compatible parent postMessage API.
+  window.addEventListener('message', onPlayerMessage);
 
   // Сначала пробуем прямые Kinobox iframeUrl с referrerPolicy=origin.
   // Кнопка «Зеркало» оставляет прежний рабочий сценарий рядом как резерв.
