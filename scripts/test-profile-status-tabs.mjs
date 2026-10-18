@@ -7,6 +7,9 @@ import vm from 'node:vm';
 const profileSource = await readFile(new URL('../src/components/Profile.js', import.meta.url), 'utf8');
 assert.ok(profileSource.includes('queueUserTitleStatus'), 'offline menu changes are saved for later sync');
 assert.ok(!profileSource.includes("${currentUser.offlineOnly ? 'disabled' : ''}"), 'status menus stay enabled in offline mode');
+const statusControls = [...profileSource.matchAll(/<select class="profile-status-select([^\"]*)"/g)];
+assert.equal(statusControls.length, 3, 'each profile card type has a status control');
+assert.ok(statusControls.every(([, classes]) => classes.includes('w-[112px]')), 'status labels have enough width to remain readable');
 const match = profileSource.match(/function renderProfileStatusTab\([\s\S]*?(?=\nfunction renderWatchlist\()/);
 assert.ok(match, 'profile status tab renderer exists');
 
