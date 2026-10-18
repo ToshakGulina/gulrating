@@ -49,12 +49,14 @@ assert.ok(indexHtml.includes('--theme-bg: 0 0 0; --theme-deep: 0 0 0; --theme-ca
 assert.ok(indexHtml.includes('--theme-secondary: 142 142 142; --p-rgb: 235 235 235; --nothing-red: 215 25 33; color-scheme: dark;'));
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1') && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
   'Nothing headings should remain crisp and readable');
-assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-score-value') && indexHtml.includes('background-clip: text;'),
-  'Nothing rating numerals should use colored Glyph-style dots');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit') && indexHtml.includes('grid-template-columns: repeat(3, 3px);'),
+  'Nothing rating numerals should use a clear dot-matrix grid');
 assert.ok(indexHtml.includes('.rating-score-badge.rating-score-mid { --rating-score-color: #d69e16; }'),
   'Nothing rating dots should preserve the rating color');
 const feedJs = await readFile(new URL('../src/components/Feed.js', import.meta.url), 'utf8');
 assert.ok(feedJs.includes('rating-score-badge ${ratingScoreTone}'), 'feed rating badges should expose tone classes for Nothing theme styling');
+assert.ok(feedJs.includes('function renderRatingDots(value)') && feedJs.includes("'7': ['111', '001', '010', '010', '010']"),
+  'feed should render ratings as readable five-row dot glyphs');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .nav-btn svg'),
   'Nothing navigation icons should use circular Glyph-like buttons');
 assert.ok(indexHtml.includes('.theme-preview-nothing::after'), 'the palette preview should include the signature red glyph dot');

@@ -22,6 +22,29 @@ const SORT_OPTIONS = [
   { id: 'rating_asc', label: 'Низкие сначала' },
 ];
 
+const DOT_RATING_DIGITS = {
+  '0': ['111', '101', '101', '101', '111'],
+  '1': ['010', '110', '010', '010', '111'],
+  '2': ['111', '001', '111', '100', '111'],
+  '3': ['111', '001', '111', '001', '111'],
+  '4': ['101', '101', '111', '001', '001'],
+  '5': ['111', '100', '111', '001', '111'],
+  '6': ['111', '100', '111', '101', '111'],
+  '7': ['111', '001', '010', '010', '010'],
+  '8': ['111', '101', '111', '101', '111'],
+  '9': ['111', '101', '111', '001', '111'],
+};
+
+function renderRatingDots(value) {
+  return [...formatRating(value)].map(character => {
+    if (character === '.') return '<span class="rating-dot-decimal"></span>';
+    const rows = DOT_RATING_DIGITS[character];
+    if (!rows) return '';
+    const dots = rows.join('').split('').map(dot => `<i class="rating-dot-cell${dot === '1' ? ' is-on' : ''}"></i>`).join('');
+    return `<span class="rating-dot-digit" aria-hidden="true">${dots}</span>`;
+  }).join('');
+}
+
 function readSort() {
   try {
     const value = localStorage.getItem(SORT_KEY);
@@ -668,14 +691,14 @@ async function loadRatings(currentUser, filter = 'all') {
                 <p class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${title.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
               </div>
               ${!isWatchlistView ? (item.groupedRatings && groupRows.length > 1 ? `
-                <div class="group-average-badge rating-score-badge ${ratingScoreTone} ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
+                <div role="img" aria-label="Средняя оценка: ${escapeHtml(formatRating(item.rating))}, ${escapeHtml(ratingCountLabel(groupRows.length))}" class="group-average-badge rating-score-badge ${ratingScoreTone} ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
                   <span class="rating-score-label text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
-                  <strong class="rating-score-value text-lg leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
+                  <strong class="rating-score-value text-lg leading-tight"><span class="rating-score-plain">${escapeHtml(formatRating(item.rating))}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(item.rating)}</span></strong>
                   <span class="rating-count-label text-[10px] opacity-80">${ratingCountLabel(groupRows.length)}</span>
                 </div>
               ` : `
-                <div class="rating-score-badge ${ratingScoreTone} ${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
-                  <span class="rating-score-value">${escapeHtml(formatRating(item.rating))}</span>
+                <div role="img" aria-label="Оценка: ${escapeHtml(formatRating(item.rating))}" class="rating-score-badge ${ratingScoreTone} ${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
+                  <span class="rating-score-value"><span class="rating-score-plain">${escapeHtml(formatRating(item.rating))}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(item.rating)}</span></span>
                 </div>
               `) : `
                 <div class="px-2 py-1 rounded-lg bg-slate-700 text-yellow-400 font-medium text-sm">

@@ -387,14 +387,41 @@
     :root[data-theme="nothing"] .rating-score-badge.rating-score-high { --rating-score-color: #00c878; }
     :root[data-theme="nothing"] .rating-score-badge.rating-score-mid { --rating-score-color: #d69e16; }
     :root[data-theme="nothing"] .rating-score-badge.rating-score-low { --rating-score-color: #f05a67; }
-    :root[data-theme="nothing"] .rating-score-value {
-      color: transparent !important;
-      background-image: radial-gradient(circle, var(--rating-score-color) 0 1.05px, transparent 1.25px);
-      background-size: 4px 4px;
-      background-clip: text;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      text-shadow: none;
+    .rating-score-dots { display: none; }
+    :root[data-theme="nothing"] .rating-score-plain { display: none; }
+    :root[data-theme="nothing"] .rating-score-dots {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      min-height: 21px;
+      color: var(--rating-score-color);
+      -webkit-text-fill-color: currentColor;
+    }
+    :root[data-theme="nothing"] .rating-dot-digit {
+      display: grid;
+      grid-template-columns: repeat(3, 3px);
+      grid-template-rows: repeat(5, 3px);
+      gap: 1px;
+      flex: 0 0 auto;
+    }
+    :root[data-theme="nothing"] .rating-dot-cell {
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: transparent;
+    }
+    :root[data-theme="nothing"] .rating-dot-cell.is-on {
+      background: currentColor;
+      box-shadow: 0 0 2px color-mix(in srgb, currentColor 48%, transparent);
+    }
+    :root[data-theme="nothing"] .rating-dot-decimal {
+      width: 3px;
+      height: 3px;
+      align-self: flex-end;
+      margin: 0 1px 1px 0;
+      border-radius: 50%;
+      background: currentColor;
     }
     :root[data-theme="nothing"] .group-average-badge .rating-score-label,
     :root[data-theme="nothing"] .group-average-badge .rating-count-label {
