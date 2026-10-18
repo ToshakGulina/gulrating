@@ -5,6 +5,17 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const profileSource = await readFile(new URL('../src/components/Profile.js', import.meta.url), 'utf8');
+const tabSource = profileSource.match(/const PROFILE_ACTIVITY_TABS = \[([\s\S]*?)\];/)?.[1] || '';
+const tabs = [...tabSource.matchAll(/\{ id: '([^']+)', label: '([^']+)' \}/g)].map(([, id, label]) => [id, label]);
+assert.deepEqual(tabs, [
+  ['in_progress', 'В процессе'],
+  ['watched', 'Просмотрено'],
+  ['watchlist', 'Хочу посмотреть'],
+  ['dropped', 'Заброшено'],
+], 'profile tabs have the requested order');
+assert.ok(!profileSource.includes('id="watch-history"') && !profileSource.includes('id="watched-history"'), 'standalone playback history sections are removed');
+assert.ok(profileSource.includes("getWatchHistory().filter(item => !item.done)") && profileSource.includes("getWatchHistory().filter(item => item.done)"), 'playback entries are routed into In Progress and Watched tabs');
+assert.ok(profileSource.includes('renderPlaybackRows(playbackItems'), 'playback entries render inside the selected status tab');
 assert.ok(profileSource.includes('queueUserTitleStatus'), 'offline menu changes are saved for later sync');
 assert.ok(!profileSource.includes("${currentUser.offlineOnly ? 'disabled' : ''}"), 'status menus stay enabled in offline mode');
 const statusControls = [...profileSource.matchAll(/<select class="profile-status-select([^\"]*)"/g)];
@@ -19,9 +30,9 @@ assert.ok(match, 'profile status tab renderer exists');
 
 const context = {
   PROFILE_ACTIVITY_TABS: [
-    { id: 'watchlist', label: 'Хочу посмотреть' },
     { id: 'in_progress', label: 'В процессе' },
     { id: 'watched', label: 'Просмотрено' },
+    { id: 'watchlist', label: 'Хочу посмотреть' },
     { id: 'dropped', label: 'Заброшено' },
   ],
   renderWatchlist: items => `watchlist:${items.map(item => item.title_id).join('|')}`,
