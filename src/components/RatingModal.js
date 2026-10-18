@@ -654,8 +654,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
 
     const sharedRatings = allRatings;
     const friendRatings = sharedRatings.filter((r) => r.user_id !== currentUser.id);
-    const hasOwnRating = sharedRatings.some((r) => r.user_id === currentUser.id);
-    const scoreLabel = friendRatingsLabel(friendRatings, hasOwnRating);
+    const scoreLabel = friendRatingsLabel(friendRatings);
     const averageRating = sharedRatings.length > 0
       ? (sharedRatings.reduce((sum, r) => sum + Number(r.rating), 0) / sharedRatings.length).toFixed(1)
       : null;

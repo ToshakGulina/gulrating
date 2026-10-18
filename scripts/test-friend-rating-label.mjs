@@ -4,9 +4,7 @@ import { friendRatingsLabel } from '../src/lib/ratingLabels.js';
 
 assert.equal(friendRatingsLabel([]), 'Ваша оценка');
 assert.equal(friendRatingsLabel([{ profiles: { username: 'Тимоха' } }]), 'Тимоха');
-assert.equal(friendRatingsLabel([{ profiles: { username: 'Тимоха' } }], true), 'Вы и Тимоха');
 assert.equal(friendRatingsLabel([{ profiles: { username: 'Тимоха' } }, { profiles: { username: 'Алиса' } }]), 'Друзья');
-assert.equal(friendRatingsLabel([{ profiles: { username: 'Тимоха' } }, { profiles: { username: 'Алиса' } }], true), 'Вы и друзья');
 assert.equal(friendRatingsLabel([{ profiles: {} }]), 'Участник');
 assert.equal(friendRatingsLabel(null), 'Ваша оценка');
 
