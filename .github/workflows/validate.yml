@@ -41,6 +41,8 @@ jobs:
         run: node scripts/test-title-statuses.mjs
       - name: Test profile status tabs
         run: node scripts/test-profile-status-tabs.mjs
+      - name: Test Android APK updater wiring
+        run: node scripts/test-apk-updater.mjs
       - name: Test per-member home-feed filter
         run: node scripts/test-feed-user-filter.mjs
       - name: Test friend rating label
