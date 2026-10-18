@@ -55,6 +55,8 @@ assert.ok(indexHtml.includes('width: 56px;') && indexHtml.includes('justify-cont
   'Nothing rating glyphs should fit inside centered score badges');
 assert.ok(indexHtml.includes('.search-ratings-list { display: flex; flex-direction: column; align-items: flex-end;'),
   'search participant ratings should align at the right side of each result');
+assert.ok(indexHtml.includes('width: 112px;') && indexHtml.includes('height: 76px;'),
+  'Nothing average-rating badge should have a roomy oval shape like the feed badge');
 assert.ok(indexHtml.includes('.rating-score-badge.rating-score-mid { --rating-score-color: #d69e16; }'),
   'Nothing rating dots should preserve the rating color');
 const feedJs = await readFile(new URL('../src/components/Feed.js', import.meta.url), 'utf8');

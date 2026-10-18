@@ -53,18 +53,33 @@ function ratingTone(value) {
 
 function renderSearchRatings(rows = []) {
   if (!rows.length) return '';
-  return `<div class="search-ratings-list" aria-label="Оценки участников">${rows.map(row => {
-    const score = Number(row.rating);
-    const tone = ratingTone(score);
+  const average = rows.reduce((sum, row) => sum + Number(row.rating), 0) / rows.length;
+  const score = rows.length > 1 ? average : Number(rows[0].rating);
+  const label = escapeHtml(formatRating(score));
+  const tone = ratingTone(score);
+  const ratingColor = score >= 8 ? 'bg-green-600' : score >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+  const summary = rows.length > 1
+    ? `<div role="img" aria-label="Средняя оценка: ${label}, ${escapeHtml(ratingCountLabel(rows.length))}" class="group-average-badge rating-score-badge ${tone} ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
+        <span class="rating-score-label text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
+        <strong class="rating-score-value text-lg leading-tight"><span class="rating-score-plain">${label}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(score)}</span></strong>
+        <span class="rating-count-label text-[10px] opacity-80">${ratingCountLabel(rows.length)}</span>
+      </div>`
+    : `<div role="img" aria-label="Оценка: ${label}" class="rating-score-badge ${tone} ${ratingColor} flex items-center justify-center rounded-lg px-2 py-1 text-white font-bold text-lg shrink-0">
+        <span class="rating-score-value"><span class="rating-score-plain">${label}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(score)}</span></span>
+      </div>`;
+  const ratingsList = rows.map(row => {
+    const memberScore = Number(row.rating);
+    const memberTone = ratingTone(memberScore);
     const username = escapeHtml(row.username || 'Участник');
-    const label = escapeHtml(formatRating(score));
-    return `<span class="search-rating-item" title="${username}: ${label}">
+    const memberLabel = escapeHtml(formatRating(memberScore));
+    return `<span class="search-rating-item" title="${username}: ${memberLabel}">
       <span class="search-rating-name">${username}</span>
-      <strong class="search-rating-score ${tone}" role="img" aria-label="${username}: ${label}">
-        <span class="rating-score-plain">${label}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(score)}</span>
+      <strong class="search-rating-score ${memberTone}" role="img" aria-label="${username}: ${memberLabel}">
+        <span class="rating-score-plain">${memberLabel}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(memberScore)}</span>
       </strong>
     </span>`;
-  }).join('')}</div>`;
+  }).join('');
+  return `<div class="search-ratings-widget">${summary}<div class="search-ratings-list" aria-label="Оценки участников">${ratingsList}</div></div>`;
 }
 
 async function getSearchRatings(results, currentUser) {

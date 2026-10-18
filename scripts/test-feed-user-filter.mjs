@@ -30,6 +30,8 @@ assert.match(searchRatingsSource, /\.in\('title_id', ids\)/);
 assert.doesNotMatch(searchRatingsSource, /\.eq\('user_id'/,
   'search rating lookup should include all visible participants, not only the signed-in user');
 assert.match(source, /renderSearchRatings\(ratingsByTitle\.get\(String\(item\.id\)\)\)/);
+assert.match(source, /class="group-average-badge rating-score-badge \$\{tone\}/,
+  'search results should use the same multi-rating average badge as the feed');
 assert.doesNotMatch(source, /feed-status-select/, 'status control belongs in the title card, not the home feed');
 const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
 assert.match(modalSource, /id="title-status-select"/, 'keep status selection in the title card under its poster');
