@@ -89,6 +89,13 @@ const pauseReport = sentToTop.find((item) => item.data.type === 'progress' && it
 assert(pauseReport, 'pause should flush a final progress event');
 assert.equal(pauseReport.data.currentTime, 265);
 
+video.currentTime = 280;
+listeners.get('pagehide')();
+const finalReport = sentToTop.at(-1);
+assert.equal(finalReport.data.type, 'progress', 'pagehide must flush the last cross-origin video position');
+assert.equal(finalReport.data.currentTime, 280);
+assert.equal(finalReport.data.event, 'pause');
+
 const beforeInvalidReply = video.currentTime;
 onMessage({
   source: topWindow,
@@ -102,5 +109,8 @@ assert.match(modal, /isAllohaPlayerOrigin\(event\.origin\)/);
 assert.match(modal, /event\.source\.postMessage\([\s\S]*?event\.origin\)/,
   'the website must reply directly to the active Alloha frame with an exact target origin');
 assert.match(modal, /saveRemoteProgress\(progress\)/);
+assert.match(modal, /Позиция Alloha сохранена/,
+  'the player overlay should distinguish an actual saved position from a connection handshake');
+assert.match(modal, /formatPlaybackTime\(progress\.t\)/);
 
-console.log('Alloha browser extension: scoped permissions, resume handshake, progress reporting and origin checks OK');
+console.log('Alloha browser extension: scoped permissions, resume handshake, progress reporting and save feedback OK');

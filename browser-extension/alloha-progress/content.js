@@ -175,6 +175,13 @@
     scan(document, new WeakSet());
   }
 
+  window.addEventListener('pagehide', () => {
+    document.querySelectorAll('video').forEach((video) => {
+      const state = stateFor(video);
+      reportProgress(video, state, video.paused ? 'pause' : 'timeupdate', true);
+    });
+  });
+
   scanDocument();
   try {
     new MutationObserver(scanDocument).observe(document, { childList: true, subtree: true });
