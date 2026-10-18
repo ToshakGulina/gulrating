@@ -10,6 +10,7 @@ import { fetchKinoboxPlayers, qualityRank } from '../lib/kinobox.js';
 import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
 import { friendRatingsLabel } from '../lib/ratingLabels.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
+import { formatCompactMoney } from '../lib/money.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -544,16 +545,6 @@ function criticsLabel(value) {
     : `${Math.round(value)}%`;
 }
 
-// «150 млн $» / «1.2 млрд $» для бюджета и сборов
-function formatMoney(n) {
-  const v = Number(n);
-  if (!Number.isFinite(v) || v <= 0) return '';
-  if (v >= 1e9) return `${(v / 1e9).toFixed(1).replace('.', ',')} млрд $`;
-  if (v >= 1e6) return `${Math.round(v / 1e6)} млн $`;
-  if (v >= 1e3) return `${Math.round(v / 1e3)} тыс $`;
-  return `${v} $`;
-}
-
 function formatVotes(n) {
   const mod10 = n % 10;
   const mod100 = n % 100;
@@ -760,19 +751,27 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Открыть каталог с фильтром по жанру «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
           </div>
           ${(() => {
-            // TMDb и КП не дублируем: по каждой метрике одна строка;
-            // если источники расходятся — берём большую сумму
-            const pick = (...vals) => {
-              const nums = vals.map(v => Number(v)).filter(v => Number.isFinite(v) && v > 0);
-              return nums.length ? Math.max(...nums) : null;
+            // Сначала используем сумму и валюту Кинопоиска как одну пару.
+            // У TMDb валюта не передаётся; его значения трактуем как USD,
+            // но не сравниваем сырые суммы разных валют между собой.
+            const ruTitle = (title.origin_country || []).includes('RU');
+            const fromSources = (kpAmount, kpCurrency, tmdbAmount) => {
+              const localAmount = Number(kpAmount);
+              if (Number.isFinite(localAmount) && localAmount > 0) {
+                return { amount: localAmount, currency: kpCurrency || (ruTitle ? 'RUB' : null) };
+              }
+              const tmdbValue = Number(tmdbAmount);
+              return Number.isFinite(tmdbValue) && tmdbValue > 0
+                ? { amount: tmdbValue, currency: 'USD' }
+                : null;
             };
             const rows = [];
-            const budget = pick(title.budget, kpRatings && kpRatings.kpBudget);
-            const world = pick(title.revenue, kpRatings && kpRatings.kpFeesWorld);
-            const ru = pick(kpRatings && kpRatings.kpFeesRussia);
-            if (budget) rows.push(`Бюджет: ${formatMoney(budget)}`);
-            if (world) rows.push(`Сборы в мире: ${formatMoney(world)}`);
-            if (ru) rows.push(`Сборы в России: ${formatMoney(ru)}`);
+            const budget = fromSources(kpRatings && kpRatings.kpBudget, kpRatings && kpRatings.kpBudgetCurrency, title.budget);
+            const world = fromSources(kpRatings && kpRatings.kpFeesWorld, kpRatings && kpRatings.kpFeesWorldCurrency, title.revenue);
+            const ru = fromSources(kpRatings && kpRatings.kpFeesRussia, kpRatings && kpRatings.kpFeesRussiaCurrency, null);
+            if (budget) rows.push(`Бюджет: ${formatCompactMoney(budget.amount, budget.currency)}`);
+            if (world) rows.push(`Сборы в мире: ${formatCompactMoney(world.amount, world.currency)}`);
+            if (ru) rows.push(`Сборы в России: ${formatCompactMoney(ru.amount, ru.currency)}`);
             return rows.length
               ? `<div class="text-xs text-gray-500 mb-2 space-y-0.5">${rows.map((r, i) => `<div>${i === 0 ? '💵 ' : ''}${r}</div>`).join('')}</div>`
               : '';

@@ -17,6 +17,7 @@
 // Любая ошибка КП не ломает карточку фильма: значок просто не показывается.
 
 import { CONFIG } from '../config.js';
+import { moneyValue } from './money.js';
 
 const DIRECT_BASE = 'https://api.poiskkino.dev';
 
@@ -153,21 +154,26 @@ function extractWatchability(details) {
   });
 }
 
-// budget/fees приходят объектами { value, currency } — вытаскиваем числа
+// budget/fees приходят объектами { value, currency }; сохраняем валюту,
+// иначе локальные суммы (например, рубли) ошибочно показываются как доллары.
 function extractMoney(details) {
   if (!details) return null;
-  const num = (x) => {
-    const v = Number(x && typeof x === 'object' ? x.value : x);
-    return Number.isFinite(v) && v > 0 ? Math.round(v) : null;
+  const readMoney = (entry) => {
+    const parsed = moneyValue(entry);
+    return parsed ? { amount: Math.round(parsed.amount), currency: parsed.currency } : null;
   };
   const fees = details.fees || {};
-  const money = {
-    kpBudget: num(details.budget),
-    kpFeesWorld: num(fees.world),
-    kpFeesRussia: num(fees.russia),
-    kpFeesUsa: num(fees.usa)
+  const budget = readMoney(details.budget);
+  const world = readMoney(fees.world);
+  const russia = readMoney(fees.russia);
+  const usa = readMoney(fees.usa);
+  if (!budget && !world && !russia && !usa) return null;
+  return {
+    ...(budget ? { kpBudget: budget.amount, kpBudgetCurrency: budget.currency } : {}),
+    ...(world ? { kpFeesWorld: world.amount, kpFeesWorldCurrency: world.currency } : {}),
+    ...(russia ? { kpFeesRussia: russia.amount, kpFeesRussiaCurrency: russia.currency } : {}),
+    ...(usa ? { kpFeesUsa: usa.amount, kpFeesUsaCurrency: usa.currency } : {})
   };
-  return Object.values(money).some(v => v !== null) ? money : null;
 }
 
 async function fetchItems(base, sendKey, query) {

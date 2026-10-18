@@ -199,6 +199,9 @@ export async function getTitleDetails(id, mediaType) {
     backdrop_path: data.backdrop_path,
     tmdb_rating: data.vote_average,
     genres: (data.genres || []).map(g => g.name),
+    origin_country: Array.isArray(data.origin_country)
+      ? data.origin_country
+      : (data.production_countries || []).map(country => country.iso_3166_1).filter(Boolean),
     budget: data.budget || null,
     revenue: data.revenue || null,
     seasons: data.number_of_seasons != null ? data.number_of_seasons : null,
