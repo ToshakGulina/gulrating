@@ -31,6 +31,30 @@ export function queueUserTitleStatus(userId, tmdbId, mediaType, status) {
   writePendingTitleStatuses(userId, pending);
 }
 
+export function getPendingTitleStatuses(userId) {
+  return readPendingTitleStatuses(userId);
+}
+
+export function getCachedUserTitleStatus(userId, titleId) {
+  const id = String(titleId);
+  let rating = null;
+  let currentStatus = '';
+  try {
+    const snapshot = JSON.parse(localStorage.getItem(`gulrating:profile_snapshot:${userId}`) || 'null');
+    if (snapshot) {
+      rating = (snapshot.ratings || []).find(item => String(item.title_id) === id) || null;
+      const status = (snapshot.titleStatuses || []).find(item => String(item.title_id) === id);
+      const watchlist = (snapshot.watchlist || []).some(item => String(item.title_id) === id);
+      currentStatus = status?.status || (watchlist ? 'watchlist' : rating ? 'watched' : '');
+    }
+  } catch (e) { /* empty local cache */ }
+
+  const hasRating = Boolean(rating);
+  const pending = readPendingTitleStatuses(userId).find(item => String(item.title_id) === id);
+  if (pending) currentStatus = pending.status || (hasRating ? 'watched' : '');
+  return { hasRating, rating, isInWatchlist: currentStatus === 'watchlist', currentStatus };
+}
+
 export async function syncPendingTitleStatuses(userId) {
   let synced = 0;
   for (const item of readPendingTitleStatuses(userId)) {

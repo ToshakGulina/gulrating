@@ -41,7 +41,7 @@ let source = await readFile(new URL('../src/lib/ratings.js', import.meta.url), '
 source = source.replace("import { supabase } from './supabase.js';", 'const supabase = globalThis.__testSupabase;');
 source = source.replace("import { getTitleDetails } from './tmdb.js';", 'const getTitleDetails = async () => { throw new Error("unexpected title fetch"); };');
 globalThis.__testSupabase = fakeSupabase;
-const { saveRating, setUserTitleStatus, queueUserTitleStatus, syncPendingTitleStatuses } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { saveRating, setUserTitleStatus, queueUserTitleStatus, getPendingTitleStatuses, getCachedUserTitleStatus, syncPendingTitleStatuses } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 await saveRating('user-1', 42, 'movie', 8.3, 'Great');
 assert.equal(ratings.get('42')?.rating, 8.3, 'saving an 8.3 rating preserves the rating row');
@@ -58,9 +58,16 @@ assert.equal(ratings.get('42')?.rating, 8.3, 'changing a title status never dele
 assert.ok(calls.some(call => call.table === 'title_statuses' && call.action === 'upsert' && call.payload.status === 'in_progress'), 'the new status is saved');
 assert.equal(calls.some(call => call.table === 'ratings' && call.action === 'delete'), false, 'status changes never delete ratings');
 
-queueUserTitleStatus('user-1', 42, 'movie', 'in_progress');
+localStorage.setItem('gulrating:profile_snapshot:user-1', JSON.stringify({
+  ratings: [{ title_id: 42, rating: 8.3, comment: 'Great' }],
+  titleStatuses: [{ title_id: 42, status: 'in_progress' }],
+  watchlist: [],
+}));
+assert.equal(getCachedUserTitleStatus('user-1', 42).currentStatus, 'in_progress', 'offline card status comes from the cached profile');
 queueUserTitleStatus('user-1', 42, 'movie', 'dropped');
-const queued = JSON.parse(localStorage.getItem('gulrating:pending_title_statuses:user-1'));
+assert.equal(getCachedUserTitleStatus('user-1', 42).currentStatus, 'dropped', 'a queued offline status overrides the cached profile');
+queueUserTitleStatus('user-1', 42, 'movie', 'dropped');
+const queued = getPendingTitleStatuses('user-1');
 assert.equal(queued.length, 1, 'a newer offline status replaces the older pending status for that title');
 assert.equal(queued[0].status, 'dropped');
 assert.equal(await syncPendingTitleStatuses('user-1'), 1, 'queued statuses sync when connectivity returns');

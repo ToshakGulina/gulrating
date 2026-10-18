@@ -35,6 +35,8 @@ jobs:
         run: node scripts/test-page-state.mjs
       - name: Test watch progress storage
         run: node scripts/test-watch-progress.mjs
+      - name: Test offline watch actions and franchise notifications
+        run: node scripts/test-watch-franchise-notifications.mjs
       - name: Test independent rating and status updates
         run: node scripts/test-title-statuses.mjs
       - name: Test profile status tabs

@@ -1,10 +1,10 @@
-import { saveRating, getUserTitleStatus, deleteRating, setUserTitleStatus } from '../lib/ratings.js';
-import { getTitleDetails, getFranchiseTitles } from '../lib/tmdb.js';
+import { saveRating, getUserTitleStatus, getCachedUserTitleStatus, deleteRating, setUserTitleStatus, queueUserTitleStatus } from '../lib/ratings.js';
+import { getTitleDetails, getCachedTitleDetails, getFranchiseTitles } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
-import { enqueueRating, networkLikeError } from '../lib/offline.js';
+import { enqueueRating, getPendingRatings, networkLikeError } from '../lib/offline.js';
 import { addWatchEntry, reportWatchNative, isApk, getPositions, saveWatchPosition } from '../lib/watchHistory.js';
 import { fetchKinoboxPlayers, qualityRank } from '../lib/kinobox.js';
 import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
@@ -615,25 +615,35 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
   });
 
   try {
-    // Загружаем детали тайтла, затем параллельно статус пользователя,
-    // оценки друзей и (опционально) рейтинг Кинопоиска
-    const title = await getTitleDetails(titleId, mediaType);
+    const useOfflineData = Boolean(currentUser.offlineOnly)
+      || (typeof navigator !== 'undefined' && navigator.onLine === false);
+    // Offline actions must never wait on TMDb: use the card cache immediately.
+    const title = useOfflineData
+      ? getCachedTitleDetails(titleId, mediaType)
+      : await getTitleDetails(titleId, mediaType);
+    if (!title) throw new Error('Для этой карточки пока нет локальной копии. Подключитесь к интернету и откройте её один раз.');
     const year = releaseYear(title.release_date);
 
-    // Без сети статус и оценки друзей недоступны — карточка всё равно
-    // открывается (детали из кэша), оценку можно поставить в очередь
-    const [status, allRatings, kpRatings] = await Promise.all([
-      getUserTitleStatus(currentUser.id, titleId)
-        .catch(() => ({ hasRating: false, rating: null, isInWatchlist: false, currentStatus: '' })),
-      supabase
-        .from('ratings')
-        .select(`*, profiles!inner(*)`)
-        .eq('title_id', titleId)
-        .order('rating', { ascending: false })
-        .then(({ data }) => data || [])
-        .catch(() => []),
-      getKinopoiskRatings(title.title, title.original_title, year)
-    ]);
+    const [status, allRatings, kpRatings] = useOfflineData
+      ? [(() => {
+        const cachedStatus = getCachedUserTitleStatus(currentUser.id, titleId);
+        const pendingRating = getPendingRatings().find(item => String(item.title_id) === String(titleId));
+        return pendingRating
+          ? { ...cachedStatus, hasRating: true, currentStatus: 'watched', rating: { rating: pendingRating.rating, comment: pendingRating.comment || '' } }
+          : cachedStatus;
+      })(), [], null]
+      : await Promise.all([
+        getUserTitleStatus(currentUser.id, titleId)
+          .catch(() => ({ hasRating: false, rating: null, isInWatchlist: false, currentStatus: '' })),
+        supabase
+          .from('ratings')
+          .select(`*, profiles!inner(*)`)
+          .eq('title_id', titleId)
+          .order('rating', { ascending: false })
+          .then(({ data }) => data || [])
+          .catch(() => []),
+        getKinopoiskRatings(title.title, title.original_title, year)
+      ]);
 
     // Запоминаем тайтл в «недавно открытых» для истории поиска
     addRecentTitle({
@@ -733,7 +743,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           ${posterImg(title.poster_path, title.title, 'w-full aspect-[2/3] rounded-xl')}
           <label class="mt-2 block cursor-default">
             <span class="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-gray-500">Статус</span>
-            <select id="title-status-select" class="w-full rounded-lg border border-slate-600 bg-slate-800 px-1 py-1.5 text-[10px] font-medium text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary" data-current-status="${escapeHtml(status.currentStatus || '')}" aria-label="Статус: ${escapeHtml(title.title)}" ${currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false) ? 'disabled title="Недоступно офлайн"' : ''}>
+            <select id="title-status-select" class="w-full rounded-lg border border-slate-600 bg-slate-800 px-1 py-1.5 text-[10px] font-medium text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary" data-current-status="${escapeHtml(status.currentStatus || '')}" aria-label="Статус: ${escapeHtml(title.title)}">
               <option value="" ${!status.currentStatus ? 'selected' : ''}>Не отмечено</option>
               <option value="watchlist" ${status.currentStatus === 'watchlist' ? 'selected' : ''} ${status.hasRating ? 'disabled' : ''}>Хочу посмотреть</option>
               <option value="in_progress" ${status.currentStatus === 'in_progress' ? 'selected' : ''}>В процессе</option>
@@ -855,7 +865,9 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const franchiseBox = modal.querySelector('#franchise-tabs');
     const franchisePartsPromise = Array.isArray(franchiseContext?.parts)
       ? Promise.resolve(franchiseContext.parts)
-      : getFranchiseTitles(titleId, mediaType);
+      : useOfflineData
+        ? Promise.resolve([])
+        : getFranchiseTitles(titleId, mediaType);
     franchisePartsPromise.then(parts => {
       if (!modal.isConnected || !franchiseBox || !Array.isArray(parts) || parts.length < 2) return;
       franchiseBox.classList.remove('hidden');
@@ -916,10 +928,30 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         const nextStatus = titleStatusSelect.value;
         const previousStatus = titleStatusSelect.dataset.currentStatus || '';
         if (nextStatus === previousStatus) return;
+        const offlineStatusChange = Boolean(currentUser.offlineOnly)
+          || (typeof navigator !== 'undefined' && navigator.onLine === false);
+        const updatedStatus = nextStatus || (status.hasRating ? 'watched' : '');
+        if (offlineStatusChange) {
+          try {
+            queueUserTitleStatus(currentUser.id, titleId, mediaType, nextStatus);
+            status.currentStatus = updatedStatus;
+            status.isInWatchlist = updatedStatus === 'watchlist';
+            titleStatusSelect.dataset.currentStatus = updatedStatus;
+            titleStatusSelect.value = updatedStatus;
+            const labels = { watchlist: 'Хочу посмотреть', in_progress: 'В процессе', watched: 'Просмотрено', dropped: 'Заброшено', '': 'Не отмечено' };
+            showToast(`Статус сохранён на устройстве: ${labels[updatedStatus] || labels['']}`, 'info', 4000);
+            if (onSaveCallback) onSaveCallback();
+          } catch (error) {
+            titleStatusSelect.value = previousStatus;
+            showToast(`Не удалось сохранить статус на устройстве: ${error.message}`, 'error', 5000);
+          }
+          return;
+        }
+
         titleStatusSelect.disabled = true;
         try {
           await setUserTitleStatus(currentUser.id, titleId, mediaType, nextStatus);
-          status.currentStatus = nextStatus || (status.hasRating ? 'watched' : '');
+          status.currentStatus = updatedStatus;
           status.isInWatchlist = status.currentStatus === 'watchlist';
           titleStatusSelect.dataset.currentStatus = status.currentStatus;
           titleStatusSelect.value = status.currentStatus;
@@ -1164,6 +1196,29 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       buttons.forEach(control => { control.disabled = true; });
       button.textContent = 'Сохраняем...';
 
+      const offlineSave = Boolean(currentUser.offlineOnly)
+        || (typeof navigator !== 'undefined' && navigator.onLine === false);
+      if (offlineSave) {
+        enqueueRating({
+          title_id: title.id,
+          media_type: mediaType,
+          rating: selectedScore,
+          comment,
+          title: title.title,
+          poster_path: title.poster_path
+        });
+        syncSavedRatingState(selectedScore, comment);
+        if (closeAfterSave) closeModal();
+        showToast('Нет сети: оценка сохранена на устройстве и отправится в базу автоматически', 'info', 6000);
+        if (onSaveCallback) onSaveCallback();
+        buttons.forEach(control => { control.disabled = false; });
+        if (modal.isConnected) {
+          saveRatingButton.textContent = 'Обновить оценку';
+          keepRatingModalOpenButton.textContent = 'Сохранить';
+        }
+        return;
+      }
+
       try {
         await saveRating(currentUser.id, titleId, mediaType, selectedScore, comment);
         syncSavedRatingState(selectedScore, comment);
@@ -1211,6 +1266,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     // Удаление оценки; кнопка появляется после первого сохранения без закрытия.
     deleteRatingButton?.addEventListener('click', async () => {
       if (!status.hasRating || !confirm('Удалить вашу оценку?')) return;
+      if (currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        showToast('Удалить оценку можно после восстановления подключения к интернету', 'info', 4000);
+        return;
+      }
       try {
         await deleteRating(currentUser.id, titleId);
         closeModal();

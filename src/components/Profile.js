@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase.js';
-import { setUserTitleStatus, queueUserTitleStatus } from '../lib/ratings.js';
+import { setUserTitleStatus, queueUserTitleStatus, getPendingTitleStatuses } from '../lib/ratings.js';
+import { getPendingRatings } from '../lib/offline.js';
 import { mountPage } from '../lib/pageState.js';
 import { APP_BUILD } from '../config.js';
 import { formatDistanceToNow } from '../lib/date.js';
@@ -12,6 +13,7 @@ import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, unmarkW
 import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
 import { THEMES, getThemeId, setTheme } from '../lib/theme.js';
+import { primeTitleCache, getCachedTitleDetails } from '../lib/tmdb.js';
 
 // Полная тема оформления задаётся data-theme на корне документа.
 let installBoxUpdateHandler = null;
@@ -97,11 +99,55 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   }
 
   snapshot ||= { ratings: [], ratingsCount: 0, watchlist: [], titleStatuses: [], profiles: [] };
-  let myRatingsList = snapshot.ratings || [];
+  let myRatingsList = [...(snapshot.ratings || [])];
   let watchlistList = snapshot.watchlist || [];
   let titleStatusesList = snapshot.titleStatuses || [];
-  const ratingsCount = snapshot.ratingsCount ?? myRatingsList.length;
+  let ratingsCount = snapshot.ratingsCount ?? myRatingsList.length;
+  const pendingRatingByTitle = new Map();
+  for (const pending of getPendingRatings()) {
+    const id = String(pending.title_id);
+    if (!pendingRatingByTitle.has(id)) pendingRatingByTitle.set(id, pending);
+  }
+  for (const [id, pending] of pendingRatingByTitle) {
+    const existingIndex = myRatingsList.findIndex(item => String(item.title_id) === id);
+    const existing = existingIndex >= 0 ? myRatingsList[existingIndex] : null;
+    const title = existing?.titles || getCachedTitleDetails(pending.title_id, pending.media_type);
+    const row = {
+      ...(existing || {}),
+      user_id: currentUser.id,
+      title_id: pending.title_id,
+      rating: pending.rating,
+      comment: pending.comment || '',
+      created_at: pending.queued_at || new Date().toISOString(),
+      titles: title,
+      offline_pending: true
+    };
+    if (existingIndex >= 0) myRatingsList[existingIndex] = row;
+    else {
+      myRatingsList.unshift(row);
+      ratingsCount += 1;
+    }
+  }
   const statusByTitleId = new Map(titleStatusesList.map(row => [String(row.title_id), row.status]));
+  for (const pending of getPendingTitleStatuses(currentUser.id)) {
+    const id = String(pending.title_id);
+    const title = myRatingsList.find(item => String(item.title_id) === id)?.titles
+      || watchlistList.find(item => String(item.title_id) === id)?.titles
+      || titleStatusesList.find(item => String(item.title_id) === id)?.titles;
+    watchlistList = watchlistList.filter(item => String(item.title_id) !== id);
+    titleStatusesList = titleStatusesList.filter(item => String(item.title_id) !== id);
+    statusByTitleId.delete(id);
+    if (pending.status === 'watchlist' && title) {
+      watchlistList.unshift({ user_id: currentUser.id, title_id: pending.title_id, created_at: new Date(pending.queued_at).toISOString(), titles: title });
+    } else if (pending.status) {
+      titleStatusesList.unshift({ user_id: currentUser.id, title_id: pending.title_id, status: pending.status, titles: title });
+      statusByTitleId.set(id, pending.status);
+    }
+  }
+  [...myRatingsList, ...watchlistList, ...titleStatusesList].forEach(item => {
+    const title = item.titles;
+    if (title && title.id && title.media_type) primeTitleCache(title.media_type, title.id, title);
+  });
   const profileList = snapshot.profiles || [];
 
   const averageRating = myRatingsList.length > 0
@@ -620,7 +666,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
           ? Math.min(100, Math.round(savedSeconds / Number(pos.d) * 100)) : null;
         const status = watched
           ? (i.media_type === 'movie'
-            ? (i.done.collectionId ? `Следим за новыми частями: ${escapeHtml(i.done.collectionName || 'коллекция TMDb')}` : 'Отмечено просмотренным; коллекция-продолжение в TMDb не указана')
+            ? `Следим за новыми частями: ${escapeHtml(i.done.collectionName || 'список франшизы из Википедии')}`
             : 'Следим за новыми сезонами и сериями')
           : `${i.media_type === 'movie' ? 'фильм' : 'сериал'} • ${new Date(i.last_at).toLocaleDateString('ru-RU')}`;
         return `
@@ -679,10 +725,12 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
         button.disabled = true;
         if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
         try {
-          const item = await markWatchDone(key);
+          const item = await markWatchDone(key, {
+            offline: currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)
+          });
           if (!item) throw new Error('Запись истории не найдена');
           showToast(item.media_type === 'movie'
-            ? (item.done.collectionId ? 'Отмечено. Проверим новые части этой коллекции' : 'Отмечено. Для уведомлений о продолжении нужна коллекция TMDb')
+            ? 'Отмечено. Проверим новые части франшизы по Википедии и TMDb'
             : 'Отмечено. Проверим новые сезоны и серии', 'success', 5000);
           paintWatchHistory();
         } catch (error) {
