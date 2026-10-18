@@ -2,7 +2,7 @@
 // Всё живёт локально на устройстве (localStorage): факт просмотра, кнопка
 // «Продолжить», отметка «досмотрено» и снимок числа сезонов/серий для слежения.
 // APK хранит прогресс в нативном мосте; браузер — в localStorage, если плеер
-// доступен странице (same-origin HTML5 video).
+// доступен как same-origin HTML5 video или сообщает позицию через postMessage API.
 
 import { getTitleDetails, getCachedTitleDetails, getMovieCollection, getFranchiseTitles } from './tmdb.js';
 
