@@ -50,6 +50,20 @@ function isEmbedOnly(url) {
   }
 }
 
+const ALLOHA_EXTENSION_SOURCE = 'gulrating-alloha-extension';
+const ALLOHA_WEBSITE_SOURCE = 'gulrating-website';
+const ALLOHA_PLAYER_HOSTS = ['stravers.live', 'alloha.tv', 'alloha.cool'];
+
+function isAllohaPlayerOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'https:'
+      && ALLOHA_PLAYER_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+  } catch (e) {
+    return false;
+  }
+}
+
 // Same-origin policy blocks inspection of most commercial player iframes.
 // Search the top player frame and any same-origin descendants; cross-origin
 // frames are deliberately skipped rather than weakening browser security.
@@ -227,6 +241,34 @@ export function openWatchOverlay(opts) {
   function onPlayerMessage(event) {
     const frame = stage.querySelector('#watch-frame');
     if (!frame || !watchKey || !isFromActivePlayer(frame, event.source)) return;
+
+    const bridgeMessage = event.data;
+    if (bridgeMessage && bridgeMessage.source === ALLOHA_EXTENSION_SOURCE
+        && isAllohaPlayerOrigin(event.origin)) {
+      if (bridgeMessage.type === 'hello') {
+        const latest = getPositions()[watchKey] || savedPosition || null;
+        if (latest) savedPosition = latest;
+        hint.textContent = 'Расширение GulRating подключено: позиция Alloha будет сохраняться.';
+        try {
+          event.source.postMessage({
+            source: ALLOHA_WEBSITE_SOURCE,
+            type: 'resume',
+            position: latest ? { t: Number(latest.t), d: Number(latest.d) } : null,
+          }, event.origin);
+        } catch (e) { /* the player frame may have navigated */ }
+        return;
+      }
+      if (bridgeMessage.type === 'progress') {
+        const progress = parsePlayerProgressMessage({
+          event: bridgeMessage.event,
+          currentTime: bridgeMessage.currentTime,
+          duration: bridgeMessage.duration,
+        });
+        if (progress) saveRemoteProgress(progress);
+        return;
+      }
+    }
+
     const message = parsePlayerProgressMessage(event.data);
     if (!message) return;
 
