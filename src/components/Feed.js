@@ -12,6 +12,7 @@ import { getNotifications, markNotificationsRead, unreadNotifications } from '..
 import { mountPage } from '../lib/pageState.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
 import { feedUserOptions, selectedFeedUserId, feedRatingsCacheKey } from '../lib/feedPeople.js';
+import { getCachedUserTitleStatus } from '../lib/ratings.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -43,6 +44,54 @@ function renderRatingDots(value) {
     const dots = rows.join('').split('').map(dot => `<i class="rating-dot-cell${dot === '1' ? ' is-on' : ''}"></i>`).join('');
     return `<span class="rating-dot-digit" aria-hidden="true">${dots}</span>`;
   }).join('');
+}
+
+function ratingTone(value) {
+  const score = Number(value);
+  return score >= 8 ? 'rating-score-high' : score >= 5 ? 'rating-score-mid' : 'rating-score-low';
+}
+
+function renderSearchRatingBadge(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '';
+  const score = Number(value);
+  const tone = ratingTone(score);
+  const ratingColor = score >= 8 ? 'bg-green-600' : score >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+  const label = escapeHtml(formatRating(score));
+  return `<span role="img" aria-label="Ваша оценка: ${label}" class="search-user-rating rating-score-badge ${tone} ${ratingColor} text-white">
+    <span class="rating-score-value"><span class="rating-score-plain">${label}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(score)}</span></span>
+  </span>`;
+}
+
+async function getUserSearchRatings(results, currentUser) {
+  const result = new Map();
+  const ids = [...new Set((results || []).map(item => String(item.id)))];
+  if (!ids.length || !currentUser?.id) return result;
+
+  // Show cached and queued scores immediately even when search is offline.
+  for (const id of ids) {
+    const cached = getCachedUserTitleStatus(currentUser.id, id).rating;
+    if (cached && Number.isFinite(Number(cached.rating))) result.set(id, Number(cached.rating));
+  }
+  for (const pending of getPendingRatings()) {
+    const id = String(pending.title_id);
+    if (ids.includes(id) && Number.isFinite(Number(pending.rating))) result.set(id, Number(pending.rating));
+  }
+
+  if (currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)) return result;
+  try {
+    const { data, error } = await supabase.from('ratings').select('title_id, rating')
+      .eq('user_id', currentUser.id).in('title_id', ids);
+    if (!error) {
+      for (const row of data || []) result.set(String(row.title_id), Number(row.rating));
+    }
+  } catch (error) { /* keep any locally cached scores */ }
+
+  // A queued offline edit is newer than the last server snapshot.
+  for (const pending of getPendingRatings()) {
+    const id = String(pending.title_id);
+    if (ids.includes(id) && Number.isFinite(Number(pending.rating))) result.set(id, Number(pending.rating));
+  }
+  return result;
 }
 
 function readSort() {
@@ -674,7 +723,7 @@ async function loadRatings(currentUser, filter = 'all') {
 
     const year = releaseYear(title.release_date);
     const ratingColor = item.rating >= 8 ? 'bg-green-600' : item.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
-    const ratingScoreTone = item.rating >= 8 ? 'rating-score-high' : item.rating >= 5 ? 'rating-score-mid' : 'rating-score-low';
+    const ratingScoreTone = ratingTone(item.rating);
     const groupRows = item.groupedRatings || [];
     const visibleGroupRows = groupRows.slice(0, 4);
     const hiddenGroupCount = Math.max(0, groupRows.length - visibleGroupRows.length);
@@ -1293,7 +1342,7 @@ function initSearch(currentUser) {
     document.body.style.overflow = 'hidden';
     document.body.appendChild(overlay);
 
-    searchForQuery(query).then(({ results, errorText, offlineNote }) => {
+    searchForQuery(query).then(async ({ results, errorText, offlineNote }) => {
       if (!overlay.isConnected) return;
       const content = overlay.querySelector('#search-page-content');
       const count = overlay.querySelector('#search-page-count');
@@ -1308,6 +1357,8 @@ function initSearch(currentUser) {
         return;
       }
 
+      const userRatings = await getUserSearchRatings(results, currentUser);
+      if (!overlay.isConnected) return;
       count.textContent = `Найдено: ${results.length}`;
       content.innerHTML = `${offlineNote ? `<p class="mb-4 text-xs text-gray-500">📴 ${escapeHtml(offlineNote)}</p>` : ''}
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -1315,7 +1366,7 @@ function initSearch(currentUser) {
             const year = releaseYear(item.release_date);
             primeTitleCache(item.media_type, item.id, item);
             return `<button type="button" class="search-page-result group min-w-0 text-left" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
-              ${posterImg(item.poster_path, item.title, 'mb-2 aspect-[2/3] w-full rounded-xl object-cover transition-opacity group-hover:opacity-80')}
+              <div class="search-result-poster relative mb-2">${posterImg(item.poster_path, item.title, 'aspect-[2/3] w-full rounded-xl object-cover transition-opacity group-hover:opacity-80')}${renderSearchRatingBadge(userRatings.get(String(item.id)))}</div>
               <span class="block truncate text-sm font-medium">${escapeHtml(item.title)}</span>
               <span class="block text-xs text-gray-400">${year ? `${escapeHtml(year)} · ` : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</span>
             </button>`;
@@ -1419,6 +1470,7 @@ function initSearch(currentUser) {
 
     searchTimeout = setTimeout(async () => {
       const { results, errorText, offlineNote } = await searchForQuery(query, resultsContainer);
+      const userRatings = results.length ? await getUserSearchRatings(results, currentUser) : new Map();
       if (searchInput.value.trim() !== query) return;
 
       if (errorText) {
@@ -1433,8 +1485,9 @@ function initSearch(currentUser) {
           primeTitleCache(item.media_type, item.id, item);
           return `
             <div class="search-result-item p-3 hover:bg-slate-700 cursor-pointer flex gap-3 transition-colors" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.media_type)}">
-              <div class="flex-shrink-0 w-14">
+              <div class="search-result-poster relative flex-shrink-0 w-14">
                 ${posterImg(item.poster_path, item.title, 'w-14 aspect-[2/3] rounded')}
+                ${renderSearchRatingBadge(userRatings.get(String(item.id)))}
               </div>
               <div class="min-w-0">
                 <div class="font-medium truncate">${escapeHtml(item.title)}</div>

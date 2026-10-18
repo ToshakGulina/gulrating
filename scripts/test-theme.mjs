@@ -51,6 +51,8 @@ assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1') && indexHtml.incl
   'Nothing headings should remain crisp and readable');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit') && indexHtml.includes('grid-template-columns: repeat(3, 3px);'),
   'Nothing rating numerals should use a clear dot-matrix grid');
+assert.ok(indexHtml.includes('width: 56px;') && indexHtml.includes('justify-content: center;'),
+  'Nothing rating glyphs should fit inside centered score badges');
 assert.ok(indexHtml.includes('.rating-score-badge.rating-score-mid { --rating-score-color: #d69e16; }'),
   'Nothing rating dots should preserve the rating color');
 const feedJs = await readFile(new URL('../src/components/Feed.js', import.meta.url), 'utf8');
