@@ -68,7 +68,7 @@ export const CONFIG = {
 // Метка сборки: видна в профиле внизу и в консоли браузера.
 // Помогает мгновенно понять, какая версия кода реально крутится в браузере
 // (предпросмотр / локальная копия / продакшен).
-export const APP_BUILD = "2026.10.18-109 (совместимость прогресса плееров)";
+export const APP_BUILD = "2026.10.19-110 (Supabase sync proxy and catalog updates)";
 
 export function saveLocalAnonKey(key) {
   try {
