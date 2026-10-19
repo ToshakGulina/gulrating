@@ -6,6 +6,7 @@
 // discover TMDb отдаёт не больше 10 000 результатов на окно, поэтому окно
 // «год + диапазон рейтинга» рекурсивно дробится, пока не влезет в лимит.
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 const cfg = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
 const KEY = (cfg.match(/TMDB_API_KEY:\s*['"]([^'"]+)['"]/) || [])[1];
@@ -131,14 +132,17 @@ mkdirSync(new URL('../out/data/full', import.meta.url), { recursive: true });
 const chunks = [];
 for (let i = 0; i < records.length; i += CHUNK_SIZE) {
   const slice = records.slice(i, i + CHUNK_SIZE);
-  const file = `chunk-${String(chunks.length).padStart(3, '0')}.json`;
   const text = JSON.stringify(slice);
+  const sha256 = createHash('sha256').update(text).digest('hex');
+  const file = `chunk-${String(chunks.length).padStart(3, '0')}-${sha256.slice(0, 16)}.json`;
   writeFileSync(new URL(`../out/data/full/${file}`, import.meta.url), text);
-  chunks.push({ file, first: norm(slice[0][2]), count: slice.length, bytes: text.length });
+  chunks.push({ file, first: norm(slice[0][2]), count: slice.length, bytes: text.length, sha256 });
   if (chunks.length % 10 === 0) console.log(`чанков: ${chunks.length}`);
 }
+const version = createHash('sha256').update(chunks.map(chunk => chunk.sha256).join('')).digest('hex').slice(0, 20);
 const manifest = {
   v: 1,
+  version,
   updated: new Date().toISOString(),
   total: records.length,
   bytes: chunks.reduce((s, c) => s + c.bytes, 0),

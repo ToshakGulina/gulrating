@@ -3,11 +3,14 @@
 // названия отсортированы — префиксный поиск идёт бинарным поиском без
 // загрузки всей базы в память; поиск «содержит» сканирует чанки потоком.
 //
-// Источники файла: свой домен (если когда-нибудь будем отдавать из APK),
-// затем ветка data-full через jsDelivr и raw.githubusercontent (CORS есть).
+// Источник по умолчанию — same-origin Pages Function над веткой data-full;
+// внешние jsDelivr/raw остаются резервом на случай временной ошибки прокси.
 
 const DB_NAME = 'gulrating-full-catalog';
 const META_KEY = 'gulrating:full_catalog_meta';
+const PENDING_META_KEY = 'gulrating:full_catalog_pending_meta';
+
+const manifestVersion = meta => String(meta?.version || meta?.updated || '');
 
 const SOURCES = [
   '/data/full/',
@@ -60,12 +63,44 @@ async function idbClear() {
   });
 }
 
+async function idbKeepOnly(files) {
+  const keep = new Set(files);
+  const db = await openDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction('chunks', 'readwrite');
+    const store = tx.objectStore('chunks');
+    const cursor = store.openCursor();
+    cursor.onsuccess = () => {
+      const entry = cursor.result;
+      if (!entry) return;
+      if (!keep.has(String(entry.key))) entry.delete();
+      entry.continue();
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
 // --- Метаданные и манифест ---
 
 export function getFullCatalogMeta() {
   try {
     const meta = JSON.parse(localStorage.getItem(META_KEY) || 'null');
-    return meta && meta.chunks ? meta : null;
+    // Старые версии могли заменить активную мету частичным обновлением.
+    // Такую базу не выдаём за полноценную; её можно докачать заново ниже.
+    return meta && meta.chunks && !meta.partial ? meta : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function getFullCatalogPendingMeta() {
+  try {
+    const pending = JSON.parse(localStorage.getItem(PENDING_META_KEY) || 'null');
+    if (pending?.chunks) return pending;
+    // Совместимость с частично скачанными базами старых сборок.
+    const legacy = JSON.parse(localStorage.getItem(META_KEY) || 'null');
+    return legacy?.partial ? legacy : null;
   } catch (e) {
     return null;
   }
@@ -78,16 +113,23 @@ function setFullCatalogMeta(meta) {
   } catch (e) { /* приватный режим */ }
 }
 
+function setPendingCatalogMeta(meta) {
+  try {
+    if (meta) localStorage.setItem(PENDING_META_KEY, JSON.stringify(meta));
+    else localStorage.removeItem(PENDING_META_KEY);
+  } catch (e) { /* приватный режим */ }
+}
+
 export function isFullCatalogInstalled() {
   const meta = getFullCatalogMeta();
   return Boolean(meta && meta.chunks && meta.chunks.length);
 }
 
-async function fetchJson(url, timeoutMs = 20000) {
+async function fetchJson(url, timeoutMs = 20000, cache = 'default') {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal, cache });
     if (!res.ok) return null;
     return await res.json();
   } catch (e) {
@@ -99,7 +141,7 @@ async function fetchJson(url, timeoutMs = 20000) {
 
 export async function fetchFullManifest() {
   for (const base of SOURCES) {
-    const manifest = await fetchJson(`${base}manifest.json`);
+    const manifest = await fetchJson(`${base}manifest.json`, 20000, 'no-store');
     if (manifest && manifest.v === 1 && Array.isArray(manifest.chunks) && manifest.chunks.length) {
       return { manifest, base };
     }
@@ -118,26 +160,38 @@ export async function downloadFullCatalog(onProgress) {
     const got = await fetchFullManifest();
     if (!got) return null;
     const { manifest, base } = got;
-    const meta = getFullCatalogMeta();
-    const sameVersion = meta && meta.updated === manifest.updated;
+    const active = getFullCatalogMeta();
+    if (active && manifestVersion(active) === manifestVersion(manifest)) {
+      setPendingCatalogMeta(null);
+      return active;
+    }
+
+    // Chunk filenames contain their content hash. Existing chunks are reused,
+    // new chunks are downloaded beside the active database, and the installed
+    // manifest switches only after every chunk is safely present in IndexedDB.
+    // Thus a failed update never corrupts the currently searchable catalog.
     let done = 0;
     for (const chunk of manifest.chunks) {
-      if (sameVersion && (await idbGet(chunk.file))) {
+      if (await idbGet(chunk.file)) {
         done += 1;
+        if (onProgress) onProgress(done, manifest.chunks.length);
         continue;
       }
       const text = await fetchJson(`${base}${chunk.file}`, 60000);
-      if (!text) break; // сеть пропала: докачаем в следующий вызов
+      if (!text) break; // сеть пропала: продолжим при следующем нажатии
       await idbPut(chunk.file, JSON.stringify(text));
       done += 1;
       if (onProgress) onProgress(done, manifest.chunks.length);
     }
     if (done >= manifest.chunks.length) {
       setFullCatalogMeta(manifest);
+      setPendingCatalogMeta(null);
+      await idbKeepOnly(manifest.chunks.map(chunk => chunk.file));
       return manifest;
     }
-    // Частичная закачка: запоминаем версию, чтобы не качать уже взятое заново
-    setFullCatalogMeta({ ...manifest, partial: done });
+
+    // Активная версия остаётся доступна; прогресс этой версии хранится отдельно.
+    setPendingCatalogMeta({ ...manifest, partial: done });
     return null;
   } finally {
     downloading = false;
@@ -147,6 +201,7 @@ export async function downloadFullCatalog(onProgress) {
 export async function deleteFullCatalog() {
   await idbClear();
   setFullCatalogMeta(null);
+  setPendingCatalogMeta(null);
 }
 
 // --- Чтение чанка с раскодированием записи ---

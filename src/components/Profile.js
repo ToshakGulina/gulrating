@@ -8,7 +8,7 @@ import { openRatingModal } from './RatingModal.js';
 import { FEED_SECTIONS, getFeedOrder, getVisibleFeedSections, saveFeedOrder, saveVisibleFeedSections } from './Feed.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
-import { getFullCatalogMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
+import { getFullCatalogMeta, getFullCatalogPendingMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
 import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, unmarkWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
 import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
@@ -292,7 +292,10 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
                 <span id="full-db-status" class="text-xs text-gray-500"></span>
               </div>
               <p class="text-xs text-gray-600 mb-2">Весь каталог (~1 млн тайтлов, ≈100 МБ одним скачиванием) для полностью офлайн-поиска. Хранится чанками в IndexedDB, целиком в память не загружается.</p>
-              <button id="full-db-btn" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm">Скачать полную базу</button>
+              <div class="space-y-2">
+                <button id="full-db-btn" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm">Скачать полную базу</button>
+                <button id="full-db-delete-btn" class="hidden w-full py-2 text-xs text-gray-500 hover:text-red-400">Удалить полную базу с устройства</button>
+              </div>
             </div>
             <div>
               <div class="flex items-center justify-between gap-3 mb-1">
@@ -584,51 +587,102 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   catSizeRange.addEventListener('input', () => {
     catSizeVal.textContent = catSizeRange.value;
   });
-  // Полная база: статус, скачивание с прогрессом, удаление
+  // Полная база: отдельно показываем проверку/обновление и удаление.
   const fullDbBtn = pageRoot.querySelector('#full-db-btn');
+  const fullDbDeleteBtn = pageRoot.querySelector('#full-db-delete-btn');
   const fullDbStatus = pageRoot.querySelector('#full-db-status');
+  let latestFullManifest = null;
+  let fullManifestChecked = false;
+  let fullManifestFailed = false;
+  const fullVersion = meta => String(meta?.version || meta?.updated || '');
   function paintFullDb() {
     const meta = getFullCatalogMeta();
+    const pending = getFullCatalogPendingMeta();
+    const hasPendingUpdate = Boolean(meta && pending && fullVersion(meta) !== fullVersion(pending));
+    const updateAvailable = Boolean(meta && latestFullManifest && fullVersion(meta) !== fullVersion(latestFullManifest));
+    fullDbDeleteBtn.classList.toggle('hidden', !meta);
+
     if (meta) {
       const mb = meta.bytes ? (meta.bytes / 1048576).toFixed(0) : '?';
-      fullDbStatus.textContent = meta.partial
-        ? `скачано чанков: ${meta.partial}/${meta.chunks.length}`
-        : `✓ ${Number(meta.total).toLocaleString('ru-RU')} тайтлов, ${mb} МБ`;
-      fullDbBtn.textContent = meta.partial ? 'Докачать полную базу' : 'Удалить полную базу';
+      const titleCount = Number(meta.total).toLocaleString('ru-RU');
+      if (hasPendingUpdate) {
+        fullDbStatus.textContent = `установлена ${titleCount} тайтлов; обновление скачано: ${pending.partial || 0}/${pending.chunks.length} чанков`;
+        fullDbBtn.textContent = 'Продолжить обновление';
+      } else if (updateAvailable) {
+        const newSize = latestFullManifest.bytes ? `, ${(latestFullManifest.bytes / 1048576).toFixed(0)} МБ` : '';
+        fullDbStatus.textContent = `есть обновление: ${Number(latestFullManifest.total).toLocaleString('ru-RU')} тайтлов${newSize}`;
+        fullDbBtn.textContent = 'Обновить полную базу';
+      } else if (latestFullManifest) {
+        fullDbStatus.textContent = `✓ актуальна: ${titleCount} тайтлов, ${mb} МБ`;
+        fullDbBtn.textContent = 'Проверить обновления';
+      } else {
+        fullDbStatus.textContent = fullManifestFailed
+          ? `установлена ${titleCount} тайтлов; обновления не проверены — нет соединения`
+          : `установлена ${titleCount} тайтлов; проверяем обновления…`;
+        fullDbBtn.textContent = 'Проверить обновления';
+      }
     } else {
-      fullDbStatus.textContent = 'не скачана';
-      fullDbBtn.textContent = 'Скачать полную базу';
+      if (pending) {
+        fullDbStatus.textContent = `скачано чанков: ${pending.partial || 0}/${pending.chunks.length}`;
+        fullDbBtn.textContent = 'Продолжить скачивание';
+      } else if (latestFullManifest) {
+        fullDbStatus.textContent = `доступно: ${Number(latestFullManifest.total).toLocaleString('ru-RU')} тайтлов, ${(latestFullManifest.bytes / 1048576).toFixed(0)} МБ`;
+        fullDbBtn.textContent = 'Скачать полную базу';
+      } else {
+        fullDbStatus.textContent = fullManifestFailed
+          ? 'не удалось проверить каталог; проверьте сеть и повторите попытку'
+          : 'проверяем доступность базы…';
+        fullDbBtn.textContent = fullManifestChecked ? 'Повторить проверку' : 'Скачать полную базу';
+      }
     }
   }
   paintFullDb();
-  // Офлайн-база — только для приложения (APK / установленное PWA):
-  // десктоп-сайту она не нужна, ничего не скачиваем и не показываем
+  // Офлайн-база — только для приложения (APK / установленное PWA).
   if (!isAppContext()) {
     pageRoot.querySelector('#cat-size-box').style.display = 'none';
     pageRoot.querySelector('#full-db-box').style.display = 'none';
   }
-  // Показываем реальный размер из манифеста, чтобы решение было осознанным
+  // Manifest проверяется при открытии профиля; загрузка обновления — только
+  // после явного нажатия, потому что каталог занимает сотни мегабайт.
   fetchFullManifest().then(got => {
-    if (got && !getFullCatalogMeta()) {
-      fullDbStatus.textContent = `доступно: ${Number(got.manifest.total).toLocaleString('ru-RU')} тайтлов, ${(got.manifest.bytes / 1048576).toFixed(0)} МБ`;
-    }
-  }).catch(() => {});
+    fullManifestChecked = true;
+    fullManifestFailed = !got;
+    if (got) latestFullManifest = got.manifest;
+    paintFullDb();
+  }).catch(() => {
+    fullManifestChecked = true;
+    fullManifestFailed = true;
+    paintFullDb();
+  });
   fullDbBtn.addEventListener('click', async () => {
-    const meta = getFullCatalogMeta();
-    if (meta && !meta.partial) {
-      await deleteFullCatalog();
-      paintFullDb();
-      return;
-    }
+    const before = getFullCatalogMeta();
     fullDbBtn.disabled = true;
+    fullDbDeleteBtn.disabled = true;
     fullDbBtn.textContent = 'Скачиваем… 0%';
     const result = await downloadFullCatalog((done, total) => {
       fullDbBtn.textContent = `Скачиваем… ${Math.round(done / total * 100)}%`;
-      fullDbStatus.textContent = `чанков: ${done}/${total}`;
+      fullDbStatus.textContent = `скачано чанков: ${done}/${total}`;
     }).catch(() => null);
     fullDbBtn.disabled = false;
-    if (result) showToast(`Полная база скачана: ${Number(result.total).toLocaleString('ru-RU')} тайтлов`, 'success', 5000);
-    else showToast('Скачивание прервалось на сети — кнопка докачает с того же места', 'info', 5000);
+    fullDbDeleteBtn.disabled = false;
+    if (result) {
+      latestFullManifest = result;
+      fullManifestChecked = true;
+      fullManifestFailed = false;
+      const changed = !before || fullVersion(before) !== fullVersion(result);
+      showToast(changed
+        ? `Полная база обновлена: ${Number(result.total).toLocaleString('ru-RU')} тайтлов`
+        : 'Полная база уже актуальна', changed ? 'success' : 'info', 5000);
+    } else {
+      showToast('Скачивание прервалось. Установленная база сохранена; проверьте сеть и свободное место, затем нажмите «Продолжить».', 'info', 6000);
+    }
+    paintFullDb();
+  });
+  fullDbDeleteBtn.addEventListener('click', async () => {
+    if (!confirm('Удалить полную базу TMDb с этого устройства?')) return;
+    fullDbDeleteBtn.disabled = true;
+    await deleteFullCatalog();
+    fullDbDeleteBtn.disabled = false;
     paintFullDb();
   });
 

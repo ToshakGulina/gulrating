@@ -40,6 +40,10 @@ jobs:
             cd pub && git checkout --orphan data-full && git rm -rf --cached . >/dev/null && cd ..
           fi
           cd pub
+          if [ -f data/full/manifest.json ] && node -e 'const fs=require("node:fs"); const next=JSON.parse(fs.readFileSync("../out/data/full/manifest.json")); const current=JSON.parse(fs.readFileSync("data/full/manifest.json")); process.exit(next.version && next.version === current.version ? 0 : 1)'; then
+            echo "Полная база не изменилась — обновление не требуется"
+            exit 0
+          fi
           rm -rf data
           cp -r ../out/data .
           git config user.name "github-actions[bot]"

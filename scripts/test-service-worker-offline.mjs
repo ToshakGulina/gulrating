@@ -24,6 +24,7 @@ const self = {
   location: new URL(`${origin}/sw.js`),
   addEventListener(name, callback) { listeners.set(name, callback); },
 };
+const networkCalls = [];
 
 const source = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
 const shellAssetsText = source.match(/const SHELL_ASSETS = \[([\s\S]*?)\];/)?.[1] || '';
@@ -41,7 +42,13 @@ async function collectModules(directory, prefix = '') {
 for (const modulePath of await collectModules(srcRoot)) {
   assert.ok(shellAssets.has(modulePath), `service worker must precache local module ${modulePath}`);
 }
-vm.runInNewContext(source, { self, caches, URL, Response, fetch: async () => new Response('blocked', { status: 403 }) });
+vm.runInNewContext(source, {
+  self, caches, URL, Response,
+  fetch: async (...args) => {
+    networkCalls.push(args);
+    return new Response('blocked', { status: 403 });
+  },
+});
 
 async function requestFromWorker(url, mode = 'cors') {
   let responsePromise;
@@ -60,4 +67,15 @@ cache.set('/index.html', new Response('cached app shell', { status: 200 }));
 const blockedNavigation = await requestFromWorker('/?title=movie%3A42', 'navigate');
 assert.equal(await blockedNavigation.text(), 'cached app shell', 'deep-link navigations fall back to cached index.html');
 
-console.log('Service worker falls back to cached shell on HTTP blocks and deep links: OK');
+cache.set('/supabase/rest/v1/ratings', new Response('stale private data', { status: 200 }));
+const proxyResponse = await requestFromWorker('/supabase/rest/v1/ratings');
+assert.equal(await proxyResponse.text(), 'blocked', 'Supabase proxy responses must not be read from Cache Storage');
+assert.equal(networkCalls.at(-1)[1].cache, 'no-store', 'Supabase requests must be network-only');
+
+cache.set('/data/full/manifest.json', new Response('old catalog manifest', { status: 200 }));
+const catalogResponse = await requestFromWorker('/data/full/manifest.json');
+assert.equal(await catalogResponse.text(), 'old catalog manifest', 'catalog may fall back to its last manifest while offline');
+assert.ok(networkCalls.some(([request]) => request.url.endsWith('/data/full/manifest.json')),
+  'catalog manifests are revalidated online instead of remaining cache-first');
+
+console.log('Service worker keeps Supabase network-only, revalidates catalog metadata, and falls back to cached shell/data offline: OK');

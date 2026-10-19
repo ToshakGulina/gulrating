@@ -1,15 +1,14 @@
 // Сервис-воркер для PWA: офлайн-доступ к оболочке приложения.
 //
 // Принципы (исправляет проблему старой версии, которая кэшировала ВСЁ подряд):
-// 1. Кэшируем ТОЛЬКО статику своего домена (оболочку приложения и иконки).
-//    Запросы к Supabase, TMDb и прочим внешним API воркер не трогает вообще —
-//    иначе кэшировались бы ответы авторизации и данные фильмов, и приложение
-//    показывало бы устаревшее состояние.
+// 1. Кэшируем оболочку и иконки. API-ответы не кэшируем: Supabase идёт
+//    network-only через same-origin proxy, чтобы не выдавать старые оценки
+//    за синхронизированные; внешние TMDb и прочие API остаются вне кэша.
 // 2. Навигация (открытие страниц) — network-first с офлайн-фолбэком на кэш,
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v53';
+const CACHE_VERSION = 'gulrating-v54';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -104,6 +103,16 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  // API авторизации и оценок — строго network-only: не кэшируем приватные
+  // ответы и не отдаём устаревшие записи как будто синхронизация прошла.
+  if (url.pathname.startsWith('/supabase/')) {
+    event.respondWith(fetch(request, { cache: 'no-store' }).catch(() => new Response(
+      JSON.stringify({ message: 'Supabase proxy offline' }),
+      { status: 503, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+    )));
+    return;
+  }
+
   // Служебная проверка свежести сборки из main.js: всегда в сеть, мимо кэша
   if (url.searchParams.has('build-check')) {
     event.respondWith(fetch(request, { cache: 'no-store' }).catch(() => new Response('', { status: 503 })));
@@ -120,7 +129,8 @@ self.addEventListener('fetch', (event) => {
     || url.pathname === '/index.html'
     || url.pathname === '/manifest.json'
     || url.pathname === '/sw.js'
-    || url.pathname.startsWith('/src/');
+    || url.pathname.startsWith('/src/')
+    || url.pathname.startsWith('/data/full/');
 
   const cachedShellFallback = async () => {
     const exact = await caches.match(request);
