@@ -2,6 +2,18 @@
 const { createClient } = window.supabase || {};
 import { CONFIG, configIsComplete } from '../config.js';
 
+// На основном и preview-доменах Supabase идёт через same-origin Pages Function:
+// браузеру нужен только домен приложения, а Cloudflare сам обращается к Supabase.
+// Локальную разработку оставляем на прямом URL, где Pages Function отсутствует.
+function getSupabaseClientUrl() {
+  if (typeof window === 'undefined' || !window.location) return CONFIG.SUPABASE_URL;
+  const host = window.location.hostname;
+  const pagesHost = host === 'gulrating.pages.dev' || host.endsWith('.gulrating.pages.dev');
+  return pagesHost ? `${window.location.origin}/supabase` : CONFIG.SUPABASE_URL;
+}
+
+const projectRef = new URL(CONFIG.SUPABASE_URL).hostname.split('.')[0];
+
 // Клиент создаём только если конфиг заполнен, иначе createClient бросит
 // исключение и приложение упадёт с пустым экраном.
 export let supabase = null;
@@ -9,11 +21,12 @@ export let supabaseInitError = null;
 
 if (configIsComplete()) {
   try {
-    supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
+    supabase = createClient(getSupabaseClientUrl(), CONFIG.SUPABASE_ANON_KEY, {
       auth: {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true,
+        storageKey: `sb-${projectRef}-auth-token`,
         storage: localStorage
       }
     });

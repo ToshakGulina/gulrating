@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GulRating — прогресс Alloha",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Сохраняет и восстанавливает позицию просмотра Alloha в GulRating.",
   "icons": {
     "16": "icon-16.png",
@@ -36,7 +36,10 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "alloha-progress@gulrating.pages.dev",
-      "strict_min_version": "109.0"
+      "strict_min_version": "109.0",
+      "data_collection_permissions": {
+        "required": []
+      }
     }
   }
 }

@@ -14,10 +14,12 @@ source = source.replace(
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const { getFranchiseTitles } = await import(moduleUrl);
 const originalFetch = globalThis.fetch;
+const tmdbRequests = [];
 
 try {
   globalThis.fetch = async input => {
     const url = new URL(String(input));
+    tmdbRequests.push(url);
 
     if (url.pathname.endsWith('/movie/42')) {
       return Response.json({
@@ -72,8 +74,25 @@ try {
     if (url.pathname.endsWith('/movie/315')) {
       return Response.json({ id: 315, title: 'Endless Saga 15', release_date: '2014-01-01', belongs_to_collection: { id: 910 } });
     }
+    if (url.pathname.endsWith('/movie/501')) {
+      return Response.json({
+        id: 501, title: 'Dune', original_title: 'Dune', release_date: '2021-10-22',
+        belongs_to_collection: { id: 78, name: 'Dune Collection' },
+      });
+    }
     if (url.pathname.endsWith('/tv/401')) {
       return Response.json({ id: 401, name: 'Dune', first_air_date: '2021-01-01' });
+    }
+    if (url.pathname.endsWith('/collection/78')) {
+      return Response.json({
+        id: 78,
+        name: 'Dune Collection',
+        parts: [
+          { id: 502, title: 'Dune', release_date: '1984-12-14' },
+          { id: 501, title: 'Dune', release_date: '2021-10-22' },
+          { id: 503, title: 'Dune: Part Two', release_date: '2024-02-28' },
+        ],
+      });
     }
     if (url.pathname.endsWith('/collection/77')) {
       return Response.json({
@@ -146,6 +165,11 @@ try {
           { id: 402, media_type: 'tv', name: 'Dune: Prophecy', first_air_date: '2024-01-01' },
         ] });
       }
+      if (query === 'Dune: Part Two') {
+        return Response.json({ results: [
+          { id: 503, media_type: 'movie', title: 'Dune: Part Two', release_date: '2024-02-28' },
+        ] });
+      }
       if (query === 'Dune') {
         return Response.json({ results: [
           { id: 402, media_type: 'tv', name: 'Dune: Prophecy', first_air_date: '2024-01-01' },
@@ -201,6 +225,13 @@ try {
       { title: 'Dune', media_type: 'tv', year: 2021 },
       { title: 'Dune: Prophecy', media_type: 'tv', year: 2024 },
     ],
+    'Dune|Dune': [
+      { title: 'Dune', media_type: 'movie', year: 1984 },
+      { title: 'Dune', media_type: 'movie', year: 2021 },
+      { title: 'Dune: Part Two', media_type: 'movie', year: 2024 },
+      { title: 'Salvador Dalí', media_type: 'movie', year: 1966 },
+      { title: 'Mick Jagger', media_type: 'movie', year: 1967 },
+    ],
   };
 
   const unknownResolutionParts = await getFranchiseTitles(89, 'movie');
@@ -247,6 +278,17 @@ try {
     [401, 402],
     'the article list maps the related series directly and excludes similarly named but unlisted titles'
   );
+
+  const duneRequestsStart = tmdbRequests.length;
+  const duneFilmParts = await getFranchiseTitles(501, 'movie');
+  assert.deepEqual(
+    duneFilmParts.map(part => part.id),
+    [502, 501, 503],
+    'Dune tabs include the actual films from the collection but not same-named people/documentaries found in Wikipedia links'
+  );
+  assert.equal(tmdbRequests.slice(duneRequestsStart).some(url =>
+    ['Salvador Dalí', 'Mick Jagger'].includes(url.searchParams.get('query'))
+  ), false, 'unrelated Wikipedia article links are filtered before TMDb searches');
 
   const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
   assert.match(modalSource, /franchiseContext = null/);

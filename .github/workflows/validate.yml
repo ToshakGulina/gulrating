@@ -29,8 +29,14 @@ jobs:
         run: node scripts/test-tmdb-fallback.mjs
       - name: Test offline service-worker fallback
         run: node scripts/test-service-worker-offline.mjs
+      - name: Test same-origin Supabase proxy
+        run: node scripts/test-supabase-proxy.mjs
+      - name: Test full-catalog update and resume
+        run: node scripts/test-full-catalog-updates.mjs && node scripts/test-full-catalog-download-resume.mjs
       - name: Test franchise movie and TV tabs
         run: node scripts/test-franchise-tabs.mjs
+      - name: Test movie runtime in title cards
+        run: node scripts/test-title-runtime.mjs
       - name: Test main-tab state preservation
         run: node scripts/test-page-state.mjs
       - name: Test watch progress storage

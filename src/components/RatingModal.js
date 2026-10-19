@@ -39,7 +39,7 @@ const BAD_DUBS_KEY = 'gulrating:bad_dubs';
 // «контент не найден» (скриншоты пользователя из APK), но отлично играют
 // внутри фрейма — как в браузере. В приложении ведём их во фрейм, остальные
 // источники — верхним документом (там работают прогресс и продолжение).
-const EMBED_ONLY_HOSTS = ['stravers.live', 'obrut.show'];
+const EMBED_ONLY_HOSTS = ['stravers.live', 'alloha.tv', 'alloha.cool', 'obrut.show'];
 
 function isEmbedOnly(url) {
   try {
@@ -720,6 +720,15 @@ function criticsLabel(value) {
     : `${Math.round(value)}%`;
 }
 
+function formatRuntime(value) {
+  const minutes = Math.floor(Number(value));
+  if (!Number.isFinite(minutes) || minutes <= 0) return '';
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (!hours) return `${minutes} мин`;
+  return remainder ? `${hours} ч ${remainder} мин` : `${hours} ч`;
+}
+
 function formatVotes(n) {
   const mod10 = n % 10;
   const mod100 = n % 100;
@@ -798,6 +807,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       : await getTitleDetails(titleId, mediaType);
     if (!title) throw new Error('Для этой карточки пока нет локальной копии. Подключитесь к интернету и откройте её один раз.');
     const year = releaseYear(title.release_date);
+    const runtime = mediaType === 'movie' ? formatRuntime(title.runtime) : '';
 
     const [status, allRatings, kpRatings] = useOfflineData
       ? [(() => {
@@ -931,7 +941,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           <h3 class="font-bold text-lg leading-tight">${kpPageUrl
             ? `<a href="${kpPageUrl}" target="_blank" rel="noopener noreferrer" class="hover:text-orange-300 underline decoration-dotted underline-offset-4" title="Открыть страницу на Кинопоиске">${escapeHtml(title.title)} ↗</a>`
             : escapeHtml(title.title)}</h3>
-          <p class="text-sm text-gray-400 mb-1">${year ? escapeHtml(year) + ' • ' : ''}${mediaType === 'movie' ? 'фильм' : 'сериал'}</p>
+          <p class="text-sm text-gray-400 mb-1">${year ? escapeHtml(year) + ' • ' : ''}${mediaType === 'movie' ? 'фильм' : 'сериал'}${runtime ? ` • ${escapeHtml(runtime)}` : ''}</p>
           <div class="flex gap-2 flex-wrap mb-2">
             ${(title.genres || []).slice(0, 3).map(g => `<button class="genre-chip text-xs px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded-full cursor-pointer transition-colors" data-genre="${escapeHtml(g)}" title="Открыть каталог с фильтром по жанру «${escapeHtml(g)}»">${escapeHtml(g)}</button>`).join('')}
           </div>
