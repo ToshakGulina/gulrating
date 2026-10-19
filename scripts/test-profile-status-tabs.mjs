@@ -15,7 +15,9 @@ assert.deepEqual(tabs, [
 ], 'profile tabs have the requested order');
 assert.ok(!profileSource.includes('id="watch-history"') && !profileSource.includes('id="watched-history"'), 'standalone playback history sections are removed');
 assert.ok(profileSource.includes("getWatchHistory().filter(item => !item.done)") && profileSource.includes("getWatchHistory().filter(item => item.done)"), 'playback entries are routed into In Progress and Watched tabs');
-assert.ok(profileSource.includes('renderPlaybackRows(playbackItems'), 'playback entries render inside the selected status tab');
+assert.ok(profileSource.includes('renderPlaybackRows(playbackItems, tab === \'watched\', myRatingsList)'), 'playback entries render inside the selected status tab with saved ratings');
+assert.ok(profileSource.includes('const playbackTitleKeys = new Set(playbackItems.map(item => item.key))'), 'profile status tab tracks playback titles for de-duplication');
+assert.ok(profileSource.includes('!playbackTitleKeys.has(historyKey)'), 'a rated title already shown in playback history is not rendered a second time');
 assert.ok(profileSource.includes('queueUserTitleStatus'), 'offline menu changes are saved for later sync');
 assert.ok(!profileSource.includes("${currentUser.offlineOnly ? 'disabled' : ''}"), 'status menus stay enabled in offline mode');
 const statusControls = [...profileSource.matchAll(/<select class="profile-status-select([^\"]*)"/g)];
@@ -43,18 +45,18 @@ const context = {
 vm.runInNewContext(`${match[0]}\nthis.renderProfileStatusTab = renderProfileStatusTab;`, context);
 
 const ratings = [
-  { title_id: 1, titles: { id: 1 } },
-  { title_id: 2, titles: { id: 2 } },
-  { title_id: 3, titles: { id: 3 } },
+  { title_id: 1, titles: { id: 1, media_type: 'movie' } },
+  { title_id: 2, titles: { id: 2, media_type: 'tv' } },
+  { title_id: 3, titles: { id: 3, media_type: 'movie' } },
 ];
 const statuses = [
-  { title_id: 1, status: 'watched', titles: { id: 1 } }, // rated duplicate must not render twice
-  { title_id: 1, status: 'in_progress', titles: { id: 1 } }, // even inconsistent duplicate status must be hidden
-  { title_id: 4, status: 'watched', titles: { id: 4 } },
-  { title_id: 2, status: 'in_progress', titles: { id: 2 } },
-  { title_id: 5, status: 'in_progress', titles: { id: 5 } },
-  { title_id: 3, status: 'dropped', titles: { id: 3 } },
-  { title_id: 6, status: 'dropped', titles: { id: 6 } },
+  { title_id: 1, status: 'watched', titles: { id: 1, media_type: 'movie' } }, // rated duplicate must not render twice
+  { title_id: 1, status: 'in_progress', titles: { id: 1, media_type: 'movie' } }, // even inconsistent duplicate status must be hidden
+  { title_id: 4, status: 'watched', titles: { id: 4, media_type: 'movie' } },
+  { title_id: 2, status: 'in_progress', titles: { id: 2, media_type: 'tv' } },
+  { title_id: 5, status: 'in_progress', titles: { id: 5, media_type: 'tv' } },
+  { title_id: 3, status: 'dropped', titles: { id: 3, media_type: 'movie' } },
+  { title_id: 6, status: 'dropped', titles: { id: 6, media_type: 'movie' } },
 ];
 const byId = new Map([['1', 'watched'], ['2', 'in_progress'], ['3', 'dropped']]);
 const watchlist = [
@@ -65,6 +67,8 @@ const currentUser = {};
 const render = (tab) => context.renderProfileStatusTab(tab, ratings, watchlist, statuses, byId, currentUser);
 
 assert.equal(render('watched'), 'rated:1unrated:4');
+assert.equal(context.renderProfileStatusTab('watched', ratings, watchlist, statuses, byId, currentUser, true, new Set(['movie:1'])), 'unrated:4',
+  'when a watched-history row already represents a rated title, do not render a duplicate rating card');
 assert.equal(render('in_progress'), 'rated:2unrated:5');
 assert.equal(render('dropped'), 'rated:3unrated:6');
 assert.equal(render('watchlist'), 'watchlist:7');
