@@ -35,6 +35,8 @@ jobs:
         run: node scripts/test-full-catalog-updates.mjs && node scripts/test-full-catalog-download-resume.mjs
       - name: Test franchise movie and TV tabs
         run: node scripts/test-franchise-tabs.mjs
+      - name: Test movie runtime in title cards
+        run: node scripts/test-title-runtime.mjs
       - name: Test main-tab state preservation
         run: node scripts/test-page-state.mjs
       - name: Test watch progress storage

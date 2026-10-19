@@ -6,6 +6,7 @@ const root = new URL('../browser-extension/alloha-progress/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('manifest.json', root), 'utf8'));
 const source = readFileSync(new URL('content.js', root), 'utf8');
 const modal = readFileSync(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+const firefoxPackager = readFileSync(new URL('../browser-extension/alloha-progress/package-firefox.sh', import.meta.url), 'utf8');
 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.content_scripts[0].all_frames, true,
@@ -106,6 +107,19 @@ assert.equal(video.currentTime, beforeInvalidReply, 'messages from non-GulRating
 
 assert.match(modal, /ALLOHA_EXTENSION_SOURCE/);
 assert.match(modal, /isAllohaPlayerOrigin\(event\.origin\)/);
+assert.match(modal, /const EMBED_ONLY_HOSTS = \[[^\]]*'alloha\.tv'[^\]]*'alloha\.cool'/,
+  'known Alloha iframe hosts must stay embedded in the Android app instead of opening as a top-level page');
+assert.equal(manifest.browser_specific_settings?.gecko?.id, 'alloha-progress@gulrating.pages.dev',
+  'the same WebExtension package should have a stable Firefox extension id');
+assert.ok(Number(manifest.browser_specific_settings?.gecko?.strict_min_version?.split('.')[0]) <= 109,
+  'Firefox MV3 support must declare an explicit minimum Gecko version');
+assert.deepEqual(manifest.browser_specific_settings.gecko.data_collection_permissions.required, [],
+  'the Firefox manifest must declare that the extension does not collect user data');
+assert.match(firefoxPackager, /zip -X -q -j .*manifest\.json content\.js icon-16\.png icon-48\.png icon-128\.png/,
+  'the Firefox packaging script must create a flat XPI ready for Mozilla signing');
+assert.match(await readFileSync(new URL('../browser-extension/alloha-progress/README.md', import.meta.url), 'utf8'),
+  /about:debugging#\/runtime\/this-firefox/,
+  'Firefox temporary installation instructions should be documented');
 assert.match(modal, /event\.source\.postMessage\([\s\S]*?event\.origin\)/,
   'the website must reply directly to the active Alloha frame with an exact target origin');
 assert.match(modal, /saveRemoteProgress\(progress\)/);

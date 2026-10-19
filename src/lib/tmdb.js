@@ -163,6 +163,7 @@ export function primeTitleCache(mediaType, id, partial) {
       : (partial.vote_average != null ? partial.vote_average : null),
     collection_id: partial.collection_id || (partial.belongs_to_collection && partial.belongs_to_collection.id) || null,
     collection_name: partial.collection_name || (partial.belongs_to_collection && partial.belongs_to_collection.name) || null,
+    runtime: partial.runtime != null ? Number(partial.runtime) : null,
     genres: Array.isArray(partial.genres)
       ? partial.genres.map(g => (typeof g === 'string' ? g : g && g.name)).filter(Boolean)
       : []
@@ -212,6 +213,7 @@ export async function getTitleDetails(id, mediaType) {
     revenue: data.revenue || null,
     seasons: data.number_of_seasons != null ? data.number_of_seasons : null,
     episodes: data.number_of_episodes != null ? data.number_of_episodes : null,
+    runtime: mediaType === 'movie' && data.runtime != null ? Number(data.runtime) : null,
     collection_id: data.belongs_to_collection ? data.belongs_to_collection.id : null,
     collection_name: data.belongs_to_collection ? data.belongs_to_collection.name : null
   };
@@ -250,6 +252,21 @@ function normalizeArticleTitle(value) {
     .trim();
 }
 
+const FRANCHISE_STOP_WORDS = new Set(['the', 'and', 'part', 'film', 'movie', 'series', 'сериал', 'фильм', 'часть']);
+
+function isRelatedFranchiseTitle(candidate, referenceTitles) {
+  const candidateTitle = normalizeArticleTitle(candidate);
+  if (!candidateTitle) return false;
+  const referenceNames = referenceTitles.map(normalizeArticleTitle).filter(Boolean);
+  if (referenceNames.includes(candidateTitle)) return true;
+  const candidateWords = new Set(candidateTitle.split(' ').filter(word =>
+    word.length >= 3 && !FRANCHISE_STOP_WORDS.has(word)
+  ));
+  return referenceNames.some(reference => reference.split(' ').some(word =>
+    word.length >= 3 && !FRANCHISE_STOP_WORDS.has(word) && candidateWords.has(word)
+  ));
+}
+
 async function resolveArticleTitles(articleTitles) {
   const resolved = [];
   let cursor = 0;
@@ -284,7 +301,7 @@ async function resolveArticleTitles(articleTitles) {
 // статьи/сопоставлений нет, используем только официальную TMDb-коллекцию.
 export async function getFranchiseTitles(id, mediaType) {
   const current = await getTitleDetails(id, mediaType);
-  const [articleTitles, collection] = await Promise.all([
+  const [discoveredArticleTitles, collection] = await Promise.all([
     getWikipediaFranchiseTitles(
       current.title,
       current.original_title,
@@ -295,6 +312,15 @@ export async function getFranchiseTitles(id, mediaType) {
       ? getMovieCollection(current.collection_id).catch(() => null)
       : Promise.resolve(null),
   ]);
+  // Wikipedia section links can include unrelated people, documentaries, and
+  // citation links. Exact TMDb matches alone are not enough (e.g. a person
+  // named in a Dune article can resolve to a same-named film). Keep entries
+  // sharing a distinctive word with the current title; the TMDb collection
+  // remains the fallback for franchises with differently named spin-offs.
+  const referenceTitles = [current.title, current.original_title].filter(Boolean);
+  const articleTitles = discoveredArticleTitles.filter(entry =>
+    isRelatedFranchiseTitle(entry?.title, referenceTitles)
+  );
   const articleParts = await resolveArticleTitles(articleTitles);
 
   const byKey = new Map();
