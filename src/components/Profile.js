@@ -640,16 +640,10 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     paintCatStatus();
   });
 
-  function renderPlaybackRows(items, watched, ratings = []) {
+  function renderPlaybackRows(items, watched) {
     if (!items.length) return '';
     const positions = getPositions();
-    const ratingsByKey = new Map((ratings || []).map(row => [
-      `${row.titles?.media_type}:${row.title_id}`,
-      Number(row.rating)
-    ]));
     return items.map(item => {
-      const score = ratingsByKey.get(item.key);
-      const scoreColor = score >= 8 ? 'bg-green-600' : score >= 5 ? 'bg-yellow-600' : 'bg-red-600';
       const pos = positions[item.key];
       const savedSeconds = pos && Number.isFinite(Number(pos.t)) && Number(pos.t) > 0 ? Number(pos.t) : null;
       const savedTime = savedSeconds === null ? null : formatPlaybackTime(savedSeconds);
@@ -665,10 +659,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
           <div class="watch-history-open flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" role="button" tabindex="0" aria-label="Открыть карточку: ${escapeHtml(item.title)}">
             ${posterImg(item.poster_path, item.title, 'w-14 sm:w-16 flex-shrink-0 aspect-[2/3] rounded-md')}
             <span class="min-w-0 flex-1">
-              <span class="flex min-w-0 items-center gap-2">
-                <span class="block min-w-0 flex-1 truncate text-sm font-medium">${escapeHtml(item.title)}</span>
-                ${Number.isFinite(score) ? `<b class="${scoreColor} flex-shrink-0 rounded-md px-1.5 py-0.5 text-xs text-white" aria-label="Оценка ${escapeHtml(formatRating(score))}">${escapeHtml(formatRating(score))}</b>` : ''}
-              </span>
+              <span class="block truncate text-sm font-medium">${escapeHtml(item.title)}</span>
               <span class="block text-[11px] text-gray-500">${status}</span>
               ${watched ? `<span class="block text-[10px] text-gray-600">Отмечено ${new Date(item.done.at).toLocaleDateString('ru-RU')}</span>` : ''}
               ${pct !== null ? `<span class="mt-1 block h-1 overflow-hidden rounded bg-slate-700"><span class="block h-full bg-red-500" style="width:${pct}%"></span></span>` : ''}
@@ -901,11 +892,17 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       : tab === 'watched'
         ? getWatchHistory().filter(item => item.done)
         : [];
-    const playbackTitleKeys = new Set(playbackItems.map(item => item.key));
     const profileContent = pageRoot.querySelector('#profile-content');
-    profileContent.innerHTML = renderPlaybackRows(playbackItems, tab === 'watched', myRatingsList) + renderProfileStatusTab(
-      tab, myRatingsList, watchlistList, titleStatusesList, statusByTitleId, currentUser, playbackItems.length > 0, playbackTitleKeys
+    const playbackSection = playbackItems.length
+      ? `<section class="space-y-3"><h2 class="text-sm font-semibold text-gray-400">История просмотра</h2>${renderPlaybackRows(playbackItems, tab === 'watched')}</section>`
+      : '';
+    const statusContent = renderProfileStatusTab(
+      tab, myRatingsList, watchlistList, titleStatusesList, statusByTitleId, currentUser, playbackItems.length > 0
     );
+    const statusSection = statusContent && playbackItems.length && tab === 'watched'
+      ? `<section class="space-y-3"><h2 class="text-sm font-semibold text-gray-400">Оценки</h2>${statusContent}</section>`
+      : statusContent;
+    profileContent.innerHTML = playbackSection + statusSection;
     bindPlaybackRows();
   }
   pageRoot.querySelectorAll('.tab-btn').forEach(button => {
@@ -1071,7 +1068,7 @@ function renderMyRatings(ratings, statusByTitleId, currentUser) {
   }).join('');
 }
 
-function renderProfileStatusTab(tab, ratings, watchlist, titleStatuses, statusByTitleId, currentUser, hasPlaybackItems = false, playbackTitleKeys = new Set()) {
+function renderProfileStatusTab(tab, ratings, watchlist, titleStatuses, statusByTitleId, currentUser, hasPlaybackItems = false) {
   if (tab === 'watchlist') {
     const ratedIds = new Set((ratings || []).map(row => String(row.title_id)));
     return renderWatchlist((watchlist || []).filter(item => !ratedIds.has(String(item.title_id))), currentUser);
@@ -1080,14 +1077,11 @@ function renderProfileStatusTab(tab, ratings, watchlist, titleStatuses, statusBy
   const ratedTitles = (ratings || []).filter(row => {
     const explicitStatus = statusByTitleId.get(String(row.title_id));
     const status = !explicitStatus || explicitStatus === 'watchlist' ? 'watched' : explicitStatus;
-    const historyKey = `${row.titles?.media_type}:${row.title_id}`;
-    return status === tab && !playbackTitleKeys.has(historyKey);
+    return status === tab;
   });
   const allRatedIds = new Set((ratings || []).map(row => String(row.title_id)));
   const unratedStatuses = (titleStatuses || []).filter(item =>
-    item.status === tab
-    && !allRatedIds.has(String(item.title_id))
-    && !playbackTitleKeys.has(`${item.titles?.media_type}:${item.title_id}`)
+    item.status === tab && !allRatedIds.has(String(item.title_id))
   );
 
   if (!ratedTitles.length && !unratedStatuses.length && !hasPlaybackItems) {

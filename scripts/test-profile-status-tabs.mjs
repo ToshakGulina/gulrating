@@ -15,9 +15,9 @@ assert.deepEqual(tabs, [
 ], 'profile tabs have the requested order');
 assert.ok(!profileSource.includes('id="watch-history"') && !profileSource.includes('id="watched-history"'), 'standalone playback history sections are removed');
 assert.ok(profileSource.includes("getWatchHistory().filter(item => !item.done)") && profileSource.includes("getWatchHistory().filter(item => item.done)"), 'playback entries are routed into In Progress and Watched tabs');
-assert.ok(profileSource.includes('renderPlaybackRows(playbackItems, tab === \'watched\', myRatingsList)'), 'playback entries render inside the selected status tab with saved ratings');
-assert.ok(profileSource.includes('const playbackTitleKeys = new Set(playbackItems.map(item => item.key))'), 'profile status tab tracks playback titles for de-duplication');
-assert.ok(profileSource.includes('!playbackTitleKeys.has(historyKey)'), 'a rated title already shown in playback history is not rendered a second time');
+assert.ok(profileSource.includes('renderPlaybackRows(playbackItems, tab === \'watched\')'), 'playback history remains in its own rows');
+assert.ok(profileSource.includes('История просмотра') && profileSource.includes('Оценки'), 'playback history and rated titles render as separate labeled sections');
+assert.ok(!profileSource.includes('playbackTitleKeys'), 'playback history does not suppress or absorb the rated-title list');
 assert.ok(profileSource.includes('queueUserTitleStatus'), 'offline menu changes are saved for later sync');
 assert.ok(!profileSource.includes("${currentUser.offlineOnly ? 'disabled' : ''}"), 'status menus stay enabled in offline mode');
 const statusControls = [...profileSource.matchAll(/<select class="profile-status-select([^\"]*)"/g)];
@@ -67,8 +67,6 @@ const currentUser = {};
 const render = (tab) => context.renderProfileStatusTab(tab, ratings, watchlist, statuses, byId, currentUser);
 
 assert.equal(render('watched'), 'rated:1unrated:4');
-assert.equal(context.renderProfileStatusTab('watched', ratings, watchlist, statuses, byId, currentUser, true, new Set(['movie:1'])), 'unrated:4',
-  'when a watched-history row already represents a rated title, do not render a duplicate rating card');
 assert.equal(render('in_progress'), 'rated:2unrated:5');
 assert.equal(render('dropped'), 'rated:3unrated:6');
 assert.equal(render('watchlist'), 'watchlist:7');
