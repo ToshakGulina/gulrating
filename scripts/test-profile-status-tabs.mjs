@@ -14,10 +14,10 @@ assert.deepEqual(tabs, [
   ['dropped', 'Заброшено'],
 ], 'profile tabs have the requested order');
 assert.ok(!profileSource.includes('id="watch-history"') && !profileSource.includes('id="watched-history"'), 'standalone playback history sections are removed');
-assert.ok(profileSource.includes("getWatchHistory().filter(item => !item.done)") && profileSource.includes("getWatchHistory().filter(item => item.done)"), 'playback entries are routed into In Progress and Watched tabs');
-assert.ok(profileSource.includes('renderPlaybackRows(playbackItems, tab === \'watched\')'), 'playback history remains in its own rows');
-assert.ok(profileSource.includes('История просмотра') && profileSource.includes('Оценки'), 'playback history and rated titles render as separate labeled sections');
-assert.ok(!profileSource.includes('playbackTitleKeys'), 'playback history does not suppress or absorb the rated-title list');
+assert.ok(profileSource.includes('id="profile-playback-history"'), 'playback history has a dedicated section outside the status tab panel');
+assert.ok(profileSource.includes('const history = getWatchHistory();') && profileSource.includes('renderPlaybackRows(history)'), 'all playback history renders in its own section');
+assert.ok(profileSource.includes('profileContent.innerHTML = renderProfileStatusTab('), 'status tabs render only title ratings and statuses');
+assert.ok(!profileSource.includes("getWatchHistory().filter(item => item.done)"), 'playback history is not injected into the Watched tab');
 assert.ok(profileSource.includes('queueUserTitleStatus'), 'offline menu changes are saved for later sync');
 assert.ok(!profileSource.includes("${currentUser.offlineOnly ? 'disabled' : ''}"), 'status menus stay enabled in offline mode');
 const statusControls = [...profileSource.matchAll(/<select class="profile-status-select([^\"]*)"/g)];
