@@ -31,6 +31,13 @@ export const THEMES = [
     themeColor: '#f8fafc',
     preview: { bg: '248 250 252', card: '255 255 255', primary: '79 70 229', secondary: '37 99 235' },
   },
+  {
+    id: 'nothing',
+    name: 'Nothing',
+    description: 'Чёрный · монохром · Glyph Red',
+    themeColor: '#000000',
+    preview: { bg: '0 0 0', card: '24 24 24', primary: '235 235 235', secondary: '142 142 142' },
+  },
 ];
 
 const themeIds = new Set(THEMES.map(theme => theme.id));

@@ -213,6 +213,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
         </div>
 
         <div id="profile-content" class="space-y-3" role="tabpanel" aria-label="Тайтлы в выбранном статусе"></div>
+        <section id="profile-playback-history" class="space-y-3" aria-label="История просмотра"></section>
         </section>
         <section id="profile-settings-panel" class="profile-section-panel hidden space-y-3" role="tabpanel" aria-label="Настройки">
         <h2 class="text-xl font-bold mb-2">Настройки</h2>
@@ -315,7 +316,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
               <p class="text-xs text-gray-500 mt-1 mb-3">Тема меняет фон, карточки, текст и акценты. Выбор сохраняется на устройстве и синхронизируется с аккаунтом.</p>
               <div id="theme-options" class="theme-options">
                 ${THEMES.map(theme => `<button type="button" class="theme-option" data-theme-id="${theme.id}" aria-pressed="false" aria-label="${theme.name}: ${theme.description}">
-                  <span class="theme-preview" aria-hidden="true">
+                  <span class="theme-preview ${theme.id === 'nothing' ? 'theme-preview-nothing' : ''}" aria-hidden="true">
                     <span style="background-color:rgb(${theme.preview.bg})"></span>
                     <span style="background-color:rgb(${theme.preview.card})"></span>
                     <span style="background-color:rgb(${theme.preview.primary})"></span>
@@ -640,10 +641,11 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     paintCatStatus();
   });
 
-  function renderPlaybackRows(items, watched) {
+  function renderPlaybackRows(items) {
     if (!items.length) return '';
     const positions = getPositions();
     return items.map(item => {
+      const watched = Boolean(item.done);
       const pos = positions[item.key];
       const savedSeconds = pos && Number.isFinite(Number(pos.t)) && Number(pos.t) > 0 ? Number(pos.t) : null;
       const savedTime = savedSeconds === null ? null : formatPlaybackTime(savedSeconds);
@@ -676,7 +678,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   }
 
   function bindPlaybackRows() {
-    const box = pageRoot.querySelector('#profile-content');
+    const box = pageRoot.querySelector('#profile-playback-history');
     box.querySelectorAll('.watch-history-open').forEach(card => {
       const openHistoryCard = () => {
         const item = getWatchHistory().find(entry => entry.key === card.closest('[data-key]').dataset.key);
@@ -732,9 +734,13 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   }
 
   function paintWatchHistory() {
-    const activeTab = pageRoot.querySelector('.tab-btn[aria-selected="true"]')?.dataset.tab || 'in_progress';
-    setActivityTab(activeTab);
-    initTitleCards(pageRoot, currentUser, updateProfileStatus);
+    const historyRoot = pageRoot.querySelector('#profile-playback-history');
+    if (!historyRoot) return;
+    const history = getWatchHistory();
+    historyRoot.innerHTML = `<h2 class="text-lg font-semibold">История просмотра</h2>${history.length
+      ? renderPlaybackRows(history)
+      : '<p class="py-4 text-sm text-gray-500">История просмотра пока пуста.</p>'}`;
+    bindPlaybackRows();
   }
 
   // Установка на телефон: кнопка системного install-промта либо подсказка
@@ -887,16 +893,10 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       button.classList.toggle('hover:bg-slate-700', !selected);
       button.setAttribute('aria-selected', String(selected));
     });
-    const playbackItems = tab === 'in_progress'
-      ? getWatchHistory().filter(item => !item.done)
-      : tab === 'watched'
-        ? getWatchHistory().filter(item => item.done)
-        : [];
     const profileContent = pageRoot.querySelector('#profile-content');
-    profileContent.innerHTML = renderPlaybackRows(playbackItems, tab === 'watched') + renderProfileStatusTab(
-      tab, myRatingsList, watchlistList, titleStatusesList, statusByTitleId, currentUser, playbackItems.length > 0
+    profileContent.innerHTML = renderProfileStatusTab(
+      tab, myRatingsList, watchlistList, titleStatusesList, statusByTitleId, currentUser
     );
-    bindPlaybackRows();
   }
   pageRoot.querySelectorAll('.tab-btn').forEach(button => {
     button.addEventListener('click', () => {
@@ -905,6 +905,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     });
   });
   setActivityTab(previousActivityTab);
+  paintWatchHistory();
 
   // Обработчики навигации
   pageRoot.querySelectorAll('.nav-btn').forEach(btn => {

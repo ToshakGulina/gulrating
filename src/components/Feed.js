@@ -12,6 +12,7 @@ import { getNotifications, markNotificationsRead, unreadNotifications } from '..
 import { mountPage } from '../lib/pageState.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
 import { feedUserOptions, selectedFeedUserId, feedRatingsCacheKey } from '../lib/feedPeople.js';
+import { getCachedUserTitleStatus } from '../lib/ratings.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -21,6 +22,124 @@ const SORT_OPTIONS = [
   { id: 'rating_desc', label: 'Высокие сначала' },
   { id: 'rating_asc', label: 'Низкие сначала' },
 ];
+
+const DOT_RATING_DIGITS = {
+  '0': ['111', '101', '101', '101', '111'],
+  '1': ['010', '110', '010', '010', '111'],
+  '2': ['111', '001', '111', '100', '111'],
+  '3': ['111', '001', '111', '001', '111'],
+  '4': ['101', '101', '111', '001', '001'],
+  '5': ['111', '100', '111', '001', '111'],
+  '6': ['111', '100', '111', '101', '111'],
+  '7': ['111', '001', '010', '010', '010'],
+  '8': ['111', '101', '111', '101', '111'],
+  '9': ['111', '101', '111', '001', '111'],
+};
+
+function renderRatingDots(value) {
+  return [...formatRating(value)].map(character => {
+    if (character === '.') return '<span class="rating-dot-decimal"></span>';
+    const rows = DOT_RATING_DIGITS[character];
+    if (!rows) return '';
+    const dots = rows.join('').split('').map(dot => `<i class="rating-dot-cell${dot === '1' ? ' is-on' : ''}"></i>`).join('');
+    return `<span class="rating-dot-digit" aria-hidden="true">${dots}</span>`;
+  }).join('');
+}
+
+function ratingTone(value) {
+  const score = Number(value);
+  return score >= 8 ? 'rating-score-high' : score >= 5 ? 'rating-score-mid' : 'rating-score-low';
+}
+
+function renderSearchRatings(rows = []) {
+  if (!rows.length) return '';
+  const average = rows.reduce((sum, row) => sum + Number(row.rating), 0) / rows.length;
+  const score = rows.length > 1 ? average : Number(rows[0].rating);
+  const label = escapeHtml(formatRating(score));
+  const tone = ratingTone(score);
+  const ratingColor = score >= 8 ? 'bg-green-600' : score >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+  const summary = rows.length > 1
+    ? `<div role="img" aria-label="Средняя оценка: ${label}, ${escapeHtml(ratingCountLabel(rows.length))}" class="group-average-badge rating-score-badge ${tone} ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
+        <span class="rating-score-label text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
+        <strong class="rating-score-value text-lg leading-tight"><span class="rating-score-plain">${label}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(score)}</span></strong>
+        <span class="rating-count-label text-[10px] opacity-80">${ratingCountLabel(rows.length)}</span>
+      </div>`
+    : `<div role="img" aria-label="Оценка: ${label}" class="rating-score-badge ${tone} ${ratingColor} flex items-center justify-center rounded-lg px-2 py-1 text-white font-bold text-lg shrink-0">
+        <span class="rating-score-value"><span class="rating-score-plain">${label}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(score)}</span></span>
+      </div>`;
+  const ratingsList = rows.map(row => {
+    const memberScore = Number(row.rating);
+    const memberTone = ratingTone(memberScore);
+    const username = escapeHtml(row.username || 'Участник');
+    const memberLabel = escapeHtml(formatRating(memberScore));
+    return `<span class="search-rating-item" title="${username}: ${memberLabel}">
+      <span class="search-rating-name">${username}</span>
+      <strong class="search-rating-score ${memberTone}" role="img" aria-label="${username}: ${memberLabel}">
+        <span class="rating-score-plain">${memberLabel}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(memberScore)}</span>
+      </strong>
+    </span>`;
+  }).join('');
+  return `<div class="search-ratings-widget">${summary}<div class="search-ratings-list" aria-label="Оценки участников">${ratingsList}</div></div>`;
+}
+
+async function getSearchRatings(results, currentUser) {
+  const result = new Map();
+  const ids = [...new Set((results || []).map(item => String(item.id)))];
+  if (!ids.length) return result;
+  const rowsByTitle = new Map(ids.map(id => [id, new Map()]));
+  const addRating = row => {
+    const id = String(row.title_id);
+    const rows = rowsByTitle.get(id);
+    const score = Number(row.rating);
+    if (!rows || !Number.isFinite(score)) return;
+    const personId = String(row.user_id || row.username || 'participant');
+    rows.set(personId, {
+      user_id: personId,
+      username: row.profiles?.username || row.username || 'Участник',
+      rating: score,
+    });
+  };
+
+  // Reuse the all-participants feed cache when offline or while the request runs.
+  for (const cachedRow of readFeedCache('all', 'all') || []) addRating(cachedRow);
+  if (currentUser?.id) {
+    for (const id of ids) {
+      const cached = getCachedUserTitleStatus(currentUser.id, id).rating;
+      if (cached && Number.isFinite(Number(cached.rating))) {
+        addRating({ title_id: id, user_id: currentUser.id, username: currentUser.profile?.username, rating: cached.rating });
+      }
+    }
+  }
+
+  const addPendingRatings = () => {
+    for (const pending of getPendingRatings()) {
+      const id = String(pending.title_id);
+      if (ids.includes(id)) addRating({
+        title_id: id,
+        user_id: currentUser?.id,
+        username: currentUser?.profile?.username,
+        rating: pending.rating,
+      });
+    }
+  };
+  addPendingRatings();
+
+  if (!currentUser?.offlineOnly && !(typeof navigator !== 'undefined' && navigator.onLine === false)) {
+    try {
+      const { data, error } = await supabase.from('ratings')
+        .select('title_id, rating, user_id, profiles!inner(username)')
+        .in('title_id', ids).order('updated_at', { ascending: false });
+      if (!error) for (const row of data || []) addRating(row);
+    } catch (error) { /* retain cached scores */ }
+  }
+
+  // Locally queued changes are newer than their last server copy.
+  addPendingRatings();
+  for (const [id, rows] of rowsByTitle) {
+    result.set(id, [...rows.values()]);
+  }
+  return result;
+}
 
 function readSort() {
   try {
@@ -651,6 +770,7 @@ async function loadRatings(currentUser, filter = 'all') {
 
     const year = releaseYear(title.release_date);
     const ratingColor = item.rating >= 8 ? 'bg-green-600' : item.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+    const ratingScoreTone = ratingTone(item.rating);
     const groupRows = item.groupedRatings || [];
     const visibleGroupRows = groupRows.slice(0, 4);
     const hiddenGroupCount = Math.max(0, groupRows.length - visibleGroupRows.length);
@@ -667,14 +787,14 @@ async function loadRatings(currentUser, filter = 'all') {
                 <p class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${title.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
               </div>
               ${!isWatchlistView ? (item.groupedRatings && groupRows.length > 1 ? `
-                <div class="group-average-badge ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
-                  <span class="text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
-                  <strong class="text-lg leading-tight">${escapeHtml(formatRating(item.rating))}</strong>
-                  <span class="text-[10px] opacity-80">${ratingCountLabel(groupRows.length)}</span>
+                <div role="img" aria-label="Средняя оценка: ${escapeHtml(formatRating(item.rating))}, ${escapeHtml(ratingCountLabel(groupRows.length))}" class="group-average-badge rating-score-badge ${ratingScoreTone} ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
+                  <span class="rating-score-label text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
+                  <strong class="rating-score-value text-lg leading-tight"><span class="rating-score-plain">${escapeHtml(formatRating(item.rating))}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(item.rating)}</span></strong>
+                  <span class="rating-count-label text-[10px] opacity-80">${ratingCountLabel(groupRows.length)}</span>
                 </div>
               ` : `
-                <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
-                  ${escapeHtml(formatRating(item.rating))}
+                <div role="img" aria-label="Оценка: ${escapeHtml(formatRating(item.rating))}" class="rating-score-badge ${ratingScoreTone} ${ratingColor} px-2 py-1 rounded-lg text-white font-bold text-lg min-w-[44px] text-center">
+                  <span class="rating-score-value"><span class="rating-score-plain">${escapeHtml(formatRating(item.rating))}</span><span class="rating-score-dots" aria-hidden="true">${renderRatingDots(item.rating)}</span></span>
                 </div>
               `) : `
                 <div class="px-2 py-1 rounded-lg bg-slate-700 text-yellow-400 font-medium text-sm">
@@ -1269,7 +1389,7 @@ function initSearch(currentUser) {
     document.body.style.overflow = 'hidden';
     document.body.appendChild(overlay);
 
-    searchForQuery(query).then(({ results, errorText, offlineNote }) => {
+    searchForQuery(query).then(async ({ results, errorText, offlineNote }) => {
       if (!overlay.isConnected) return;
       const content = overlay.querySelector('#search-page-content');
       const count = overlay.querySelector('#search-page-count');
@@ -1284,6 +1404,8 @@ function initSearch(currentUser) {
         return;
       }
 
+      const ratingsByTitle = await getSearchRatings(results, currentUser);
+      if (!overlay.isConnected) return;
       count.textContent = `Найдено: ${results.length}`;
       content.innerHTML = `${offlineNote ? `<p class="mb-4 text-xs text-gray-500">📴 ${escapeHtml(offlineNote)}</p>` : ''}
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -1294,6 +1416,7 @@ function initSearch(currentUser) {
               ${posterImg(item.poster_path, item.title, 'mb-2 aspect-[2/3] w-full rounded-xl object-cover transition-opacity group-hover:opacity-80')}
               <span class="block truncate text-sm font-medium">${escapeHtml(item.title)}</span>
               <span class="block text-xs text-gray-400">${year ? `${escapeHtml(year)} · ` : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</span>
+              <div class="search-results-ratings">${renderSearchRatings(ratingsByTitle.get(String(item.id)))}</div>
             </button>`;
           }).join('')}
         </div>`;
@@ -1395,6 +1518,7 @@ function initSearch(currentUser) {
 
     searchTimeout = setTimeout(async () => {
       const { results, errorText, offlineNote } = await searchForQuery(query, resultsContainer);
+      const ratingsByTitle = results.length ? await getSearchRatings(results, currentUser) : new Map();
       if (searchInput.value.trim() !== query) return;
 
       if (errorText) {
@@ -1412,10 +1536,11 @@ function initSearch(currentUser) {
               <div class="flex-shrink-0 w-14">
                 ${posterImg(item.poster_path, item.title, 'w-14 aspect-[2/3] rounded')}
               </div>
-              <div class="min-w-0">
+              <div class="min-w-0 flex-1">
                 <div class="font-medium truncate">${escapeHtml(item.title)}</div>
                 <div class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${item.media_type === 'movie' ? 'фильм' : 'сериал'}</div>
               </div>
+              <div class="search-result-ratings ml-auto self-center">${renderSearchRatings(ratingsByTitle.get(String(item.id)))}</div>
             </div>
           `;
         }).join('');

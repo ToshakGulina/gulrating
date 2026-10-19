@@ -156,12 +156,24 @@ export function openWatchOverlay(opts) {
   const videoProgress = new WeakMap();
   const remotePlayerProgress = new WeakMap();
 
+  function formatPlaybackTime(value) {
+    const total = Math.max(0, Math.floor(Number(value) || 0));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    return hours
+      ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+      : `${minutes}:${String(seconds).padStart(2, '0')}`;
+  }
+
   function saveRemoteProgress(progress) {
-    if (!watchKey || !progress || !Number.isFinite(progress.t) || !Number.isFinite(progress.d)) return;
+    if (!watchKey || !progress || !Number.isFinite(progress.t) || !Number.isFinite(progress.d)) return false;
     const force = ['pause', 'seeked', 'ended'].includes(progress.event);
-    if (saveWatchPosition(watchKey, progress.t, progress.d, force)) {
+    const saved = saveWatchPosition(watchKey, progress.t, progress.d, force);
+    if (saved) {
       savedPosition = { t: Math.floor(progress.t), d: Math.floor(progress.d), at: Date.now() };
     }
+    return saved;
   }
 
   function isFromActivePlayer(frame, source) {
@@ -264,7 +276,13 @@ export function openWatchOverlay(opts) {
           currentTime: bridgeMessage.currentTime,
           duration: bridgeMessage.duration,
         });
-        if (progress) saveRemoteProgress(progress);
+        if (progress) {
+          const saved = saveRemoteProgress(progress);
+          const position = `${formatPlaybackTime(progress.t)} / ${formatPlaybackTime(progress.d)}`;
+          hint.textContent = saved
+            ? `Позиция Alloha сохранена: ${position}.`
+            : `Получена позиция Alloha: ${position}; фоновое сохранение каждые 10 секунд.`;
+        }
         return;
       }
     }
