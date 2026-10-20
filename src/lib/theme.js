@@ -38,6 +38,13 @@ export const THEMES = [
     themeColor: '#000000',
     preview: { bg: '0 0 0', card: '24 24 24', primary: '235 235 235', secondary: '142 142 142' },
   },
+  {
+    id: 'glass',
+    name: 'Glass',
+    description: 'Стеклянные панели · ледяной голубой',
+    themeColor: '#0b1220',
+    preview: { bg: '11 18 32', card: '36 52 74', primary: '125 211 252', secondary: '167 139 250' },
+  },
 ];
 
 const themeIds = new Set(THEMES.map(theme => theme.id));

@@ -24,7 +24,7 @@
         document.documentElement.classList.add('skip-entry-motion');
       }
       const savedTheme = localStorage.getItem('gulrating:theme');
-      const themeColors = { classic: '#0f172a', ocean: '#07131d', forest: '#0c1714', light: '#f8fafc', nothing: '#000000' };
+      const themeColors = { classic: '#0f172a', ocean: '#07131d', forest: '#0c1714', light: '#f8fafc', nothing: '#000000', glass: '#0b1220' };
       if (Object.prototype.hasOwnProperty.call(themeColors, savedTheme)) {
         document.documentElement.dataset.theme = savedTheme;
         document.querySelector('meta[name="theme-color"]').content = themeColors[savedTheme];
@@ -42,7 +42,16 @@
        загружалось вовсе). Пересборка: ./scripts/build-css.sh -->
   <link rel="stylesheet" href="/assets/tw.css">
   <style>
-    :root { --p-rgb: 99 102 241; }
+    :root {
+      --p-rgb: 99 102 241;
+      --ease-spring-out: cubic-bezier(.2,.75,.25,1);
+    }
+    @supports (animation-timing-function: linear(0, 1)) {
+      :root {
+        /* Tiny spring overshoot, with cubic-bezier fallback for older WebViews. */
+        --ease-spring-out: linear(0, .2 8%, .58 24%, .9 46%, 1.015 65%, 1 100%);
+      }
+    }
     html.skip-entry-motion *, html.skip-entry-motion *::before, html.skip-entry-motion *::after {
       animation: none !important;
       transition: none !important;
@@ -165,8 +174,11 @@
     .profile-section-tab { transition: color .2s ease, background-color .2s ease, box-shadow .2s ease, translate .2s ease; }
     .profile-section-tab[aria-selected="true"] { box-shadow: 0 4px 14px rgb(var(--p-rgb) / .22); }
     .profile-section-tab:active { translate: 0 1px; }
-    .profile-section-panel:not(.hidden) { animation: profile-panel-enter .24s cubic-bezier(.2,.75,.25,1); }
-    .rating-modal-panel { animation: rating-modal-enter .24s cubic-bezier(.2,.75,.25,1); }
+    .profile-section-panel:not(.hidden) { animation: profile-panel-enter .24s var(--ease-spring-out); }
+    .rating-modal-panel { animation: rating-modal-enter .28s var(--ease-spring-out); }
+    .fixed.inset-0.rating-modal-closing { animation: rating-modal-overlay-leave .18s ease-in both; }
+    .rating-modal-closing .rating-modal-panel { animation: rating-modal-panel-leave .18s ease-in both; }
+    .rating-value-pop { animation: rating-value-pop .22s var(--ease-spring-out); }
     .rating-modal-panel .poster-frame { border-radius: .75rem; }
     .friends-score-details { display: inline-block; max-width: 100%; }
     .friends-score-popover {
@@ -240,6 +252,9 @@
     @keyframes button-ripple { 0% { opacity: .18; transform: scale(0); } 100% { opacity: 0; transform: scale(1); } }
     @keyframes profile-panel-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes rating-modal-enter { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes rating-modal-overlay-leave { to { opacity: 0; } }
+    @keyframes rating-modal-panel-leave { to { opacity: 0; transform: translateY(7px) scale(.985); } }
+    @keyframes rating-value-pop { 0% { scale: .88; } 68% { scale: 1.12; } 100% { scale: 1; } }
 
     /* Уважаем системную настройку доступности «Уменьшить движение». */
     @media (prefers-reduced-motion: reduce) {
@@ -344,11 +359,52 @@
       --theme-text-400: 169 169 169; --theme-text-500: 132 132 132; --theme-text-600: 101 101 101; --theme-text-700: 75 75 75;
       --theme-secondary: 142 142 142; --p-rgb: 235 235 235; --nothing-red: 215 25 33; color-scheme: dark;
     }
+    :root[data-theme="glass"] {
+      --theme-bg: 11 18 32; --theme-deep: 6 11 22; --theme-card: 28 41 59;
+      --theme-raised: 39 55 76; --theme-hover: 53 73 98; --theme-border: 107 135 165;
+      --theme-text-100: 245 250 255; --theme-text-200: 226 237 248; --theme-text-300: 199 216 232;
+      --theme-text-400: 164 185 207; --theme-text-500: 137 159 183; --theme-text-600: 112 135 160; --theme-text-700: 90 113 139;
+      --theme-secondary: 167 139 250; --p-rgb: 125 211 252; color-scheme: dark;
+    }
     body { background-color: rgb(var(--theme-bg)); }
     body::before {
       background:
         radial-gradient(680px 460px at 10% -8%, rgb(var(--p-rgb) / .17), transparent 65%),
         radial-gradient(760px 520px at 90% 10%, rgb(var(--theme-secondary) / .10), transparent 68%);
+    }
+    :root[data-theme="glass"] body::before {
+      background:
+        radial-gradient(680px 460px at 8% -8%, rgb(var(--p-rgb) / .24), transparent 66%),
+        radial-gradient(760px 560px at 94% 18%, rgb(var(--theme-secondary) / .19), transparent 68%),
+        linear-gradient(145deg, rgb(17 31 50), rgb(7 12 24) 70%);
+      opacity: .9;
+    }
+    :root[data-theme="glass"] .sticky.top-0,
+    :root[data-theme="glass"] #feed-filters {
+      background-color: rgb(13 23 39 / .74) !important;
+      border-color: rgb(190 220 245 / .16) !important;
+      backdrop-filter: blur(24px) saturate(145%);
+      -webkit-backdrop-filter: blur(24px) saturate(145%);
+    }
+    :root[data-theme="glass"] .title-card,
+    :root[data-theme="glass"] .rec-card,
+    :root[data-theme="glass"] .history-title,
+    :root[data-theme="glass"] .catalog-item,
+    :root[data-theme="glass"] [class~="bg-card"] {
+      background: linear-gradient(145deg, rgb(70 94 122 / .43), rgb(22 34 52 / .68)) !important;
+      border: 1px solid rgb(207 231 255 / .17) !important;
+      box-shadow: inset 0 1px rgb(255 255 255 / .08), 0 12px 32px rgb(0 0 0 / .14);
+      backdrop-filter: blur(16px) saturate(138%);
+      -webkit-backdrop-filter: blur(16px) saturate(138%);
+    }
+    :root[data-theme="glass"] .title-card:hover,
+    :root[data-theme="glass"] .catalog-item:hover {
+      border-color: rgb(var(--p-rgb) / .52) !important;
+      box-shadow: 0 0 0 1px rgb(var(--p-rgb) / .12), 0 14px 36px rgb(0 0 0 / .22);
+    }
+    :root[data-theme="glass"] .theme-option[aria-pressed="true"] {
+      border-color: rgb(var(--p-rgb));
+      box-shadow: 0 0 0 1px rgb(var(--p-rgb) / .32), 0 0 20px rgb(var(--p-rgb) / .12);
     }
     #boot-splash { background-color: rgb(var(--theme-bg)); color: rgb(var(--theme-text-400)); }
     * { scrollbar-color: rgb(var(--theme-border)) transparent; }
@@ -372,6 +428,15 @@
       letter-spacing: .02em;
       color: rgb(var(--theme-text-100)) !important;
       -webkit-text-fill-color: currentColor;
+    }
+    :root[data-theme="nothing"] .top-header-title {
+      background-image: radial-gradient(circle, rgb(var(--theme-text-100)) .85px, transparent 1px);
+      background-size: 5px 5px;
+      background-position: 0 1px;
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent !important;
+      -webkit-text-fill-color: transparent;
     }
     :root[data-theme="nothing"] h3,
     :root[data-theme="nothing"] .nav-btn span {
@@ -523,6 +588,15 @@
       border-radius: 50%;
       background: #d71921;
       box-shadow: 0 0 5px rgb(215 25 33 / .6);
+    }
+    .theme-preview-glass::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(135deg, rgb(255 255 255 / .28), transparent 42%, rgb(125 211 252 / .16));
+      border: 1px solid rgb(220 240 255 / .45);
+      pointer-events: none;
     }
 
     [class~="focus-visible:outline-primary"]:focus-visible { outline-color: rgb(var(--p-rgb)) !important; }

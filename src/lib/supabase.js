@@ -65,7 +65,7 @@ function cachedAuthUser() {
   }
 }
 
-function offlineUser(user) {
+function offlineUser(user, offlineOnly = true) {
   return {
     ...user,
     profile: cachedProfile(user.id) || {
@@ -78,14 +78,15 @@ function offlineUser(user) {
       is_approved: true,
       is_admin: false
     },
-    offlineOnly: true
+    // Ошибка запроса профиля не равна подтверждённому отсутствию интернета.
+    // Оставляем серверные попытки включёнными, пока браузер не сообщил offline.
+    offlineOnly
   };
 }
 
-// Получаем пользователя из локально сохранённой Supabase-сессии: getUser()
-// всегда проверяет JWT по сети и из-за этого блокировал запуск без интернета.
-// Профиль обновляем по сети с коротким таймаутом, а офлайн берём проверенную
-// локальную копию (при этом серверные операции остаются недоступны до сети).
+// Читаем локальную Supabase-сессию, а профиль пробуем обновить по сети.
+// navigator.onLine в WebView иногда сообщает offline даже при доступном 5G/API,
+// поэтому это лишь подсказка для таймаута, а не основание пропустить запрос.
 export async function getCurrentUser() {
   if (!supabase) return null;
 
@@ -103,10 +104,7 @@ export async function getCurrentUser() {
   }
   if (!user) return null;
 
-  // В настоящем офлайне не ждём бесполезные сетевые таймауты профиля.
-  // Supabase-сессия уже прочитана локально; используем сохранённую копию.
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return offlineUser(user);
-
+  const browserReportsOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
   const profileKey = `gulrating:profile:${user.id}`;
   try {
     const query = supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
@@ -120,7 +118,7 @@ export async function getCurrentUser() {
     // Недоступность сети — это не потеря аккаунта. Используем копию профиля.
   }
 
-  return offlineUser(user);
+  return offlineUser(user, browserReportsOffline);
 }
 
 // Получаем все профили пользователей (для списков участников)

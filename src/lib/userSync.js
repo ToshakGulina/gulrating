@@ -20,6 +20,11 @@ const SYNC_TRIGGER_KEYS = new Set([
   'gulrating:bad_dubs', 'gulrating:recent_titles', 'gulrating:search_queries'
 ]);
 const DEBOUNCE_MS = 900;
+const RETRY_MIN_MS = 5000;
+const RETRY_MAX_MS = 120000;
+let retryDelayMs = RETRY_MIN_MS;
+let retryTimer = null;
+let hadSyncFailure = false;
 let activeUser = null;
 let timer = null;
 let busy = false;
@@ -213,13 +218,16 @@ async function requestWithTimeout(promise, ms = 3500) {
   }
 }
 
-export async function syncUserData(user = activeUser, timeoutMs = 3500) {
-  if (!user || !user.id || !supabase || (typeof navigator !== 'undefined' && navigator.onLine === false) || busy) {
+export async function syncUserData(user = activeUser, timeoutMs = 5000) {
+  if (!user || !user.id || !supabase || busy) {
     if (busy && user) rerun = true;
     return false;
   }
   busy = true;
+  let succeeded = false;
   try {
+    // navigator.onLine может быть false в WebView даже при доступном API;
+    // отправляем реальный запрос и определяем доступность по его результату.
     const { data: row, error } = await requestWithTimeout(supabase
       .from('user_sync').select('data').eq('user_id', user.id).maybeSingle(), timeoutMs);
     if (error) {
@@ -228,23 +236,46 @@ export async function syncUserData(user = activeUser, timeoutMs = 3500) {
         missingTableNotified = true;
         window.dispatchEvent(new Event('gulrating:sync-not-configured'));
       }
-      return false; // offline/table not migrated: keep local data, retry later
+      return false;
     }
     if (!activeUser || activeUser.id !== user.id) return false; // аккаунт сменился во время запроса
     const merged = mergeData({ settings: localSettings() }, row && row.data || {});
     const { error: saveError } = await requestWithTimeout(supabase
       .from('user_sync')
       .upsert({ user_id: user.id, data: merged, updated_at: new Date().toISOString() }, { onConflict: 'user_id' }), timeoutMs);
-    return !saveError;
+    succeeded = !saveError;
+    return succeeded;
   } catch (e) {
     return false;
   } finally {
     busy = false;
+    if (succeeded) {
+      retryDelayMs = RETRY_MIN_MS;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+      if (hadSyncFailure) {
+        hadSyncFailure = false;
+        window.dispatchEvent(new Event('gulrating:sync-restored'));
+      }
+    } else if (activeUser && activeUser.id === user.id) {
+      hadSyncFailure = true;
+      scheduleSyncRetry();
+    }
     if (rerun) {
       rerun = false;
       scheduleUserSync();
     }
   }
+}
+
+function scheduleSyncRetry() {
+  if (!activeUser || retryTimer) return;
+  const delay = retryDelayMs;
+  retryDelayMs = Math.min(retryDelayMs * 2, RETRY_MAX_MS);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    syncUserData(activeUser);
+  }, delay);
 }
 
 export function scheduleUserSync() {
@@ -255,7 +286,19 @@ export function scheduleUserSync() {
 
 export function setSyncUser(user) {
   installStorageHook();
-  activeUser = user && user.id ? user : null;
+  const nextUser = user && user.id ? user : null;
+  if (activeUser && nextUser && activeUser.id !== nextUser.id) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    retryDelayMs = RETRY_MIN_MS;
+    hadSyncFailure = false;
+  }
+  if (!nextUser) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    hadSyncFailure = false;
+  }
+  activeUser = nextUser;
   clearTimeout(timer);
 }
 

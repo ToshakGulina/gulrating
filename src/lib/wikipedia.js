@@ -1,7 +1,6 @@
-// Follow Wikipedia's explicit previous/next chronology links first; use curated
-// franchise film-list sections only when no chronology chain is available.
+// Franchise membership is derived only from explicit Wikipedia previous/next rows.
 
-const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v2';
+const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v3';
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 const EMPTY_CACHE_TTL = 6 * 60 * 60 * 1000;
 const memoryCache = new Map();
@@ -80,139 +79,6 @@ async function searchArticles(language, query) {
     snippet: result.snippet || '',
     rank: index,
   }));
-}
-
-async function getArticleSections(article) {
-  const params = {
-    action: 'parse', format: 'json', page: article.title,
-    prop: 'tocdata', origin: '*',
-  };
-  const data = await requestJson(apiUrl(article.language, params));
-  return data?.parse?.tocdata?.sections || data?.parse?.sections || [];
-}
-
-function getSectionType(line) {
-  const heading = normalize(line);
-  if (/^(?:tv series|television series|tv shows|television shows|телесериалы|телевизионные сериалы|сериалы)(?: |$)/i.test(heading)) {
-    return 'tv';
-  }
-  if (/^(?:films? and television|movies? and television|фильмы и сериалы)$/i.test(heading)) {
-    return 'all';
-  }
-  if (/^(?:(?:feature|animated|main|prequel|sequel|live action) )?(?:films?|movies?|filmography|cinema|фильмы?|фильмография|полнометражные фильмы|список фильмов)(?: |$)/i.test(heading)) {
-    return 'movie';
-  }
-  return '';
-}
-
-function titleOverlapScore(article, titleCandidates) {
-  const articleTitle = normalize(article.title);
-  const phrase = `${article.title} ${article.snippet}`.toLocaleLowerCase('ru-RU');
-  const candidates = titleCandidates.map(normalize).filter(Boolean);
-  let score = 7 - article.rank;
-  if (/(franchise|film series|series|filmography|франшиза|серия фильмов|список фильмов)/i.test(phrase)) score += 4;
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    if (articleTitle === candidate) score += 4;
-    else if (articleTitle.startsWith(candidate) || candidate.startsWith(articleTitle)) score += 2;
-    const words = candidate.split(' ').filter(word => word.length > 3);
-    if (words.some(word => articleTitle.includes(word))) score += 1;
-  }
-  return score;
-}
-
-function datedSubsectionTitle(section) {
-  const match = String(section.line || '').trim().match(/^(.+?)\s+\(((?:18|19|20)\d{2})(?:\s+[^()]*)?\)$/);
-  return match ? { title: match[1].trim(), year: Number(match[2]) } : null;
-}
-
-function sectionHeadingTitles(sections, parent) {
-  const parentIndex = sections.indexOf(parent);
-  const parentLevel = Number(parent.tocLevel || parent.toclevel || 1);
-  const titles = [];
-  for (let index = parentIndex + 1; index < sections.length; index += 1) {
-    const section = sections[index];
-    const level = Number(section.tocLevel || section.toclevel || 1);
-    if (level <= parentLevel) break;
-    const title = datedSubsectionTitle(section);
-    if (title) titles.push(title);
-  }
-  return titles;
-}
-
-async function getSectionLinks(article, sections) {
-  const relevant = sections
-    .map(section => ({ section, type: getSectionType(section.line || '') }))
-    .filter(entry => entry.type);
-  if (!relevant.length) return [];
-
-  const linksByKey = new Map();
-  const addTitle = (title, type, year = null) => {
-    const normalizedTitle = normalize(title);
-    if (!normalizedTitle) return;
-    const keyPrefix = `${normalizedTitle}|`;
-    const exactKey = `${keyPrefix}${year || ''}`;
-    const priorEntry = [...linksByKey.entries()].find(([key]) =>
-      key === exactKey || key === `${keyPrefix}` || (!year && key.startsWith(keyPrefix))
-    );
-    const priorKey = priorEntry?.[0] || '';
-    const prior = priorEntry?.[1];
-    const targetKey = year ? exactKey : priorKey || exactKey;
-    if (year && priorKey === `${keyPrefix}`) linksByKey.delete(priorKey);
-    const priority = { all: 0, tv: 1, movie: 2 };
-    const mediaType = prior && priority[prior.media_type] > priority[type] ? prior.media_type : type;
-    linksByKey.set(targetKey, { title, media_type: mediaType, ...(year || prior?.year ? { year: year || prior.year } : {}) });
-  };
-
-  for (const { section, type } of relevant) {
-    const headings = sectionHeadingTitles(sections, section);
-    if (headings.length >= 2) {
-      headings.forEach(entry => addTitle(entry.title, type, entry.year));
-      continue;
-    }
-    const params = {
-      action: 'parse', format: 'json', page: article.title,
-      prop: 'links', section: String(section.index), origin: '*',
-    };
-    const data = await requestJson(apiUrl(article.language, params));
-    for (const link of data?.parse?.links || []) {
-      const linkTitle = link.title || link['*'] || '';
-      if (link.ns !== 0 || !linkTitle) continue;
-      const titleAndYear = datedSubsectionTitle({ line: linkTitle }) || { title: linkTitle, year: null };
-      addTitle(titleAndYear.title, type, titleAndYear.year);
-    }
-  }
-  return [...linksByKey.values()];
-}
-
-// Search snippets often lead to actors' filmographies (for example, the
-// Truman Show query finds Jim Carrey's list, which also contains Sonic films).
-// Only inspect the exact title page or an explicitly named franchise/list page.
-function isTitleOrFranchiseArticle(article, titleCandidates) {
-  const normalizedArticleTitle = normalize(article.title);
-  const currentTitles = titleCandidates.map(normalize).filter(Boolean);
-  if (currentTitles.includes(normalizePageTitle(article.title))) return true;
-
-  const franchiseTitle = /(?:franchise|film series|movie series|series of films|list of .* films|франшиза|серия фильмов|список фильмов)/i
-    .test(article.title);
-  if (!franchiseTitle) return false;
-  return currentTitles.some(candidate => {
-    const words = candidate.split(' ').filter(word => word.length > 2);
-    return words.some(word => normalizedArticleTitle.includes(word));
-  });
-}
-
-async function inspectArticleCandidates(articles, titleCandidates) {
-  const ordered = articles
-    .filter(article => isTitleOrFranchiseArticle(article, titleCandidates))
-    .sort((a, b) => titleOverlapScore(b, titleCandidates) - titleOverlapScore(a, titleCandidates));
-  for (const article of ordered) {
-    const sections = await getArticleSections(article).catch(() => []);
-    if (!sections.some(section => getSectionType(section.line || ''))) continue;
-    const titles = await getSectionLinks(article, sections).catch(() => []);
-    if (titles.length >= 2) return titles;
-  }
-  return [];
 }
 
 function normalizePageTitle(value) {
@@ -337,27 +203,9 @@ async function discoverChronology(title, originalTitle, year, mediaType) {
 }
 
 async function discover(title, originalTitle, year, mediaType) {
-  const chronologyTitles = await discoverChronology(title, originalTitle, year, mediaType).catch(() => []);
-  if (chronologyTitles.length) return chronologyTitles;
-
-  const titleCandidates = [title, originalTitle].filter(Boolean);
-  const searches = await Promise.all([
-    searchArticles('ru', title).catch(() => []),
-    searchArticles('en', originalTitle || title).catch(() => []),
-  ]);
-  const initialArticles = [...searches[0], ...searches[1]];
-  const initialTitles = await inspectArticleCandidates(initialArticles, titleCandidates);
-  if (initialTitles.length >= 2) return initialTitles;
-
-  // If the first results only point to the individual title page, broaden the
-  // query once to the phrase a person commonly searches for.
-  const followup = await Promise.all([
-    searchArticles('ru', `${title} серия фильмов`).catch(() => []),
-    searchArticles('en', `${originalTitle || title} film series`).catch(() => []),
-  ]);
-  const seen = new Set(initialArticles.map(article => `${article.language}:${article.title}`));
-  const followupArticles = followup.flat().filter(article => !seen.has(`${article.language}:${article.title}`));
-  return inspectArticleCandidates(followupArticles, titleCandidates);
+  // Do not infer franchise membership from broad Wikipedia list sections or
+  // TMDb collections: only titles linked from explicit previous/next rows count.
+  return discoverChronology(title, originalTitle, year, mediaType).catch(() => []);
 }
 
 export async function getWikipediaFranchiseTitles(title, originalTitle = '', releaseDate = '', mediaType = 'movie') {

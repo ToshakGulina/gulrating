@@ -172,8 +172,12 @@ try {
       }
       if (query === 'Dune') {
         return Response.json({ results: [
+          { id: 502, media_type: 'movie', title: 'Dune', release_date: '1984-12-14' },
+          { id: 501, media_type: 'movie', title: 'Dune', release_date: '2021-10-22' },
+          { id: 401, media_type: 'tv', name: 'Dune', first_air_date: '2021-01-01' },
           { id: 402, media_type: 'tv', name: 'Dune: Prophecy', first_air_date: '2024-01-01' },
-          { id: 403, media_type: 'tv', name: 'Dune Detective', first_air_date: '2024-01-01' }
+          { id: 403, media_type: 'tv', name: 'Dune Detective', first_air_date: '2024-01-01' },
+          { id: 503, media_type: 'movie', title: 'Dune: Part Two', release_date: '2024-02-28' },
         ] });
       }
       if (query === 'Гадкий я') return Response.json({ results: [] });
@@ -229,8 +233,6 @@ try {
       { title: 'Dune', media_type: 'movie', year: 1984 },
       { title: 'Dune', media_type: 'movie', year: 2021 },
       { title: 'Dune: Part Two', media_type: 'movie', year: 2024 },
-      { title: 'Salvador Dalí', media_type: 'movie', year: 1966 },
-      { title: 'Mick Jagger', media_type: 'movie', year: 1967 },
     ],
   };
 
@@ -270,7 +272,8 @@ try {
   );
 
   const longSeriesParts = await getFranchiseTitles(315, 'movie');
-  assert.equal(longSeriesParts.length, 15, 'all parts of a long official collection are included');
+  assert.deepEqual(longSeriesParts.map(part => part.id), [315],
+    'TMDb collection members are not inferred when Wikipedia has no explicit previous/next rows');
 
   const duneParts = await getFranchiseTitles(401, 'tv');
   assert.deepEqual(
@@ -284,11 +287,10 @@ try {
   assert.deepEqual(
     duneFilmParts.map(part => part.id),
     [502, 501, 503],
-    'Dune tabs include the actual films from the collection but not same-named people/documentaries found in Wikipedia links'
+    'only the exact film titles in the provided chronology rows are mapped; no collection extras are added'
   );
-  assert.equal(tmdbRequests.slice(duneRequestsStart).some(url =>
-    ['Salvador Dalí', 'Mick Jagger'].includes(url.searchParams.get('query'))
-  ), false, 'unrelated Wikipedia article links are filtered before TMDb searches');
+  assert.equal(tmdbRequests.slice(duneRequestsStart).some(url => url.pathname.endsWith('/collection/78')),
+    false, 'TMDb collection data does not broaden an explicit chronology list');
 
   const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
   assert.match(modalSource, /franchiseContext = null/);

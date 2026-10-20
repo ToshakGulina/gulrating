@@ -783,12 +783,30 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
   document.body.appendChild(modal);
   document.body.style.overflow = 'hidden';
 
-  // Закрытие модалки
-  const closeModal = () => {
-    document.removeEventListener('keydown', onKeydown);
+  // Оставляем короткий выход модалки, чтобы закрытие было парным открытию.
+  // Удаление по таймеру — fallback для WebView без animationend.
+  let isClosing = false;
+  let closeTimer = null;
+  const removeModal = () => {
+    if (!modal.isConnected) return;
+    window.clearTimeout(closeTimer);
     modal.remove();
     document.body.style.overflow = '';
   };
+  const closeModal = () => {
+    if (isClosing) return;
+    isClosing = true;
+    document.removeEventListener('keydown', onKeydown);
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      removeModal();
+      return;
+    }
+    modal.classList.add('rating-modal-closing');
+    closeTimer = window.setTimeout(removeModal, 260);
+  };
+  modal.addEventListener('animationend', event => {
+    if (event.target === modal && event.animationName === 'rating-modal-overlay-leave') removeModal();
+  });
   const onKeydown = (e) => {
     if (e.key === 'Escape') closeModal();
   };
@@ -1291,7 +1309,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     // Пузырёк с значением ездит над бегунком: до первого касания он серый
     // (это позиция бегунка, а не оценка), после — окрашен по оценке
     const THUMB_PX = 28; // ширина бегунка из стилей .rating-slider
-    function renderValue() {
+    function renderValue(pop = false) {
       const val = selectedScore === null ? Number(slider.value) : selectedScore;
       const pct = (Math.min(10, Math.max(1, val)) - 1) / 9;
       bubble.style.left = `calc(${(pct * 100).toFixed(2)}% + ${((0.5 - pct) * THUMB_PX).toFixed(1)}px)`;
@@ -1299,12 +1317,16 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       bubble.className = selectedScore === null
         ? 'absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400'
         : `absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-transparent text-white ${valueBg(selectedScore)}`;
+      if (pop) {
+        void bubble.offsetWidth; // Commit the updated score before the press-feedback animation.
+        bubble.classList.add('rating-value-pop');
+      }
     }
 
     function setScore(n, fromSlider) {
       selectedScore = Math.min(10, Math.max(1, Math.round(n * 10) / 10));
       if (!fromSlider) slider.value = String(selectedScore);
-      renderValue();
+      renderValue(!fromSlider);
     }
 
     slider.addEventListener('input', () => setScore(parseFloat(slider.value), true));

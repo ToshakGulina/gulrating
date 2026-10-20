@@ -25,6 +25,12 @@ const app = document.getElementById('app');
 window.addEventListener('gulrating:sync-not-configured', () => {
   showToast('Для синхронизации выполните supabase-user-sync.sql в Supabase → SQL Editor.', 'info', 9000);
 });
+window.addEventListener('gulrating:sync-restored', () => {
+  if (offlineOnlySession) renderApp();
+});
+window.addEventListener('gulrating:network-restored', () => {
+  if (offlineOnlySession) renderApp();
+});
 
 // Установка на устройство (Android/iOS): браузер отдаёт событие установки
 // один раз — сохраняем его и показываем кнопку в профиле
@@ -116,11 +122,9 @@ async function renderApp() {
     offlineOnlySession = Boolean(currentUser && currentUser.offlineOnly);
     setSyncUser(currentUser);
     if (currentUser) {
-      // Быстрый pull/merge настроек на старте; таймаут не должен блокировать
-      // офлайн-вход. Неудача остаётся локально и повторится при сети/изменениях.
-      // Не держим заставку, ожидая облачную синхронизацию: локальный экран
-      // должен открыться сразу, а настройки подтянутся в фоне.
-      syncUserData(currentUser, 1600)
+      // Pull/merge запускается в фоне; при сбое userSync делает автоматические
+      // повторы с увеличивающимся интервалом. Экран не ждёт завершения запроса.
+      syncUserData(currentUser, 5000)
         .then(() => applyTheme(getThemeId()))
         .catch(() => {});
       applyTheme(getThemeId());
