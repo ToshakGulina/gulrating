@@ -24,6 +24,8 @@ assert.match(html, /#watch-overlay\.cinema-mode #watch-stage[\s\S]*?inset:\s*0[\
   'cinema mode expands the player to a pure-black, edge-to-edge viewport');
 assert.match(html, /#watch-overlay\.cinema-mode \.watch-controls,[\s\S]*?#watch-overlay\.cinema-mode \.watch-footer\s*\{\s*display:\s*none/,
   'all provider and footer chrome disappears outside the player');
+assert.match(html, /\* \{ scrollbar-width:\s*none;\s*-ms-overflow-style:\s*none;\s*\}/,
+  'the site hides the global browser scrollbar while retaining touch and wheel scrolling');
 assert.match(html, /#watch-overlay \*::-webkit-scrollbar[\s\S]*?display:\s*none\s*!important/,
   'the player overlay hides embedded UI scrollbars instead of showing the global gray scrollbar');
 assert.match(html, /#watch-overlay\.cinema-mode \.watch-header > :not\(#watch-cinema\)\s*\{\s*display:\s*none/,

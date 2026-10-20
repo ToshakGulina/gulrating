@@ -31,6 +31,8 @@ jobs:
         run: node scripts/test-tmdb-fallback.mjs
       - name: Test offline service-worker fallback
         run: node scripts/test-service-worker-offline.mjs
+      - name: Prevent surprise refreshes on deploy
+        run: node scripts/test-no-surprise-refresh.mjs
       - name: Test same-origin Supabase proxy
         run: node scripts/test-supabase-proxy.mjs
       - name: Test full-catalog update and resume

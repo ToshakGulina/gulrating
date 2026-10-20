@@ -222,29 +222,8 @@ async function init() {
   // Досмотренные сериалы: вышел новый сезон/серии — уведомление (троттлинг внутри)
   checkNewSeasons({ offlineOnly: offlineOnlySession }).catch(() => {});
 
-  // Интерфейс отдаётся из кэша мгновенно (sw.js), а здесь фоном проверяем,
-  // не появился ли новый деплой: если сборка отличается — ненавязчивый тост
-  setTimeout(() => {
-    fetch('/src/config.js?build-check=1', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.text() : ''))
-      .then((text) => {
-        const m = text.match(/APP_BUILD\s*=\s*"([^"]+)"/);
-        if (m && m[1] && m[1] !== APP_BUILD) {
-          // Обновляем уже открытые вкладки автоматически: иначе старый JS
-          // продолжает работать после деплоя, даже когда новая версия уже есть.
-          const reloadKey = `gulrating:reloaded_to_build:${m[1]}`;
-          try {
-            if (sessionStorage.getItem(reloadKey) !== '1') {
-              sessionStorage.setItem(reloadKey, '1');
-              window.location.reload();
-              return;
-            }
-          } catch (e) { /* storage недоступен — оставим ручное обновление */ }
-          showToast('Доступна новая версия сайта — обновите страницу', 'info', 8000);
-        }
-      })
-      .catch(() => {});
-  }, 4000);
+  // Обновление сайта не прерывает текущую сессию: новая версия кода
+  // активируется после закрытия вкладок и будет доступна при следующем запуске.
 }
 
 init();

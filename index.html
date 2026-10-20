@@ -57,11 +57,9 @@
       transition: none !important;
     }
 
-    /* Тонкие скроллбары: горизонтальные ленты не выглядят тяжеловесно */
-    * { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
-    *::-webkit-scrollbar { width: 6px; height: 6px; }
-    *::-webkit-scrollbar-track { background: transparent; }
-    *::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    /* Scroll remains available by touch/wheel, but browser chrome never paints bars. */
+    * { scrollbar-width: none; -ms-overflow-style: none; }
+    *::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
     /* Нижняя навигация не наезжает на домашний индикатор iPhone */
     nav.fixed { padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
@@ -518,8 +516,6 @@
       }
     }
     #boot-splash { background-color: rgb(var(--theme-bg)); color: rgb(var(--theme-text-400)); }
-    * { scrollbar-color: rgb(var(--theme-border)) transparent; }
-    *::-webkit-scrollbar-thumb { background: rgb(var(--theme-border)); }
     #ratings-list .title-card { border-color: rgb(var(--theme-border) / .65); }
     #ratings-list .title-card:hover { border-color: rgb(var(--p-rgb) / .75); }
 
