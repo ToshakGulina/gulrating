@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Cinema mode should give the embedded player the entire viewport and a clear way back.
+// Cinema mode should darken the surroundings without enlarging the embedded player.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
@@ -32,8 +32,14 @@ assert.match(player, /document\.body\.style\.overflow = previousBodyOverflow[\s\
   'closing the player restores the previous page scrolling state');
 assert.match(player, /class="watch-controls[\s\S]*?class="watch-footer/,
   'provider, dub, and playback hint controls are grouped as surrounding chrome');
-assert.match(html, /#watch-overlay\.cinema-mode #watch-stage[\s\S]*?inset:\s*0[\s\S]*?width:\s*100vw[\s\S]*?height:\s*100vh[\s\S]*?height:\s*100dvh[\s\S]*?background:\s*#000/,
-  'cinema mode expands the player to a pure-black, edge-to-edge viewport');
+assert.match(html, /#watch-overlay\.cinema-mode\s*\{[\s\S]*?align-items:\s*center[\s\S]*?justify-content:\s*center[\s\S]*?background:\s*#000[\s\S]*?#watch-overlay\.cinema-mode #watch-stage\s*\{[\s\S]*?position:\s*relative[\s\S]*?width:\s*var\(--cinema-stage-width[\s\S]*?height:\s*var\(--cinema-stage-height/,
+  'cinema mode centers the player at its measured size against a black backdrop');
+assert.match(player, /const \{ width, height \} = stage\.getBoundingClientRect\(\)[\s\S]*?cinemaStageSize = width > 0 && height > 0[\s\S]*?resizeCinemaStage\(\)/,
+  'entering cinema mode preserves the player dimensions and only scales down to fit');
+assert.doesNotMatch(html, /#watch-overlay\.cinema-mode #watch-stage\s*\{[^}]*\bposition:\s*fixed|#watch-overlay\.cinema-mode #watch-stage\s*\{[^}]*\bwidth:\s*100vw|#watch-overlay\.cinema-mode #watch-stage\s*\{[^}]*\bheight:\s*100d?vh/,
+  'cinema mode does not force the player to fill the viewport');
+assert.doesNotMatch(player, /requestFullscreen\(/,
+  'cinema mode does not call the browser fullscreen API');
 assert.match(html, /#watch-overlay\.cinema-mode \.watch-controls,[\s\S]*?#watch-overlay\.cinema-mode \.watch-footer\s*\{\s*display:\s*none/,
   'all provider and footer chrome disappears outside the player');
 assert.match(html, /\* \{ scrollbar-width:\s*none;\s*-ms-overflow-style:\s*none;\s*\}/,
@@ -42,4 +48,4 @@ assert.match(html, /#watch-overlay \*::-webkit-scrollbar[\s\S]*?display:\s*none\
   'the player overlay hides embedded UI scrollbars instead of showing the global gray scrollbar');
 assert.match(html, /#watch-overlay\.cinema-mode \.watch-header > :not\(#watch-cinema\)\s*\{\s*display:\s*none/,
   'the title and close chrome are hidden while an accessible exit control remains');
-console.log('Cinema mode expands the player, hides surrounding controls, and exits accessibly: OK');
+console.log('Cinema mode darkens the surroundings without forcing fullscreen, and exits accessibly: OK');
