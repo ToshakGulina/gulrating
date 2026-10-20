@@ -42,7 +42,16 @@
        загружалось вовсе). Пересборка: ./scripts/build-css.sh -->
   <link rel="stylesheet" href="/assets/tw.css">
   <style>
-    :root { --p-rgb: 99 102 241; }
+    :root {
+      --p-rgb: 99 102 241;
+      --ease-spring-out: cubic-bezier(.2,.75,.25,1);
+    }
+    @supports (animation-timing-function: linear(0, 1)) {
+      :root {
+        /* Tiny spring overshoot, with cubic-bezier fallback for older WebViews. */
+        --ease-spring-out: linear(0, .2 8%, .58 24%, .9 46%, 1.015 65%, 1 100%);
+      }
+    }
     html.skip-entry-motion *, html.skip-entry-motion *::before, html.skip-entry-motion *::after {
       animation: none !important;
       transition: none !important;
@@ -165,8 +174,11 @@
     .profile-section-tab { transition: color .2s ease, background-color .2s ease, box-shadow .2s ease, translate .2s ease; }
     .profile-section-tab[aria-selected="true"] { box-shadow: 0 4px 14px rgb(var(--p-rgb) / .22); }
     .profile-section-tab:active { translate: 0 1px; }
-    .profile-section-panel:not(.hidden) { animation: profile-panel-enter .24s cubic-bezier(.2,.75,.25,1); }
-    .rating-modal-panel { animation: rating-modal-enter .24s cubic-bezier(.2,.75,.25,1); }
+    .profile-section-panel:not(.hidden) { animation: profile-panel-enter .24s var(--ease-spring-out); }
+    .rating-modal-panel { animation: rating-modal-enter .28s var(--ease-spring-out); }
+    .fixed.inset-0.rating-modal-closing { animation: rating-modal-overlay-leave .18s ease-in both; }
+    .rating-modal-closing .rating-modal-panel { animation: rating-modal-panel-leave .18s ease-in both; }
+    .rating-value-pop { animation: rating-value-pop .22s var(--ease-spring-out); }
     .rating-modal-panel .poster-frame { border-radius: .75rem; }
     .friends-score-details { display: inline-block; max-width: 100%; }
     .friends-score-popover {
@@ -240,6 +252,9 @@
     @keyframes button-ripple { 0% { opacity: .18; transform: scale(0); } 100% { opacity: 0; transform: scale(1); } }
     @keyframes profile-panel-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes rating-modal-enter { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes rating-modal-overlay-leave { to { opacity: 0; } }
+    @keyframes rating-modal-panel-leave { to { opacity: 0; transform: translateY(7px) scale(.985); } }
+    @keyframes rating-value-pop { 0% { scale: .88; } 68% { scale: 1.12; } 100% { scale: 1; } }
 
     /* Уважаем системную настройку доступности «Уменьшить движение». */
     @media (prefers-reduced-motion: reduce) {
