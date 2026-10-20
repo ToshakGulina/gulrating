@@ -178,21 +178,32 @@
     .rating-modal-closing .rating-modal-panel { animation: rating-modal-panel-leave .18s ease-in both; }
     .rating-value-pop { animation: rating-value-pop .22s var(--ease-spring-out); }
     .rating-modal-panel .poster-frame { border-radius: .75rem; }
-    .watch-cinema-toggle {
-      display: inline-flex;
+    .watch-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 2.75rem 2.75rem;
       align-items: center;
-      gap: .35rem;
-      flex: 0 0 auto;
-      padding: .4rem .7rem;
+      gap: .5rem;
+      min-width: 0;
+    }
+    .watch-cinema-toggle, .watch-close {
+      box-sizing: border-box;
+      display: grid;
+      place-items: center;
+      flex: 0 0 2.75rem;
+      width: 2.75rem;
+      min-width: 2.75rem;
+      height: 2.75rem;
+      padding: 0;
       border: 1px solid rgb(255 255 255 / .12);
       border-radius: 999px;
       color: rgb(255 255 255 / .86);
       background: rgb(15 23 42 / .78);
-      font-size: .75rem;
-      line-height: 1.25rem;
+      font-size: 1.25rem;
+      line-height: 1;
       transition: opacity .2s ease, background-color .2s ease, border-color .2s ease;
     }
-    .watch-cinema-toggle:hover { background: rgb(30 41 59 / .92); }
+    .watch-cinema-toggle:hover, .watch-close:hover { background: rgb(30 41 59 / .92); }
+    .watch-close { font-size: 1.65rem; }
     html.watch-player-open, html.watch-player-open body {
       overflow: hidden !important;
       scrollbar-width: none !important;
@@ -242,6 +253,8 @@
     @media (hover: none) {
       #watch-overlay.cinema-mode #watch-cinema { opacity: .68; }
     }
+    #watch-overlay.cinema-mode.cinema-cursor-hidden,
+    #watch-overlay.cinema-mode.cinema-cursor-hidden * { cursor: none !important; }
     .friends-score-details { display: inline-block; max-width: 100%; }
     .friends-score-popover {
       position: absolute;

@@ -757,11 +757,14 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       const item = getWatchHistory().find(entry => entry.key === button.closest('[data-key]').dataset.key);
       if (!item || !(item.kp_url || item.kpId || item.query)) return;
       reportWatchNative(item.id, item.media_type);
-      if (isApk() && item.kp_url) {
-        window.location.href = item.kp_url;
-        return;
-      }
-      openWatchOverlay({ kpId: item.kpId, query: item.query || item.title, titleText: item.title, mirrorUrl: item.kp_url, watchKey: item.key });
+      openWatchOverlay({
+        kpId: item.kpId,
+        query: item.query || item.title,
+        titleText: item.title,
+        mirrorUrl: item.kp_url,
+        watchKey: item.key,
+        resumeFromHistory: true,
+      });
     }));
     box.querySelectorAll('.wh-done').forEach(button => button.addEventListener('click', async () => {
       const key = button.closest('[data-key]').dataset.key;
