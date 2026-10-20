@@ -132,7 +132,10 @@ export function openWatchOverlay(opts) {
       <button id="watch-bad" class="rounded-full bg-slate-800/70 px-3 py-1.5 text-xs text-gray-400 hover:bg-slate-700 hover:text-gray-200">не играет</button>
       <p id="watch-hint" class="text-xs text-gray-500 flex-1"></p>
     </div>`;
+  const previousBodyOverflow = document.body.style.overflow;
   document.body.appendChild(ov);
+  document.documentElement.classList.add('watch-player-open');
+  document.body.style.overflow = 'hidden';
 
   const stage = ov.querySelector('#watch-stage');
   const playersBox = ov.querySelector('#watch-players');
@@ -149,6 +152,16 @@ export function openWatchOverlay(opts) {
   const removeOverlayListeners = () => {
     document.removeEventListener('keydown', ov._onKey);
     window.removeEventListener('message', onPlayerMessage);
+  };
+  let overlayClosed = false;
+  const closeWatchOverlay = () => {
+    if (overlayClosed) return;
+    overlayClosed = true;
+    stopProgressTracking();
+    removeOverlayListeners();
+    ov.remove();
+    document.body.style.overflow = previousBodyOverflow;
+    document.documentElement.classList.remove('watch-player-open');
   };
   const setCinemaMode = (enabled) => {
     cinemaMode = Boolean(enabled);
@@ -598,14 +611,10 @@ export function openWatchOverlay(opts) {
       load();
     }
   });
-  ov.querySelector('#watch-close').addEventListener('click', () => {
-    stopProgressTracking();
-    removeOverlayListeners();
-    ov.remove();
-  });
+  ov.querySelector('#watch-close').addEventListener('click', closeWatchOverlay);
   ov._onKey = (e) => {
     if (!ov.isConnected) {
-      removeOverlayListeners();
+      closeWatchOverlay();
       return;
     }
     if (e.key === 'Escape') {
@@ -613,9 +622,7 @@ export function openWatchOverlay(opts) {
         setCinemaMode(false);
         return;
       }
-      stopProgressTracking();
-      removeOverlayListeners();
-      ov.remove();
+      closeWatchOverlay();
     }
   };
   document.addEventListener('keydown', ov._onKey);
