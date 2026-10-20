@@ -6,9 +6,10 @@
 //    за синхронизированные; внешние TMDb и прочие API остаются вне кэша.
 // 2. Навигация (открытие страниц) — network-first с офлайн-фолбэком на кэш,
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
-// 3. При активации новой версии старые кэши удаляются.
+// 3. Новая версия не перезагружает открытые вкладки: service worker ждёт,
+//    пока текущие окна закроются, затем обновляет кэш для следующего запуска.
 
-const CACHE_VERSION = 'gulrating-v57';
+const CACHE_VERSION = 'gulrating-v59';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -79,7 +80,6 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION)
       .then((cache) => cache.addAll(SHELL_ASSETS))
-      .then(() => self.skipWaiting())
   );
 });
 
@@ -90,11 +90,9 @@ self.addEventListener('activate', (event) => {
       .filter((key) => key !== CACHE_VERSION)
       .map((key) => caches.delete(key)));
 
-    // Сразу переключаем уже открытые вкладки на новый код. Иначе старый
-    // модуль поиска продолжает жить в памяти, даже после успешного деплоя.
-    await self.clients.claim();
-    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    await Promise.all(windows.map((client) => client.navigate(client.url).catch(() => null)));
+    // Deliberately do not claim or navigate existing windows. The default
+    // service-worker lifecycle keeps the current session intact and activates
+    // this worker only after old controlled windows have been closed.
   })());
 });
 

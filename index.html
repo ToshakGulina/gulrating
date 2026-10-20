@@ -57,11 +57,9 @@
       transition: none !important;
     }
 
-    /* Тонкие скроллбары: горизонтальные ленты не выглядят тяжеловесно */
-    * { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
-    *::-webkit-scrollbar { width: 6px; height: 6px; }
-    *::-webkit-scrollbar-track { background: transparent; }
-    *::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    /* Scroll remains available by touch/wheel, but browser chrome never paints bars. */
+    * { scrollbar-width: none; -ms-overflow-style: none; }
+    *::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
     /* Нижняя навигация не наезжает на домашний индикатор iPhone */
     nav.fixed { padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
@@ -195,6 +193,22 @@
       transition: opacity .2s ease, background-color .2s ease, border-color .2s ease;
     }
     .watch-cinema-toggle:hover { background: rgb(30 41 59 / .92); }
+    html.watch-player-open, html.watch-player-open body {
+      overflow: hidden !important;
+      scrollbar-width: none !important;
+    }
+    html.watch-player-open::-webkit-scrollbar,
+    html.watch-player-open body::-webkit-scrollbar,
+    #watch-overlay::-webkit-scrollbar,
+    #watch-overlay *::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+    #watch-overlay, #watch-overlay * {
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
     #watch-overlay.cinema-mode { padding: 0; gap: 0; background: #000 !important; }
     #watch-overlay.cinema-mode .watch-header { position: static; flex: 0 0 0; height: 0; padding: 0; margin: 0; }
     #watch-overlay.cinema-mode .watch-header > :not(#watch-cinema) { display: none !important; }
@@ -502,8 +516,6 @@
       }
     }
     #boot-splash { background-color: rgb(var(--theme-bg)); color: rgb(var(--theme-text-400)); }
-    * { scrollbar-color: rgb(var(--theme-border)) transparent; }
-    *::-webkit-scrollbar-thumb { background: rgb(var(--theme-border)); }
     #ratings-list .title-card { border-color: rgb(var(--theme-border) / .65); }
     #ratings-list .title-card:hover { border-color: rgb(var(--p-rgb) / .75); }
 
