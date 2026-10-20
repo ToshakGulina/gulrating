@@ -41,9 +41,9 @@ export const THEMES = [
   {
     id: 'glass',
     name: 'Glass',
-    description: 'Стеклянные панели · ледяной голубой',
-    themeColor: '#0b1220',
-    preview: { bg: '11 18 32', card: '36 52 74', primary: '125 211 252', secondary: '167 139 250' },
+    description: 'Полупрозрачные слои · ледяной голубой',
+    themeColor: '#080f1f',
+    preview: { bg: '8 15 31', card: '38 55 82', primary: '125 211 252', secondary: '167 139 250' },
   },
 ];
 

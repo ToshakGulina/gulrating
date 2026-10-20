@@ -43,11 +43,11 @@ assert.equal(setTheme('nothing'), 'nothing');
 assert.equal(root.dataset.theme, 'nothing');
 assert.equal(metas['meta[name="theme-color"]'].content, '#000000');
 const glassTheme = THEMES.find(theme => theme.id === 'glass');
-assert.equal(glassTheme.themeColor, '#0b1220');
+assert.equal(glassTheme.themeColor, '#080f1f');
 assert.equal(glassTheme.preview.primary, '125 211 252');
 assert.equal(setTheme('glass'), 'glass');
 assert.equal(root.dataset.theme, 'glass');
-assert.equal(metas['meta[name="theme-color"]'].content, '#0b1220');
+assert.equal(metas['meta[name="theme-color"]'].content, '#080f1f');
 const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 assert.ok(indexHtml.includes('--theme-bg: 248 250 252; --theme-deep: 226 232 240; --theme-card: 255 255 255;'));
 assert.ok(indexHtml.includes('--theme-secondary: 37 99 235; --p-rgb: 79 70 229; color-scheme: light;'));
@@ -59,9 +59,10 @@ assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered .
   && indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
   'all Nothing headings use the same 3-by-5 dot cells as score numerals');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] .title-card')
-  && indexHtml.includes('backdrop-filter: blur(16px) saturate(138%)')
+  && indexHtml.includes('backdrop-filter: blur(20px) saturate(165%)')
+  && indexHtml.includes('rgb(255 255 255 / .13)')
   && indexHtml.includes('theme-preview-glass'),
-  'Glass theme renders translucent frosted panels and a distinct palette preview');
+  'Glass theme combines a colorful field, translucent frosted panels, and edge highlights');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit') && indexHtml.includes('grid-template-columns: repeat(3, 3px);'),
   'Nothing rating numerals should use a clear dot-matrix grid');
 assert.ok(indexHtml.includes('width: 56px;') && indexHtml.includes('justify-content: center;'),
