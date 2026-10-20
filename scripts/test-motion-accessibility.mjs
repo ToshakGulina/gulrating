@@ -21,6 +21,8 @@ assert.match(motion, /from ['"]\.\.\/\.\.\/vendor\/anime\.esm\.min\.js['"]/,
   'the animation engine is loaded from the app bundle, not a remote dependency');
 assert.match(motion, /createTimeline[\s\S]*?stagger[\s\S]*?spring/,
   'Anime.js coordinates modal details and staggered, spring-eased entrances');
+assert.match(motion, /SURFACE_SELECTOR = '[^']*#blk-feed[^']*#blk-trends[^']*#blk-recs/,
+  'the feed, trends, and recommendations sections inside #blocks-wrap animate by their section IDs');
 assert.match(motion, /translateY\(22px\) scale\(\.965\)[\s\S]*?stagger\(42\)[\s\S]*?duration:\s*520/,
   'card entrances are perceptible, staggered, and limited to a short sequence');
 assert.match(motion, /transitionAppPage[\s\S]*?duration:\s*190/,
