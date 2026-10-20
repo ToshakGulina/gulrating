@@ -113,14 +113,15 @@ export function openWatchOverlay(opts) {
   ov.id = 'watch-overlay';
   ov.className = 'fixed inset-0 z-50 bg-black/95 flex flex-col p-3 gap-2';
   ov.innerHTML = `
-    <div class="flex items-center gap-2">
+    <div class="watch-header flex items-center gap-2">
       <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
+      <button id="watch-cinema" type="button" class="watch-cinema-toggle" aria-pressed="false" aria-label="Включить кинорежим">⛶ <span>Кинорежим</span></button>
       <button id="watch-close" class="rounded-xl px-2 py-1 text-2xl leading-none text-gray-300 hover:bg-slate-800 hover:text-white" aria-label="Закрыть плеер">&times;</button>
     </div>
-    <div id="watch-stage" class="flex-1 relative min-h-0 rounded-xl overflow-hidden bg-black/60 flex items-center justify-center">
+    <div id="watch-stage" class="flex-1 relative min-h-0 rounded-xl overflow-hidden bg-black/60 flex items-center justify-center" role="region" aria-label="Видеоплеер" tabindex="-1">
       <p id="watch-status" class="text-sm text-gray-400 px-4 text-center">Ищем доступные плееры…</p>
     </div>
-    <div class="flex flex-col gap-1.5 flex-shrink-0">
+    <div class="watch-controls flex flex-col gap-1.5 flex-shrink-0">
       <div class="flex min-w-0 items-center gap-1.5">
         <div id="watch-players" class="flex min-w-0 flex-1 flex-wrap gap-1.5 content-start"></div>
         <button id="watch-mode" class="hidden flex-shrink-0 rounded-full bg-primary/20 px-3 py-1.5 text-xs text-gray-200 hover:bg-primary/30" aria-label="Переключить на зеркало">Зеркало</button>
@@ -138,7 +139,9 @@ export function openWatchOverlay(opts) {
   const dubsBox = ov.querySelector('#watch-dubs');
   const hint = ov.querySelector('#watch-hint');
   const modeBtn = ov.querySelector('#watch-mode');
+  const cinemaBtn = ov.querySelector('#watch-cinema');
   const badBtn = ov.querySelector('#watch-bad');
+  let cinemaMode = false;
   let mirrorMode = false;
   let hasPlayed = false;
   let loadGeneration = 0;
@@ -147,6 +150,15 @@ export function openWatchOverlay(opts) {
     document.removeEventListener('keydown', ov._onKey);
     window.removeEventListener('message', onPlayerMessage);
   };
+  const setCinemaMode = (enabled) => {
+    cinemaMode = Boolean(enabled);
+    ov.classList.toggle('cinema-mode', cinemaMode);
+    cinemaBtn.setAttribute('aria-pressed', String(cinemaMode));
+    cinemaBtn.setAttribute('aria-label', cinemaMode ? 'Выйти из кинорежима' : 'Включить кинорежим');
+    cinemaBtn.innerHTML = cinemaMode ? '⛶ <span>Выйти</span>' : '⛶ <span>Кинорежим</span>';
+    if (cinemaMode) cinemaBtn.focus({ preventScroll: true });
+  };
+  cinemaBtn.addEventListener('click', () => setCinemaMode(!cinemaMode));
 
   let groups = [];        // [{ type, embed, dubs: [{name, quality, url}] }]
   let curType = null;
@@ -597,6 +609,10 @@ export function openWatchOverlay(opts) {
       return;
     }
     if (e.key === 'Escape') {
+      if (cinemaMode) {
+        setCinemaMode(false);
+        return;
+      }
       stopProgressTracking();
       removeOverlayListeners();
       ov.remove();

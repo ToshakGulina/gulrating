@@ -180,6 +180,54 @@
     .rating-modal-closing .rating-modal-panel { animation: rating-modal-panel-leave .18s ease-in both; }
     .rating-value-pop { animation: rating-value-pop .22s var(--ease-spring-out); }
     .rating-modal-panel .poster-frame { border-radius: .75rem; }
+    .watch-cinema-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      flex: 0 0 auto;
+      padding: .4rem .7rem;
+      border: 1px solid rgb(255 255 255 / .12);
+      border-radius: 999px;
+      color: rgb(255 255 255 / .86);
+      background: rgb(15 23 42 / .78);
+      font-size: .75rem;
+      line-height: 1.25rem;
+      transition: opacity .2s ease, background-color .2s ease, border-color .2s ease;
+    }
+    .watch-cinema-toggle:hover { background: rgb(30 41 59 / .92); }
+    #watch-overlay.cinema-mode { padding: 0; gap: 0; background: #000 !important; }
+    #watch-overlay.cinema-mode .watch-header { position: static; flex: 0 0 0; height: 0; padding: 0; margin: 0; }
+    #watch-overlay.cinema-mode .watch-header > :not(#watch-cinema) { display: none !important; }
+    #watch-overlay.cinema-mode #watch-stage {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      min-height: 0;
+      margin: 0;
+      border-radius: 0 !important;
+      background: #000;
+    }
+    #watch-overlay.cinema-mode .watch-controls,
+    #watch-overlay.cinema-mode .watch-footer { display: none !important; }
+    #watch-overlay.cinema-mode #watch-cinema {
+      position: fixed;
+      top: max(10px, env(safe-area-inset-top, 0px));
+      right: max(10px, env(safe-area-inset-right, 0px));
+      z-index: 2;
+      opacity: .46;
+      border-color: rgb(255 255 255 / .16);
+      background: rgb(15 23 42 / .34);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    #watch-overlay.cinema-mode #watch-cinema:hover,
+    #watch-overlay.cinema-mode #watch-cinema:focus-visible { opacity: 1; background: rgb(15 23 42 / .82); }
+    @media (hover: none) {
+      #watch-overlay.cinema-mode #watch-cinema { opacity: .68; }
+    }
     .friends-score-details { display: inline-block; max-width: 100%; }
     .friends-score-popover {
       position: absolute;
