@@ -14,6 +14,7 @@ import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
 import { feedUserOptions, selectedFeedUserId, feedRatingsCacheKey } from '../lib/feedPeople.js';
 import { getCachedUserTitleStatus } from '../lib/ratings.js';
 import { DOT_RATING_DIGITS } from '../lib/dotMatrix.js';
+import { transitionAppPage } from '../lib/motion.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -1664,13 +1665,16 @@ function initSearch(currentUser) {
 
 function initNav(currentUser) {
   feedAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (btn.dataset.page === 'profile') {
-        const { renderProfilePage } = await import('./Profile.js');
-        renderProfilePage(document.getElementById('app'), currentUser);
-      } else if (btn.dataset.page === 'feed') {
-        renderFeed(document.getElementById('app'), currentUser);
-      }
+    btn.addEventListener('click', () => {
+      const app = document.getElementById('app');
+      transitionAppPage(app, btn.dataset.page, () => {
+        if (btn.dataset.page === 'profile') {
+          return import('./Profile.js').then(({ renderProfilePage }) => {
+            renderProfilePage(app, currentUser);
+          });
+        }
+        if (btn.dataset.page === 'feed') renderFeed(app, currentUser);
+      });
     });
   });
 }

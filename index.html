@@ -240,6 +240,21 @@
     #toast-container > * { animation: toast-enter .24s cubic-bezier(.2,.75,.25,1); }
     #toast-container > *.toast-leaving { animation: toast-leave .18s ease-in both; }
 
+    /* Anime.js takes over entrance choreography when motion is allowed. Keep
+       CSS for small state changes, but avoid stacking two entrance effects. */
+    html.anime-motion-ready #app:not(:empty),
+    html.anime-motion-ready #blocks-wrap > *,
+    html.anime-motion-ready .title-card,
+    html.anime-motion-ready .rec-card,
+    html.anime-motion-ready .history-title,
+    html.anime-motion-ready .catalog-item,
+    html.anime-motion-ready .search-result-item,
+    html.anime-motion-ready .profile-section-panel:not(.hidden),
+    html.anime-motion-ready .rating-modal-panel,
+    html.anime-motion-ready .fixed.inset-0,
+    html.anime-motion-ready nav.fixed,
+    html.anime-motion-ready #toast-container > *:not(.toast-leaving) { animation: none !important; }
+
     @keyframes app-enter { from { opacity: 0; } to { opacity: 1; } }
     @keyframes section-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes card-enter { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }

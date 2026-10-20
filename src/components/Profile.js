@@ -13,6 +13,7 @@ import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, unmarkW
 import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
 import { THEMES, getThemeId, setTheme } from '../lib/theme.js';
+import { animateProfilePanel } from '../lib/motion.js';
 import { primeTitleCache, getCachedTitleDetails } from '../lib/tmdb.js';
 
 // Полная тема оформления задаётся data-theme на корне документа.
@@ -398,7 +399,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     </div>
   `;
 
-  function setProfileSection(section) {
+  function setProfileSection(section, animateChange = false) {
     pageRoot.querySelectorAll('.profile-section-tab').forEach(button => {
       const selected = button.dataset.profileSection === section;
       button.setAttribute('aria-selected', String(selected));
@@ -407,11 +408,14 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       button.classList.toggle('text-gray-400', !selected);
     });
     pageRoot.querySelectorAll('.profile-section-panel').forEach(panel => {
-      panel.classList.toggle('hidden', panel.id !== `profile-${section}-panel`);
+      const selected = panel.id === `profile-${section}-panel`;
+      const wasHidden = panel.classList.contains('hidden');
+      panel.classList.toggle('hidden', !selected);
+      if (animateChange && selected && wasHidden) animateProfilePanel(panel);
     });
   }
   pageRoot.querySelectorAll('.profile-section-tab').forEach(button => {
-    button.addEventListener('click', () => setProfileSection(button.dataset.profileSection));
+    button.addEventListener('click', () => setProfileSection(button.dataset.profileSection, true));
   });
   setProfileSection(previousProfileSection);
 

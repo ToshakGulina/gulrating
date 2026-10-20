@@ -12,6 +12,7 @@ import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
 import { friendRatingsLabel } from '../lib/ratingLabels.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
 import { formatCompactMoney } from '../lib/money.js';
+import { animateOverlayExit, animateScoreBubble } from '../lib/motion.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -801,6 +802,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       removeModal();
       return;
     }
+    if (animateOverlayExit(modal, removeModal)) {
+      closeTimer = window.setTimeout(removeModal, 620);
+      return;
+    }
     modal.classList.add('rating-modal-closing');
     closeTimer = window.setTimeout(removeModal, 260);
   };
@@ -1317,8 +1322,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       bubble.className = selectedScore === null
         ? 'absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400'
         : `absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-transparent text-white ${valueBg(selectedScore)}`;
-      if (pop) {
-        void bubble.offsetWidth; // Commit the updated score before the press-feedback animation.
+      if (pop && !animateScoreBubble(bubble, selectedScore ?? val)) {
+        void bubble.offsetWidth; // Commit the updated score before the CSS fallback animation.
         bubble.classList.add('rating-value-pop');
       }
     }

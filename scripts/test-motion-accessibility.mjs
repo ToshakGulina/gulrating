@@ -1,27 +1,58 @@
 #!/usr/bin/env node
-// Motion improvements should be purposeful, short, and accessible in the static APK/PWA.
+// Motion should be noticeable and purposeful, but remain local, offline-safe, and accessible.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+const motion = await readFile(new URL('../src/lib/motion.js', import.meta.url), 'utf8');
 const ratingModal = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+const profile = await readFile(new URL('../src/components/Profile.js', import.meta.url), 'utf8');
+const feed = await readFile(new URL('../src/components/Feed.js', import.meta.url), 'utf8');
+const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
 
 assert.match(html, /--ease-spring-out:\s*cubic-bezier\(/,
   'spring easing has a fallback for older embedded WebViews');
 assert.match(html, /@supports \(animation-timing-function:\s*linear\(0, 1\)\)/,
   'modern browsers use the lightweight CSS linear spring curve');
-assert.match(html, /\.fixed\.inset-0\.rating-modal-closing[\s\S]*?rating-modal-overlay-leave/,
-  'rating modal has a short overlay exit animation');
+assert.match(html, /html\.anime-motion-ready[\s\S]*?animation:\s*none\s*!important/,
+  'the Anime.js entrances do not stack with the older CSS entrance animations');
+assert.match(motion, /from ['"]\.\.\/\.\.\/vendor\/anime\.esm\.min\.js['"]/,
+  'the animation engine is loaded from the app bundle, not a remote dependency');
+assert.match(motion, /createTimeline[\s\S]*?stagger[\s\S]*?spring/,
+  'Anime.js coordinates modal details and staggered, spring-eased entrances');
+assert.match(motion, /translateY\(22px\) scale\(\.965\)[\s\S]*?stagger\(42\)[\s\S]*?duration:\s*520/,
+  'card entrances are perceptible, staggered, and limited to a short sequence');
+assert.match(motion, /transitionAppPage[\s\S]*?duration:\s*190/,
+  'page changes use a coordinated outgoing/incoming transition');
+assert.match(motion, /function animatePageEnter[\s\S]*?duration:\s*330/,
+  'cached pages also get a deliberate incoming entrance after navigation');
+assert.match(motion, /animateProfilePanel[\s\S]*?duration:\s*420/,
+  'profile section changes have a deliberate panel entrance');
+assert.match(motion, /function stopMotion\([\s\S]*?animation\.cancel\?\.\(\)[\s\S]*?anime-motion-ready/,
+  'active animation is canceled and prepared styles cleared when reduced motion is enabled');
+assert.match(motion, /prefers-reduced-motion:\s*reduce/,
+  'the animation runtime checks the operating-system motion preference');
+assert.match(main, /installAppMotion\(\)/,
+  'app motion is installed before initial rendering');
+assert.match(feed, /transitionAppPage\(/,
+  'navigation uses the shared page transition');
+assert.match(profile, /animateProfilePanel\(panel\)/,
+  'profile tabs animate the newly selected section');
+assert.match(ratingModal, /animateOverlayExit\(modal, removeModal\)/,
+  'rating modal has a coordinated animated exit');
+assert.match(ratingModal, /animateScoreBubble\(bubble, selectedScore \?\? val\)/,
+  'intentional score changes get a distinct rating-feedback motion');
 assert.match(ratingModal, /prefers-reduced-motion:\s*reduce[\s\S]*?removeModal\(\)/,
   'closing animation is skipped when reduced motion is requested');
-assert.match(ratingModal, /window\.setTimeout\(removeModal, 260\)/,
-  'modal cleanup has a bounded fallback if the WebView misses animationend');
+assert.match(ratingModal, /window\.setTimeout\(removeModal, 620\)/,
+  'modal cleanup has a bounded fallback if an embedded WebView misses animation callbacks');
 assert.match(ratingModal, /renderValue\(!fromSlider\)/,
-  'the score pop is reserved for deliberate stepper taps, not continuous slider movement');
-assert.match(html, /@keyframes rating-value-pop[\s\S]*?scale:/,
-  'score feedback uses a compositor-friendly scale animation');
+  'the score feedback is reserved for deliberate stepper taps, not continuous slider movement');
 assert.match(html, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation-duration:\s*\.01ms/,
-  'global motion is reduced for accessibility');
-assert.doesNotMatch(ratingModal, /from ['"]animejs['"]|from ['"]motion['"]|from ['"]framer-motion['"]|https?:\/\/.*animejs/,
-  'the offline-first app does not add a remote animation dependency');
-console.log('Spring easing, modal exit, intentional score feedback, and reduced-motion paths: OK');
+  'global CSS motion is reduced for accessibility');
+assert.match(sw, /gulrating-v56[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
+  'the offline shell precaches the animation engine and app motion module under a fresh cache version');
+assert.doesNotMatch(motion, /from ['"]animejs['"]|from ['"]motion['"]|from ['"]framer-motion['"]|https?:\/\/.*animejs/,
+  'the offline-first app does not import or download an animation dependency remotely');
+console.log('Coordinated page/modal motion, staggered cards, score feedback, offline precache, and reduced-motion paths: OK');
