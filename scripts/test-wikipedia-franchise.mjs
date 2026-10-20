@@ -1,21 +1,11 @@
 #!/usr/bin/env node
-// Wikipedia chronology links are crawled before the curated film-list fallback.
+// Only explicit Wikipedia previous/next rows define franchise membership.
 import assert from 'node:assert/strict';
 import { getWikipediaFranchiseTitles } from '../src/lib/wikipedia.js';
 import { onRequestGet } from '../functions/wiki/[[path]].js';
 
 const originalFetch = globalThis.fetch;
 const requests = [];
-const filmLinks = [
-  { title: 'Despicable Me', year: 2010 },
-  { title: 'Despicable Me 2', year: 2013 },
-  { title: 'Despicable Me 3', year: 2017 },
-  { title: 'Despicable Me 4', year: 2024 },
-  { title: 'Minions', year: 2015 },
-  { title: 'Minions: The Rise of Gru', year: 2022 },
-  { title: 'Minions & Monsters', year: 2026 },
-];
-
 try {
   globalThis.fetch = async (input, options = {}) => {
     const url = new URL(String(input));
@@ -58,54 +48,6 @@ try {
       ] } });
     }
 
-    if (url.searchParams.get('prop') === 'tocdata') {
-      const title = url.searchParams.get('page');
-      if (title === 'Jim Carrey filmography') {
-        return Response.json({ parse: { tocdata: { sections: [
-          { index: '1', tocLevel: 1, line: 'Film' },
-          { index: '2', tocLevel: 1, line: 'Television' },
-        ] } } });
-      }
-      if (title === 'Mystery (film series)') {
-        return Response.json({ parse: { tocdata: { sections: [
-          { index: '1', tocLevel: 1, line: 'Films' },
-          { index: '2', tocLevel: 2, line: 'Mystery (2010)' },
-          { index: '3', tocLevel: 2, line: 'Mystery Two (2012)' },
-        ] } } });
-      }
-      if (title === 'Despicable Me (franchise)') {
-        return Response.json({ parse: { tocdata: { sections: [
-          { index: '1', tocLevel: 1, line: 'Feature films' },
-          { index: '2', tocLevel: 2, line: 'Main series' },
-          { index: '3', tocLevel: 3, line: 'Despicable Me (2010)' },
-          { index: '4', tocLevel: 3, line: 'Despicable Me 2 (2013)' },
-          { index: '5', tocLevel: 3, line: 'Despicable Me 3 (2017)' },
-          { index: '6', tocLevel: 3, line: 'Despicable Me 4 (2024)' },
-          { index: '7', tocLevel: 2, line: 'Prequel series' },
-          { index: '8', tocLevel: 3, line: 'Minions (2015)' },
-          { index: '9', tocLevel: 3, line: 'Minions: The Rise of Gru (2022)' },
-          { index: '10', tocLevel: 3, line: 'Minions & Monsters (2026)' },
-          { index: '11', tocLevel: 1, line: 'Short films' },
-          { index: '12', tocLevel: 1, line: 'Television series' },
-        ] } } });
-      }
-      return Response.json({ parse: { tocdata: { sections: [{ index: '1', line: 'Production' }] } } });
-    }
-
-    if (url.searchParams.get('prop') === 'links') {
-      const section = url.searchParams.get('section');
-      if (url.searchParams.get('page') === 'Jim Carrey filmography' && section === '1') {
-        return Response.json({ parse: { links: [
-          { ns: 0, '*': 'Sonic the Hedgehog 3' },
-          { ns: 0, '*': 'Sonic the Hedgehog 4' },
-        ] } });
-      }
-      const links = section === '2'
-        ? filmLinks.map(({ title }) => ({ ns: 0, '*': title }))
-        : [{ ns: 0, '*': 'Minions: The Rise of Gru' }];
-      return Response.json({ parse: { links } });
-    }
-
     if (url.searchParams.get('prop') === 'text') {
       const page = url.searchParams.get('page');
       const rows = {
@@ -114,7 +56,7 @@ try {
           <tr><th scope="row">Next film</th><td><a href="/wiki/Chronology_Beta">Chronology Beta</a></td></tr>
           <tr><th scope="row">Production</th><td><a href="/wiki/Unrelated_Title">Unrelated Title</a></td></tr></table>`,
         'Chronology Zero': '<table><tr><th>Следующий фильм</th><td><a href="/wiki/Chronology_Alpha_(2000_film)">Chronology Alpha</a></td></tr></table>',
-        'Chronology Beta': '<table><tr><th>Previous film</th><td><a href="/wiki/Chronology_Alpha_(2000_film)">Chronology Alpha</a></td></tr><tr><th>Next film</th><td><a href="/wiki/Chronology_Gamma">Chronology Gamma</a></td></tr></table>',
+        'Chronology Beta': '<table><tr><th>Previous film</th><td><a href="/wiki/Chronology_Alpha_(2000_film)">Chronology Alpha</a></td></tr><tr><th>Next film</th><td><a href="/wiki/Chronology_Gamma">Chronology Gamma</a></td></tr><tr><th>Next television series</th><td><a href="/wiki/Chronology_Series">Chronology Series</a></td></tr><tr><th>Related series</th><td><a href="/wiki/Unrelated_TV">Unrelated TV</a></td></tr></table>',
         'Chronology Gamma': '<table><tr><th>Previous film</th><td><a href="/wiki/Chronology_Beta">Chronology Beta</a></td></tr></table>',
       };
       return Response.json({ parse: { text: { '*': rows[page] || '' } } });
@@ -124,26 +66,27 @@ try {
   };
 
   const titles = await getWikipediaFranchiseTitles('Гадкий я 4', 'Despicable Me 4');
-  assert.deepEqual(titles, filmLinks.map(entry => ({ ...entry, media_type: 'movie' })));
-  assert.ok(requests.some(({ url }) => url.searchParams.get('prop') === 'tocdata'
-    && url.searchParams.get('page') === 'Despicable Me (franchise)'),
-  'search-result article is inspected for an explicit film list');
-  assert.equal(requests.some(({ url }) => url.searchParams.get('section') === '11'), false,
-    'short-film list sections are excluded from feature-film tabs');
+  assert.deepEqual(titles, [],
+    'a broad franchise article or list of films is not used without explicit previous/next rows');
+  assert.ok(requests.some(({ url }) => url.searchParams.get('prop') === 'text'),
+    'the exact title page is inspected for explicit chronology rows');
+  assert.equal(requests.some(({ url }) => url.searchParams.get('prop') === 'tocdata'), false,
+    'franchise article section lists are never consulted');
   const requestCount = requests.length;
   assert.deepEqual(await getWikipediaFranchiseTitles('Despicable Me 4', 'Гадкий я 4'), titles);
-  assert.equal(requests.length, requestCount, 'article-derived title lists are cached locally');
+  assert.equal(requests.length, requestCount, 'chronology results are cached locally');
 
   const chronologyRequestStart = requests.length;
   const chronologyTitles = await getWikipediaFranchiseTitles(
     'Chronology Alpha', 'Chronology Alpha', '2000-01-01', 'movie'
   );
   assert.deepEqual(
-    chronologyTitles.map(entry => entry.title).sort(),
-    ['Chronology Alpha (2000 film)', 'Chronology Beta', 'Chronology Gamma', 'Chronology Zero'],
-    'follow explicit previous/next film links in both directions and several steps'
+    chronologyTitles.map(entry => `${entry.media_type}:${entry.title}`).sort(),
+    ['movie:Chronology Alpha (2000 film)', 'movie:Chronology Beta', 'movie:Chronology Gamma',
+      'movie:Chronology Zero', 'tv:Chronology Series'],
+    'follow previous/next rows across films and include a TV series only when an explicit chronology row links it'
   );
-  assert.equal(chronologyTitles.some(entry => entry.title === 'Unrelated Title' || entry.title === 'Chronology'), false,
+  assert.equal(chronologyTitles.some(entry => ['Unrelated Title', 'Unrelated TV', 'Chronology'].includes(entry.title)), false,
     'ignore unrelated rows and secondary franchise links in the chronology infobox');
   assert.ok(requests.slice(chronologyRequestStart).some(({ url }) => url.searchParams.get('prop') === 'text'),
     'inspect each film article for chronology links');
@@ -161,10 +104,8 @@ try {
   ), false, 'a person’s filmography must not be used as a franchise list');
 
   const fallbackTitles = await getWikipediaFranchiseTitles('Мистика 2', 'Mystery Two');
-  assert.deepEqual(fallbackTitles, [
-    { title: 'Mystery', media_type: 'movie', year: 2010 },
-    { title: 'Mystery Two', media_type: 'movie', year: 2012 },
-  ], 'a targeted film-series article search is tried when basic title results have no list');
+  assert.deepEqual(fallbackTitles, [],
+    'broad series-list pages do not populate franchise results without explicit chronology rows');
 
   const proxyRequests = [];
   const proxyOptions = [];
@@ -190,4 +131,4 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-console.log('Wikipedia chronology traversal, film-list fallback, and Pages proxy: OK');
+console.log('Wikipedia explicit chronology traversal, TV-series rows, and Pages proxy: OK');

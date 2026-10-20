@@ -8,7 +8,7 @@ const QUEUE_KEY = 'gulrating:pending_ratings';
 
 // Похоже ли ошибка на отсутствие сети (а не на отказ базы или прав доступа)
 export function networkLikeError(e) {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  // Оцениваем текст реальной ошибки, а не navigator.onLine (в APK WebView он часто неверен).
   const msg = (e && e.message) || '';
   return /Failed to fetch|NetworkError|Load failed|network|503|Unable to access/i.test(msg);
 }
@@ -57,13 +57,18 @@ export async function flushPendingRatings(userId) {
   if (!queue.length) return 0;
   let sent = 0;
   const left = [];
-  for (const item of queue) {
+  for (let index = 0; index < queue.length; index += 1) {
+    const item = queue[index];
     try {
       await saveRating(userId, item.title_id, item.media_type, item.rating, item.comment || '');
       sent += 1;
     } catch (e) {
       left.push(item);
-      if (networkLikeError(e)) break;
+      if (networkLikeError(e)) {
+        // Не теряем последующие элементы очереди, до которых из-за сети не дошли.
+        left.push(...queue.slice(index + 1));
+        break;
+      }
     }
   }
   writeQueue(left);

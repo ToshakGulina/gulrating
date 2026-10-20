@@ -191,6 +191,11 @@ const PERSONAL_EMPTY_HINT = 'Появится, когда вы оцените ф
 let lastNewToastAt = 0;     // троттлинг тоста «новое в ленте»
 let searchDocClickHandler = null; // document-обработчик клика из поиска
 let onlineFlushHandler = null;    // автосинк отложенных оценок при появлении сети
+let pendingFlushTimer = null;
+let pendingFlushUser = null;
+let pendingFlushDelayMs = 5000;
+let pendingFlushRunning = false;
+let pendingFlushGeneration = 0;
 let filtersResizeHandler = null;  // пересчёт отступа липких фильтров
 let notifChangedHandler = null;   // обновление бейджа колокольчика
 let feedLayoutHandler = null;
@@ -294,7 +299,58 @@ async function loadFeedPeople(currentUser) {
   if (activeRatingsUserId !== previousSelection) await loadRatings(currentUser, activeFilter);
 }
 
+function schedulePendingFlush(currentUser, delay = pendingFlushDelayMs) {
+  if (!currentUser || !currentUser.id || !getPendingRatings().length || pendingFlushTimer) return;
+  pendingFlushTimer = setTimeout(() => {
+    pendingFlushTimer = null;
+    attemptPendingFlush(currentUser);
+  }, delay);
+}
+
+async function attemptPendingFlush(currentUser, { manual = false } = {}) {
+  if (!currentUser || !currentUser.id || pendingFlushRunning) return 0;
+  if (!getPendingRatings().length) {
+    pendingFlushDelayMs = 5000;
+    paintPending();
+    return 0;
+  }
+  pendingFlushRunning = true;
+  const generation = pendingFlushGeneration;
+  let sent = 0;
+  try { sent = await flushPendingRatings(currentUser.id); } catch (e) { sent = 0; }
+  pendingFlushRunning = false;
+  if (generation !== pendingFlushGeneration) return sent;
+
+  const stillPending = getPendingRatings().length > 0;
+  if (sent) {
+    pendingFlushDelayMs = 5000;
+    showToast(`Отложенные оценки отправлены в базу: ${sent}`, 'success');
+    if (currentUser.offlineOnly) window.dispatchEvent(new Event('gulrating:network-restored'));
+    paintPending();
+    if (feedEl('ratings-list')) {
+      loadRatings(currentUser, activeFilter);
+      recsCache.dbAt = 0;
+      loadRecs(currentUser);
+    }
+  }
+  if (stillPending) {
+    if (manual && !sent) {
+      showToast('Не удалось связаться с сервером. Оценки сохранены на устройстве; повторим автоматически.', 'info', 5000);
+    }
+    pendingFlushDelayMs = Math.min(pendingFlushDelayMs * 2, 60000);
+    schedulePendingFlush(currentUser, pendingFlushDelayMs);
+  } else {
+    pendingFlushDelayMs = 5000;
+    paintPending();
+  }
+  return sent;
+}
+
 export function cleanupFeed() {
+  pendingFlushGeneration += 1;
+  clearTimeout(pendingFlushTimer);
+  pendingFlushTimer = null;
+  pendingFlushUser = null;
   feedPeopleRequestGeneration += 1;
   if (feedChannel) {
     supabase.removeChannel(feedChannel);
@@ -331,6 +387,9 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
   const page = mountPage(app, 'feed');
   feedRoot = page.root;
   if (!page.isNew) {
+    pendingFlushUser = currentUser;
+    schedulePendingFlush(currentUser, 1500);
+    page.root.querySelector('#offline-mode-banner')?.classList.toggle('hidden', !currentUser.offlineOnly);
     applyFeedOrder();
     if (refresh) {
       activeSort = readSort();
@@ -342,6 +401,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
   }
 
   cleanupFeed();
+  pendingFlushUser = currentUser;
   lastTrendColumns = 0;
   trendsHavePainted = false;
   lastRenderedTrendTab = null;
@@ -360,7 +420,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
           <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
             class="w-10 h-10 rounded-full bg-slate-700 border border-slate-600">
           <div class="min-w-0 flex-1">
-            <h1 class="text-xl font-bold leading-tight truncate">Привет, ${escapeHtml(currentUser.profile.username)}! 👋</h1>
+            <h1 class="top-header-title text-xl font-bold leading-tight truncate">Привет, ${escapeHtml(currentUser.profile.username)}! 👋</h1>
             <p class="text-xs text-gray-400">${escapeHtml(todayCaption())}</p>
           </div>
           <button id="notif-btn" class="relative flex-shrink-0 w-10 h-10 rounded-xl bg-card hover:bg-slate-700 flex items-center justify-center" aria-label="Уведомления" title="Уведомления">
@@ -379,11 +439,9 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
         <div id="search-results" class="absolute left-4 right-4 mt-2 bg-card rounded-xl border border-slate-700 shadow-xl z-30 max-h-96 overflow-y-auto scrollbar-hide hidden"></div>
       </div>
 
-      ${currentUser.offlineOnly ? `
-        <div class="mx-4 mt-3 rounded-xl border border-amber-700/50 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
-          Офлайн-режим: показаны сохранённые данные. Серверная синхронизация продолжится при появлении сети.
-        </div>
-      ` : ''}
+      <div id="offline-mode-banner" class="mx-4 mt-3 rounded-xl border border-amber-700/50 bg-amber-950/40 px-3 py-2 text-xs text-amber-200 ${currentUser.offlineOnly ? '' : 'hidden'}">
+        Офлайн-режим: показаны сохранённые данные. Серверная синхронизация продолжится автоматически.
+      </div>
       <div class="p-4">
         <!-- Фильтры и сортировка: прилипают под шапкой и не исчезают при прокрутке -->
         <div id="feed-filters" class="sticky z-10 -mx-4 px-4 pt-2 pb-3 bg-dark/95 backdrop-blur-card">
@@ -530,30 +588,23 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
   };
   window.addEventListener('resize', filtersResizeHandler);
 
-  // Очередь офлайн-оценок: баннер, ручная отправка
+  // Очередь оценок: пробуем сразу после открытия ленты и повторяем с backoff,
+  // даже если WebView ошибочно считает 5G-соединение отсутствующим.
+  schedulePendingFlush(currentUser, 1500);
   paintPending();
   feedEl('pending-flush').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
-    const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
+    await attemptPendingFlush(currentUser, { manual: true });
     btn.disabled = false;
-    if (sent) showToast(`Отправлено отложенных оценок: ${sent}`, 'success');
-    paintPending();
-    loadRatings(currentUser, activeFilter);
   });
 
-  // Сеть появилась: отложенные оценки улетают сами. Ничего не перерисовываем,
-  // если очереди не было: браузеры могут прислать online при возврате во вкладку.
-  onlineFlushHandler = async () => {
-    const sent = await flushPendingRatings(currentUser.id).catch(() => 0);
-    if (!sent) return;
-    showToast(`Отложенные оценки отправлены в базу: ${sent}`, 'success');
-    paintPending();
-    if (feedEl('ratings-list')) {
-      loadRatings(currentUser, activeFilter);
-      recsCache.dbAt = 0;
-      loadRecs(currentUser);
-    }
+  // Событие online лишь ускоряет уже запланированную попытку — очередь
+  // проверяется на старте и автоматически повторяется независимо от него.
+  onlineFlushHandler = () => {
+    clearTimeout(pendingFlushTimer);
+    pendingFlushTimer = null;
+    attemptPendingFlush(currentUser);
   };
   window.addEventListener('online', onlineFlushHandler);
 
@@ -912,13 +963,20 @@ function applyFeedOrder() {
 
 // Баннер очереди отложенных оценок
 function paintPending() {
+  const pending = getPendingRatings();
+  if (pending.length) {
+    schedulePendingFlush(pendingFlushUser);
+  } else {
+    clearTimeout(pendingFlushTimer);
+    pendingFlushTimer = null;
+    pendingFlushDelayMs = 5000;
+  }
   const banner = feedEl('pending-banner');
   if (!banner) return;
-  const pending = getPendingRatings();
   banner.classList.toggle('hidden', pending.length === 0);
   if (!pending.length) return;
   const textEl = feedEl('pending-text');
-  if (textEl) textEl.textContent = `📴 Отложенных оценок: ${pending.length} — отправятся в базу при появлении сети`;
+  if (textEl) textEl.textContent = `📴 Отложенных оценок: ${pending.length} — приложение автоматически пытается отправить их на сервер`;
 }
 
 function ratingCountLabel(count) {

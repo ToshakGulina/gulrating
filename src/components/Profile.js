@@ -319,7 +319,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
               <p class="text-xs text-gray-500 mt-1 mb-3">Тема меняет фон, карточки, текст и акценты. Выбор сохраняется на устройстве и синхронизируется с аккаунтом.</p>
               <div id="theme-options" class="theme-options">
                 ${THEMES.map(theme => `<button type="button" class="theme-option" data-theme-id="${theme.id}" aria-pressed="false" aria-label="${theme.name}: ${theme.description}">
-                  <span class="theme-preview ${theme.id === 'nothing' ? 'theme-preview-nothing' : ''}" aria-hidden="true">
+                  <span class="theme-preview ${theme.id === 'nothing' ? 'theme-preview-nothing' : ''} ${theme.id === 'glass' ? 'theme-preview-glass' : ''}" aria-hidden="true">
                     <span style="background-color:rgb(${theme.preview.bg})"></span>
                     <span style="background-color:rgb(${theme.preview.card})"></span>
                     <span style="background-color:rgb(${theme.preview.primary})"></span>

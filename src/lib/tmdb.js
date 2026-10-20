@@ -252,21 +252,6 @@ function normalizeArticleTitle(value) {
     .trim();
 }
 
-const FRANCHISE_STOP_WORDS = new Set(['the', 'and', 'part', 'film', 'movie', 'series', 'сериал', 'фильм', 'часть']);
-
-function isRelatedFranchiseTitle(candidate, referenceTitles) {
-  const candidateTitle = normalizeArticleTitle(candidate);
-  if (!candidateTitle) return false;
-  const referenceNames = referenceTitles.map(normalizeArticleTitle).filter(Boolean);
-  if (referenceNames.includes(candidateTitle)) return true;
-  const candidateWords = new Set(candidateTitle.split(' ').filter(word =>
-    word.length >= 3 && !FRANCHISE_STOP_WORDS.has(word)
-  ));
-  return referenceNames.some(reference => reference.split(' ').some(word =>
-    word.length >= 3 && !FRANCHISE_STOP_WORDS.has(word) && candidateWords.has(word)
-  ));
-}
-
 async function resolveArticleTitles(articleTitles) {
   const resolved = [];
   let cursor = 0;
@@ -296,70 +281,19 @@ async function resolveArticleTitles(articleTitles) {
   return resolved;
 }
 
-// Берём перечень из первой релевантной статьи Wikipedia с секцией фильмов,
-// сопоставляя каждую ссылку только с точным названием в TMDb. Если такой
-// статьи/сопоставлений нет, используем только официальную TMDb-коллекцию.
+// Собираем части только по явным строкам Wikipedia «предыдущая/следующая».
+// TMDb-коллекцию не подмешиваем: там могут быть нерелевантные тайтлы.
 export async function getFranchiseTitles(id, mediaType) {
   const current = await getTitleDetails(id, mediaType);
-  const [discoveredArticleTitles, collection] = await Promise.all([
-    getWikipediaFranchiseTitles(
-      current.title,
-      current.original_title,
-      current.release_date || current.first_air_date,
-      mediaType
-    ).catch(() => []),
-    mediaType === 'movie' && current.collection_id
-      ? getMovieCollection(current.collection_id).catch(() => null)
-      : Promise.resolve(null),
-  ]);
-  // Wikipedia section links can include unrelated people, documentaries, and
-  // citation links. Exact TMDb matches alone are not enough (e.g. a person
-  // named in a Dune article can resolve to a same-named film). Keep entries
-  // sharing a distinctive word with the current title; the TMDb collection
-  // remains the fallback for franchises with differently named spin-offs.
-  const referenceTitles = [current.title, current.original_title].filter(Boolean);
-  const articleTitles = discoveredArticleTitles.filter(entry =>
-    isRelatedFranchiseTitle(entry?.title, referenceTitles)
-  );
+  const articleTitles = await getWikipediaFranchiseTitles(
+    current.title,
+    current.original_title,
+    current.release_date || current.first_air_date,
+    mediaType
+  ).catch(() => []);
   const articleParts = await resolveArticleTitles(articleTitles);
-
   const byKey = new Map();
-  // Если Wikipedia явно указала связанные части, не подмешиваем посторонние
-  // элементы коллекции TMDb даже когда точный поиск не нашёл часть в каталоге.
-  const currentArticleNames = new Set([current.title, current.original_title]
-    .map(normalizeArticleTitle)
-    .filter(Boolean));
-  const hasRelatedWikipediaTitle = articleTitles.some(entry =>
-    !currentArticleNames.has(normalizeArticleTitle(entry.title))
-  );
-  const hasRelatedArticlePart = articleParts.some(part =>
-    Number(part.id) !== Number(id) || part.media_type !== mediaType
-  );
-  if (hasRelatedWikipediaTitle || hasRelatedArticlePart) {
-    for (const part of articleParts) byKey.set(`${part.media_type}:${part.id}`, part);
-    // Keep a listed film when TMDb search could not resolve its name, but only
-    // if the official collection has the same title and compatible article year.
-    for (const collectionPart of collection?.parts || []) {
-      const normalizedCollectionTitle = normalizeArticleTitle(collectionPart.title);
-      const listedInArticle = articleTitles.some(entry => {
-        if (entry.media_type === 'tv' || normalizeArticleTitle(entry.title) !== normalizedCollectionTitle) return false;
-        if (!entry.year) return true;
-        const collectionYear = Number(String(collectionPart.release_date || '').slice(0, 4));
-        return !collectionYear || Math.abs(collectionYear - Number(entry.year)) <= 1;
-      });
-      if (listedInArticle) byKey.set(`movie:${collectionPart.id}`, {
-        ...collectionPart,
-        media_type: 'movie',
-        poster_path: null,
-      });
-    }
-  } else {
-    for (const part of collection?.parts || []) {
-      if (!part?.id) continue;
-      byKey.set(`movie:${part.id}`, { ...part, media_type: 'movie', poster_path: null });
-    }
-  }
-
+  for (const part of articleParts) byKey.set(`${part.media_type}:${part.id}`, part);
   byKey.set(`${mediaType}:${id}`, { ...current, media_type: mediaType });
   return [...byKey.values()].sort((a, b) => {
     const dateA = a.release_date || a.first_air_date || '9999-12-31';
