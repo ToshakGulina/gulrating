@@ -23,6 +23,10 @@ jobs:
         run: node scripts/test-button-ripple.mjs
       - name: Test player cinema mode
         run: node scripts/test-cinema-mode.mjs
+      - name: Test playback history Continue behavior
+        run: node scripts/test-watch-continue.mjs
+      - name: Test main site header layout
+        run: node scripts/test-main-header-layout.mjs
       - name: Check helper scripts
         run: sh -n scripts/build-css.sh && sh -n scripts/release-notes.sh
       - name: Test Kinobox Pages Function proxy

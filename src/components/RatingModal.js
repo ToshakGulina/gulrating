@@ -107,16 +107,16 @@ function markBadDub(type, name) {
 }
 
 export function openWatchOverlay(opts) {
-  const { kpId, imdbId, query, titleText, mirrorUrl, watchKey } = opts || {};
+  const { kpId, imdbId, query, titleText, mirrorUrl, watchKey, resumeFromHistory = false } = opts || {};
   const apk = isApk();
   const ov = document.createElement('div');
   ov.id = 'watch-overlay';
   ov.className = 'fixed inset-0 z-50 bg-black/95 flex flex-col p-3 gap-2';
   ov.innerHTML = `
-    <div class="watch-header flex items-center gap-2">
-      <h3 class="text-sm font-semibold text-white truncate flex-1">▶ ${escapeHtml(titleText || '')}</h3>
-      <button id="watch-cinema" type="button" class="watch-cinema-toggle" aria-pressed="false" aria-label="Включить кинорежим">⛶ <span>Кинорежим</span></button>
-      <button id="watch-close" class="rounded-xl px-2 py-1 text-2xl leading-none text-gray-300 hover:bg-slate-800 hover:text-white" aria-label="Закрыть плеер">&times;</button>
+    <div class="watch-header">
+      <h3 class="text-sm font-semibold text-white truncate min-w-0">▶ ${escapeHtml(titleText || '')}</h3>
+      <button id="watch-cinema" type="button" class="watch-cinema-toggle" aria-pressed="false" aria-label="Включить кинорежим" title="Включить кинорежим">⛶</button>
+      <button id="watch-close" type="button" class="watch-close" aria-label="Закрыть плеер" title="Закрыть плеер">&times;</button>
     </div>
     <div id="watch-stage" class="flex-1 relative min-h-0 rounded-xl overflow-hidden bg-black/60 flex items-center justify-center" role="region" aria-label="Видеоплеер" tabindex="-1">
       <p id="watch-status" class="text-sm text-gray-400 px-4 text-center">Ищем доступные плееры…</p>
@@ -145,6 +145,7 @@ export function openWatchOverlay(opts) {
   const cinemaBtn = ov.querySelector('#watch-cinema');
   const badBtn = ov.querySelector('#watch-bad');
   let cinemaMode = false;
+  let cinemaCursorTimer = null;
   let mirrorMode = false;
   let hasPlayed = false;
   let loadGeneration = 0;
@@ -157,19 +158,40 @@ export function openWatchOverlay(opts) {
   const closeWatchOverlay = () => {
     if (overlayClosed) return;
     overlayClosed = true;
+    window.clearTimeout(cinemaCursorTimer);
     stopProgressTracking();
     removeOverlayListeners();
     ov.remove();
     document.body.style.overflow = previousBodyOverflow;
     document.documentElement.classList.remove('watch-player-open');
   };
+  const scheduleCinemaCursorHide = () => {
+    window.clearTimeout(cinemaCursorTimer);
+    if (!cinemaMode) return;
+    cinemaCursorTimer = window.setTimeout(() => {
+      if (cinemaMode) ov.classList.add('cinema-cursor-hidden');
+    }, 1200);
+  };
+  const revealCinemaCursor = (event) => {
+    if (!cinemaMode || event.pointerType === 'touch') return;
+    ov.classList.remove('cinema-cursor-hidden');
+    scheduleCinemaCursorHide();
+  };
+  ov.addEventListener('pointermove', revealCinemaCursor);
+  ov.addEventListener('pointerdown', revealCinemaCursor);
   const setCinemaMode = (enabled) => {
     cinemaMode = Boolean(enabled);
     ov.classList.toggle('cinema-mode', cinemaMode);
     cinemaBtn.setAttribute('aria-pressed', String(cinemaMode));
     cinemaBtn.setAttribute('aria-label', cinemaMode ? 'Выйти из кинорежима' : 'Включить кинорежим');
-    cinemaBtn.innerHTML = cinemaMode ? '⛶ <span>Выйти</span>' : '⛶ <span>Кинорежим</span>';
-    if (cinemaMode) cinemaBtn.focus({ preventScroll: true });
+    cinemaBtn.title = cinemaMode ? 'Выйти из кинорежима' : 'Включить кинорежим';
+    if (cinemaMode) {
+      cinemaBtn.focus({ preventScroll: true });
+      scheduleCinemaCursorHide();
+    } else {
+      window.clearTimeout(cinemaCursorTimer);
+      ov.classList.remove('cinema-cursor-hidden');
+    }
   };
   cinemaBtn.addEventListener('click', () => setCinemaMode(!cinemaMode));
 
@@ -668,8 +690,12 @@ export function openWatchOverlay(opts) {
         curName = (last && startG.dubs.find((d) => d.name === last.name) ? last.name : (startG.dubs[0] || {}).name) || null;
         renderPlayers();
         renderDubs();
-        if (!apk && hasPlayed) {
-          play(curDub(), startG, true);
+        if (hasPlayed || resumeFromHistory) {
+          const resumeDub = curDub();
+          if (resumeDub) {
+            play(resumeDub, startG, true);
+            if (resumeFromHistory) remember();
+          }
         } else if (!apk) {
           stage.innerHTML = '<p class="text-sm text-gray-300 px-4 text-center">Выберите озвучку ниже — плеер запустится, а источники останутся доступны.</p>';
         } else {

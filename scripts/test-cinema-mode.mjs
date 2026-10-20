@@ -10,6 +10,18 @@ assert.match(player, /id="watch-cinema"[^>]*aria-pressed="false"[^>]*aria-label=
   'the player exposes an accessible cinema-mode toggle');
 assert.match(player, /ov\.classList\.toggle\('cinema-mode', cinemaMode\)/,
   'the toggle applies and removes cinema mode on the player overlay');
+assert.match(player, /ov\.addEventListener\('pointermove', revealCinemaCursor\)/,
+  'mouse movement reveals the cursor in cinema mode');
+assert.match(player, /},\s*1200\)/,
+  'the cursor hides again after brief inactivity');
+assert.match(player, /cinema-cursor-hidden/,
+  'cursor visibility is managed separately from the exit control');
+assert.match(html, /\.watch-header\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) 2\.75rem 2\.75rem/,
+  'the title and two header controls use fixed, non-overlapping columns');
+assert.match(html, /\.watch-cinema-toggle, \.watch-close\s*\{[\s\S]*?width:\s*2\.75rem[\s\S]*?height:\s*2\.75rem/,
+  'cinema and close controls have equal square dimensions');
+assert.match(html, /cinema-cursor-hidden[\s\S]*?cursor:\s*none\s*!important/,
+  'cinema mode hides the pointer after inactivity');
 assert.match(player, /cinemaBtn\.setAttribute\('aria-pressed', String\(cinemaMode\)\)/,
   'assistive technology can read the current toggle state');
 assert.match(player, /if \(cinemaMode\) \{\s*setCinemaMode\(false\);\s*return;/,
