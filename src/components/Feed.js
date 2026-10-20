@@ -403,7 +403,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
 
   page.root.innerHTML = `
     <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
-      <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800 safe-top">
+      <div class="app-header sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800 safe-top">
         <div class="flex items-center gap-3 mb-3">
           <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
             class="w-10 h-10 rounded-full bg-slate-700 border border-slate-600">
@@ -434,7 +434,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
       </div>
       <div class="p-4">
         <!-- Фильтры и сортировка: прилипают под шапкой и не исчезают при прокрутке -->
-        <div id="feed-filters" class="sticky z-10 -mx-4 px-4 pt-2 pb-3 bg-dark/95 backdrop-blur-card">
+        <div id="feed-filters" class="app-header sticky z-10 px-4 pt-2 pb-3 bg-dark/95 backdrop-blur-card">
         <div class="flex gap-2 mb-2 overflow-x-auto scrollbar-hide">
           <button class="filter-btn px-4 py-2 bg-primary text-white rounded-full text-sm font-medium whitespace-nowrap" data-filter="all">Все оценки</button>
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="movies">Фильмы</button>
@@ -1406,7 +1406,7 @@ function initSearch(currentUser) {
     overlay.className = 'fixed inset-0 z-40 overflow-y-auto bg-dark text-white';
     overlay.innerHTML = `
       <div class="min-h-full">
-        <header class="sticky top-0 z-10 border-b border-slate-700 bg-dark/95 px-4 py-3 backdrop-blur-card safe-top">
+        <header class="app-header sticky top-0 z-10 border-b border-slate-700 bg-dark/95 px-4 py-3 backdrop-blur-card safe-top">
           <div class="mx-auto flex max-w-6xl items-center gap-3">
             <button id="search-page-back" class="rounded-xl bg-card px-3 py-2 text-sm text-gray-200 hover:bg-slate-700" aria-label="Назад к поиску">← Назад</button>
             <div class="min-w-0">

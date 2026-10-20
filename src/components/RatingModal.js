@@ -757,7 +757,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
   modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm';
   modal.innerHTML = `
     <div class="rating-modal-panel bg-card w-full max-w-lg rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
-      <div class="p-4 flex justify-between items-center border-b border-slate-700 sticky top-0 bg-card z-10">
+      <div class="app-header p-4 flex justify-between items-center border-b border-slate-700 sticky top-0 bg-card z-10">
         <h2 class="text-xl font-bold">Загружаем информацию...</h2>
         <button id="close-modal" class="text-gray-400 hover:text-white" aria-label="Закрыть">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -60,9 +60,16 @@ assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered .
   'all Nothing headings use the same 3-by-5 dot cells as score numerals');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] .title-card')
   && indexHtml.includes('backdrop-filter: blur(20px) saturate(165%)')
-  && indexHtml.includes('rgb(255 255 255 / .13)')
+  && indexHtml.includes('rgb(255 255 255 / .085)')
   && indexHtml.includes('theme-preview-glass'),
   'Glass theme combines a colorful field, translucent frosted panels, and edge highlights');
+assert.ok(indexHtml.includes(':root[data-theme="glass"] .rating-score-badge')
+  && indexHtml.includes('--glass-score-rgb: 52 211 153;')
+  && indexHtml.includes(':root[data-theme="glass"] .rating-slider::-webkit-slider-thumb'),
+  'Glass rating badges, score colors, and slider use the translucent material treatment');
+assert.ok(indexHtml.includes('.app-header {') && indexHtml.includes('border-radius: 1.5rem;'),
+  'site headers use softened rounded corners');
+assert.ok(indexHtml.includes("glass: '#080f1f'"), 'Glass browser chrome color matches the updated theme base');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit') && indexHtml.includes('grid-template-columns: repeat(3, 3px);'),
   'Nothing rating numerals should use a clear dot-matrix grid');
 assert.ok(indexHtml.includes('width: 56px;') && indexHtml.includes('justify-content: center;'),

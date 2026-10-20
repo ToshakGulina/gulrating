@@ -159,7 +159,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
 
   pageRoot.innerHTML = `
     <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
-      <div class="sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
+      <div class="app-header sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
         <div class="flex items-center justify-between">
           <h1 class="text-2xl font-bold">Профиль</h1>
           <button id="logout-btn" class="text-sm text-gray-400 hover:text-white px-3 py-1.5 rounded-lg bg-card hover:bg-slate-700">Выйти</button>
