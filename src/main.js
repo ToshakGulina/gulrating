@@ -8,6 +8,7 @@ import { applyTheme, getThemeId } from './lib/theme.js';
 import { installButtonRipple } from './lib/buttonRipple.js';
 import { installHorizontalOverflowFit } from './lib/horizontalOverflow.js';
 import { installDotMatrixHeadings } from './lib/dotMatrix.js';
+import { installAppMotion } from './lib/motion.js';
 
 // Метка сборки в консоли: помогает понять, какая версия кода работает в браузере
 // Тема из локальных настроек применяется до первой отрисовки.
@@ -15,6 +16,7 @@ applyTheme(getThemeId());
 installButtonRipple();
 installHorizontalOverflowFit();
 installDotMatrixHeadings();
+installAppMotion();
 
 console.info(`🎬 ГульРейтинг — сборка ${APP_BUILD}`);
 import { showToast } from './lib/dom.js';

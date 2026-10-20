@@ -11,6 +11,7 @@ on:
     paths:
       - 'android/**'
       - 'src/**'
+      - 'vendor/**'
       - 'assets/**'
       - 'data/offline-catalog.json'
       - 'index.html'

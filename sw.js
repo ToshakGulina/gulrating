@@ -8,10 +8,11 @@
 //    чтобы после нового деплоя пользователь сразу получал свежую версию.
 // 3. При активации новой версии старые кэши удаляются.
 
-const CACHE_VERSION = 'gulrating-v55';
+const CACHE_VERSION = 'gulrating-v57';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
+  '/vendor/anime.esm.min.js',
   '/assets/tw.css',
   '/assets/fonts/inter.css',
   '/assets/fonts/files/inter-cyrillic-ext-400-normal.woff2',
@@ -50,6 +51,7 @@ const SHELL_ASSETS = [
   '/src/lib/pageState.js',
   '/src/lib/horizontalOverflow.js',
   '/src/lib/dotMatrix.js',
+  '/src/lib/motion.js',
   '/src/lib/money.js',
   '/src/lib/wikipedia.js',
   '/src/lib/buttonRipple.js',
