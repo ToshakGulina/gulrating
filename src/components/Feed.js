@@ -435,7 +435,7 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
       </div>
       <div class="p-4">
         <!-- Фильтры и сортировка: прилипают под шапкой и не исчезают при прокрутке -->
-        <div id="feed-filters" class="app-header sticky z-10 px-4 pt-2 pb-3 bg-dark/95 backdrop-blur-card">
+        <div id="feed-filters" class="feed-filter-panel px-4 pt-2 pb-3 bg-dark/95 backdrop-blur-card">
         <div class="flex gap-2 mb-2 overflow-x-auto scrollbar-hide">
           <button class="filter-btn px-4 py-2 bg-primary text-white rounded-full text-sm font-medium whitespace-nowrap" data-filter="all">Все оценки</button>
           <button class="filter-btn px-4 py-2 bg-card hover:bg-slate-700 rounded-full text-sm font-medium whitespace-nowrap" data-filter="movies">Фильмы</button>
