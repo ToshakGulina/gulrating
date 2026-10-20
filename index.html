@@ -429,15 +429,19 @@
       color: rgb(var(--theme-text-100)) !important;
       -webkit-text-fill-color: currentColor;
     }
-    :root[data-theme="nothing"] .top-header-title {
-      background-image: radial-gradient(circle, rgb(var(--theme-text-100)) .85px, transparent 1px);
-      background-size: 5px 5px;
-      background-position: 0 1px;
-      background-clip: text;
-      -webkit-background-clip: text;
-      color: transparent !important;
-      -webkit-text-fill-color: transparent;
+    .top-header-title-dots { display: none; }
+    :root[data-theme="nothing"] .top-header-title-plain { display: none; }
+    :root[data-theme="nothing"] .top-header-title-dots {
+      display: flex;
+      max-width: 100%;
+      align-items: center;
+      gap: 2px;
+      overflow: hidden;
+      white-space: nowrap;
+      color: rgb(var(--theme-text-100));
     }
+    :root[data-theme="nothing"] .dot-text-glyph { flex: 0 0 auto; }
+    :root[data-theme="nothing"] .dot-text-space { width: 5px; flex: 0 0 5px; }
     :root[data-theme="nothing"] h3,
     :root[data-theme="nothing"] .nav-btn span {
       letter-spacing: .02em;

@@ -36,6 +36,90 @@ const DOT_RATING_DIGITS = {
   '9': ['111', '101', '111', '001', '111'],
 };
 
+// Reuse the same 3×5 round-dot cells as rating numerals for the Nothing header.
+// Unknown username characters get the question-mark glyph rather than vanishing.
+const DOT_TEXT_GLYPHS = {
+  ...DOT_RATING_DIGITS,
+  A: ['010', '101', '111', '101', '101'],
+  B: ['110', '101', '110', '101', '110'],
+  C: ['011', '100', '100', '100', '011'],
+  D: ['110', '101', '101', '101', '110'],
+  E: ['111', '100', '110', '100', '111'],
+  F: ['111', '100', '110', '100', '100'],
+  G: ['011', '100', '101', '101', '011'],
+  H: ['101', '101', '111', '101', '101'],
+  I: ['111', '010', '010', '010', '111'],
+  J: ['001', '001', '001', '101', '010'],
+  K: ['101', '101', '110', '101', '101'],
+  L: ['100', '100', '100', '100', '111'],
+  M: ['101', '111', '111', '101', '101'],
+  N: ['101', '111', '111', '111', '101'],
+  O: ['010', '101', '101', '101', '010'],
+  P: ['110', '101', '110', '100', '100'],
+  Q: ['010', '101', '101', '111', '011'],
+  R: ['110', '101', '110', '101', '101'],
+  S: ['011', '100', '010', '001', '110'],
+  T: ['111', '010', '010', '010', '010'],
+  U: ['101', '101', '101', '101', '111'],
+  V: ['101', '101', '101', '101', '010'],
+  W: ['101', '101', '111', '111', '101'],
+  X: ['101', '101', '010', '101', '101'],
+  Y: ['101', '101', '010', '010', '010'],
+  Z: ['111', '001', '010', '100', '111'],
+  А: ['010', '101', '111', '101', '101'],
+  Б: ['111', '100', '110', '101', '110'],
+  В: ['110', '101', '110', '101', '110'],
+  Г: ['111', '100', '100', '100', '100'],
+  Д: ['011', '101', '101', '101', '111'],
+  Е: ['111', '100', '110', '100', '111'],
+  Ё: ['101', '000', '111', '100', '111'],
+  Ж: ['101', '111', '010', '111', '101'],
+  З: ['110', '001', '010', '001', '110'],
+  И: ['101', '111', '111', '111', '101'],
+  Й: ['010', '101', '111', '111', '101'],
+  К: ['101', '101', '110', '101', '101'],
+  Л: ['011', '101', '101', '101', '101'],
+  М: ['101', '111', '111', '101', '101'],
+  Н: ['101', '101', '111', '101', '101'],
+  О: ['010', '101', '101', '101', '010'],
+  П: ['111', '101', '101', '101', '101'],
+  Р: ['110', '101', '110', '100', '100'],
+  С: ['011', '100', '100', '100', '011'],
+  Т: ['111', '010', '010', '010', '010'],
+  У: ['101', '101', '010', '010', '100'],
+  Ф: ['010', '111', '101', '111', '010'],
+  Х: ['101', '101', '010', '101', '101'],
+  Ц: ['101', '101', '101', '111', '001'],
+  Ч: ['101', '101', '111', '001', '001'],
+  Ш: ['101', '101', '101', '111', '111'],
+  Щ: ['101', '101', '101', '111', '011'],
+  Ъ: ['110', '100', '110', '101', '110'],
+  Ы: ['101', '101', '110', '101', '101'],
+  Ь: ['100', '100', '110', '101', '110'],
+  Э: ['111', '001', '111', '001', '111'],
+  Ю: ['101', '111', '101', '111', '101'],
+  Я: ['011', '101', '011', '001', '101'],
+  '!': ['010', '010', '010', '000', '010'],
+  '?': ['110', '001', '010', '000', '010'],
+  ',': ['000', '000', '000', '010', '100'],
+  '.': ['000', '000', '000', '000', '010'],
+  '-': ['000', '000', '111', '000', '000'],
+  '_': ['000', '000', '000', '000', '111'],
+  ':': ['000', '010', '000', '010', '000'],
+  '@': ['111', '101', '111', '100', '111'],
+};
+
+function renderDotMatrixText(value) {
+  return [...String(value || '').toLocaleUpperCase('ru-RU')].map(character => {
+    if (character === ' ') return '<span class="dot-text-space" aria-hidden="true"></span>';
+    const rows = DOT_TEXT_GLYPHS[character] || DOT_TEXT_GLYPHS['?'];
+    const cells = rows.join('').split('').map(dot =>
+      `<i class="rating-dot-cell${dot === '1' ? ' is-on' : ''}"></i>`
+    ).join('');
+    return `<span class="rating-dot-digit dot-text-glyph" aria-hidden="true">${cells}</span>`;
+  }).join('');
+}
+
 function renderRatingDots(value) {
   return [...formatRating(value)].map(character => {
     if (character === '.') return '<span class="rating-dot-decimal"></span>';
@@ -420,7 +504,10 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
           <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
             class="w-10 h-10 rounded-full bg-slate-700 border border-slate-600">
           <div class="min-w-0 flex-1">
-            <h1 class="top-header-title text-xl font-bold leading-tight truncate">Привет, ${escapeHtml(currentUser.profile.username)}! 👋</h1>
+            <h1 class="top-header-title text-xl font-bold leading-tight truncate" aria-label="Привет, ${escapeHtml(currentUser.profile.username)}!">
+              <span class="top-header-title-plain">Привет, ${escapeHtml(currentUser.profile.username)}! 👋</span>
+              <span class="top-header-title-dots" aria-hidden="true">${renderDotMatrixText(`Привет, ${currentUser.profile.username}!`)}</span>
+            </h1>
             <p class="text-xs text-gray-400">${escapeHtml(todayCaption())}</p>
           </div>
           <button id="notif-btn" class="relative flex-shrink-0 w-10 h-10 rounded-xl bg-card hover:bg-slate-700 flex items-center justify-center" aria-label="Уведомления" title="Уведомления">
