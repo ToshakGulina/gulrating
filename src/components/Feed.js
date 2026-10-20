@@ -13,6 +13,7 @@ import { mountPage } from '../lib/pageState.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
 import { feedUserOptions, selectedFeedUserId, feedRatingsCacheKey } from '../lib/feedPeople.js';
 import { getCachedUserTitleStatus } from '../lib/ratings.js';
+import { DOT_RATING_DIGITS } from '../lib/dotMatrix.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -22,19 +23,6 @@ const SORT_OPTIONS = [
   { id: 'rating_desc', label: 'Высокие сначала' },
   { id: 'rating_asc', label: 'Низкие сначала' },
 ];
-
-const DOT_RATING_DIGITS = {
-  '0': ['111', '101', '101', '101', '111'],
-  '1': ['010', '110', '010', '010', '111'],
-  '2': ['111', '001', '111', '100', '111'],
-  '3': ['111', '001', '111', '001', '111'],
-  '4': ['101', '101', '111', '001', '001'],
-  '5': ['111', '100', '111', '001', '111'],
-  '6': ['111', '100', '111', '101', '111'],
-  '7': ['111', '001', '010', '010', '010'],
-  '8': ['111', '101', '111', '101', '111'],
-  '9': ['111', '101', '111', '001', '111'],
-};
 
 function renderRatingDots(value) {
   return [...formatRating(value)].map(character => {
@@ -420,7 +408,9 @@ export async function renderFeed(app, currentUser, { refresh = false } = {}) {
           <img src="${escapeHtml(safeAvatarUrl(currentUser.profile.avatar_url, currentUser.profile.username))}" alt=""
             class="w-10 h-10 rounded-full bg-slate-700 border border-slate-600">
           <div class="min-w-0 flex-1">
-            <h1 class="top-header-title text-xl font-bold leading-tight truncate">Привет, ${escapeHtml(currentUser.profile.username)}! 👋</h1>
+            <h1 class="top-header-title text-xl font-bold leading-tight truncate" aria-label="Привет, ${escapeHtml(currentUser.profile.username)}!">
+              Привет, ${escapeHtml(currentUser.profile.username)}! <span class="dot-matrix-ignore" aria-hidden="true">👋</span>
+            </h1>
             <p class="text-xs text-gray-400">${escapeHtml(todayCaption())}</p>
           </div>
           <button id="notif-btn" class="relative flex-shrink-0 w-10 h-10 rounded-xl bg-card hover:bg-slate-700 flex items-center justify-center" aria-label="Уведомления" title="Уведомления">

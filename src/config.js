@@ -68,7 +68,7 @@ export const CONFIG = {
 // Метка сборки: видна в профиле внизу и в консоли браузера.
 // Помогает мгновенно понять, какая версия кода реально крутится в браузере
 // (предпросмотр / локальная копия / продакшен).
-export const APP_BUILD = "2026.10.20-111 (network retries, chronology-only franchises, Glass theme)";
+export const APP_BUILD = "2026.10.20-114 (all headings and glass theme)";
 
 export function saveLocalAnonKey(key) {
   try {
