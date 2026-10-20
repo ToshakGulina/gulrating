@@ -429,19 +429,38 @@
       color: rgb(var(--theme-text-100)) !important;
       -webkit-text-fill-color: currentColor;
     }
-    .top-header-title-dots { display: none; }
-    :root[data-theme="nothing"] .top-header-title-plain { display: none; }
-    :root[data-theme="nothing"] .top-header-title-dots {
-      display: flex;
-      max-width: 100%;
-      align-items: center;
-      gap: 2px;
-      overflow: hidden;
-      white-space: nowrap;
-      color: rgb(var(--theme-text-100));
+    .dot-matrix-rendered { display: none; }
+    :root[data-theme="nothing"] .dot-matrix-ignore { display: none; }
+    :root[data-theme="nothing"] .dot-matrix-plain {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
     }
-    :root[data-theme="nothing"] .dot-text-glyph { flex: 0 0 auto; }
-    :root[data-theme="nothing"] .dot-text-space { width: 5px; flex: 0 0 5px; }
+    :root[data-theme="nothing"] .dot-matrix-rendered {
+      display: inline;
+      color: inherit;
+      -webkit-text-fill-color: currentColor;
+    }
+    :root[data-theme="nothing"] .dot-matrix-rendered .dot-text-glyph {
+      display: inline-grid;
+      margin-right: 2px;
+      vertical-align: middle;
+    }
+    :root[data-theme="nothing"] .dot-matrix-rendered .dot-text-space {
+      display: inline-block;
+      width: 5px;
+      height: 1px;
+      vertical-align: middle;
+    }
+    :root[data-theme="nothing"] .dot-text-symbol::before {
+      content: attr(data-symbol);
+    }
     :root[data-theme="nothing"] h3,
     :root[data-theme="nothing"] .nav-btn span {
       letter-spacing: .02em;

@@ -55,9 +55,9 @@ assert.ok(indexHtml.includes('--theme-bg: 0 0 0; --theme-deep: 0 0 0; --theme-ca
 assert.ok(indexHtml.includes('--theme-secondary: 142 142 142; --p-rgb: 235 235 235; --nothing-red: 215 25 33; color-scheme: dark;'));
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1') && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
   'Nothing headings should remain crisp and readable');
-assert.ok(indexHtml.includes(':root[data-theme="nothing"] .top-header-title-dots')
-  && indexHtml.includes(':root[data-theme="nothing"] .dot-text-glyph'),
-  'Nothing top header uses the same 3-by-5 dot cells as score numerals');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered .dot-text-glyph')
+  && indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
+  'all Nothing headings use the same 3-by-5 dot cells as score numerals');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] .title-card')
   && indexHtml.includes('backdrop-filter: blur(16px) saturate(138%)')
   && indexHtml.includes('theme-preview-glass'),
@@ -76,13 +76,25 @@ const feedJs = await readFile(new URL('../src/components/Feed.js', import.meta.u
 const profileJs = await readFile(new URL('../src/components/Profile.js', import.meta.url), 'utf8');
 assert.ok(profileJs.includes("theme.id === 'glass' ? 'theme-preview-glass' : ''"),
   'Glass receives its own profile palette preview');
-assert.ok(feedJs.includes('top-header-title text-xl') && feedJs.includes('renderDotMatrixText(`Привет, ${currentUser.profile.username}!`)'),
-  'feed header renders real dot-matrix glyphs instead of a dotted texture clipped to regular text');
-assert.ok(feedJs.includes('А: [\'010\', \'101\', \'111\', \'101\', \'101\']')
-  && feedJs.includes("DOT_TEXT_GLYPHS[character] || DOT_TEXT_GLYPHS['?']"),
-  'the header dot font covers Cyrillic and uses a visible fallback for unsupported names');
+assert.ok(feedJs.includes('top-header-title text-xl') && feedJs.includes('Привет, ${escapeHtml(currentUser.profile.username)}!'),
+  'feed greeting remains a semantic heading enhanced by the shared heading renderer');
+const dotMatrixJs = await readFile(new URL('../src/lib/dotMatrix.js', import.meta.url), 'utf8');
+const mainJs = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+assert.ok(mainJs.includes('installDotMatrixHeadings();'), 'the app installs matrix rendering globally, not only in the feed');
+assert.ok(dotMatrixJs.includes('А: [\'010\', \'101\', \'111\', \'101\', \'101\']')
+  && dotMatrixJs.includes("const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role=\"heading\"]'")
+  && dotMatrixJs.includes('new MutationObserver'),
+  'all static and dynamically-added headings use the shared Cyrillic dot font');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered'),
+  'Nothing theme displays dot glyphs and visually hides duplicate plain text while preserving accessibility');
+const { renderDotMatrixText } = await import('../src/lib/dotMatrix.js');
+const matrixA = renderDotMatrixText('А');
+assert.equal((matrixA.match(/<i /g) || []).length, 15);
+assert.equal((matrixA.match(/is-on/g) || []).length, 10);
+assert.ok(renderDotMatrixText('🎬', { unsupported: 'plain' }).includes('data-symbol="🎬"'));
+assert.ok(renderDotMatrixText('🎬').includes('rating-dot-digit'), 'unsupported greeting characters use a visible fallback glyph');
 assert.ok(feedJs.includes('rating-score-badge ${ratingScoreTone}'), 'feed rating badges should expose tone classes for Nothing theme styling');
-assert.ok(feedJs.includes('function renderRatingDots(value)') && feedJs.includes("'7': ['111', '001', '010', '010', '010']"),
+assert.ok(feedJs.includes('function renderRatingDots(value)') && dotMatrixJs.includes("'7': ['111', '001', '010', '010', '010']"),
   'feed should render ratings as readable five-row dot glyphs');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .nav-btn svg'),
   'Nothing navigation icons should use circular Glyph-like buttons');
