@@ -314,15 +314,16 @@ public class MainActivity extends Activity {
             }
 
             @JavascriptInterface
-            public void savePlaybackPosition(String json) {
-                if (!playbackTrackingEnabled) return;
+            public boolean savePlaybackPosition(String json) {
+                if (!playbackTrackingEnabled) return false;
                 try {
                     org.json.JSONObject o = new org.json.JSONObject(json);
-                    storePlaybackPosition(currentWatchKey,
+                    return storePlaybackPosition(currentWatchKey,
                             Math.round(o.optDouble("t", 0)),
                             Math.round(o.optDouble("d", 0)),
                             o.optBoolean("force", false));
                 } catch (Exception ignored) {
+                    return false;
                 }
             }
 
@@ -1049,13 +1050,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void storePlaybackPosition(String key, long t, long d, boolean force) {
+    private boolean storePlaybackPosition(String key, long t, long d, boolean force) {
         if (!playbackTrackingEnabled || key == null || key.isEmpty()
                 || !key.equals(currentWatchKey) || t <= 0 || d <= 0
-                || d > 7L * 24L * 60L * 60L || t > d + 30) return;
+                || d > 7L * 24L * 60L * 60L || t > d + 30) return false;
         long now = System.currentTimeMillis();
         synchronized (positionsLock) {
-            if (!playbackTrackingEnabled || !key.equals(currentWatchKey)) return;
+            if (!playbackTrackingEnabled || !key.equals(currentWatchKey)) return false;
             try {
                 org.json.JSONObject all = new org.json.JSONObject(prefs().getString("positions", "{}"));
                 org.json.JSONObject previous = all.optJSONObject(key);
@@ -1064,9 +1065,9 @@ public class MainActivity extends Activity {
                     long previousDuration = previous.optLong("d", 0);
                     // Ignore tiny ad/preview clips that would otherwise replace
                     // a saved feature-length movie or full episode position.
-                    if (previousDuration >= 600 && d * 3 < previousDuration) return;
+                    if (previousDuration >= 600 && d * 3 < previousDuration) return false;
                     long minInterval = force ? 750L : 2500L;
-                    if (now - previousAt < minInterval) return;
+                    if (now - previousAt < minInterval) return false;
                 }
                 org.json.JSONObject record = new org.json.JSONObject();
                 record.put("t", t);
@@ -1074,7 +1075,9 @@ public class MainActivity extends Activity {
                 record.put("at", now);
                 all.put(key, record);
                 prefs().edit().putString("positions", all.toString()).apply();
+                return true;
             } catch (Exception ignored) {
+                return false;
             }
         }
     }

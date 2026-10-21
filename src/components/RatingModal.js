@@ -7,7 +7,7 @@ import { addRecentTitle } from '../lib/history.js';
 import { enqueueRating, getPendingRatings, networkLikeError } from '../lib/offline.js';
 import { addWatchEntry, reportWatchNative, isApk, getPositions, saveWatchPosition } from '../lib/watchHistory.js';
 import { fetchKinoboxPlayers, qualityRank } from '../lib/kinobox.js';
-import { parsePlayerProgressMessage, createPlayerJsMessage, addSupportedResumeParameter } from '../lib/playerProgressMessages.js';
+import { parsePlayerProgressMessage, createPlayerJsMessage, addSupportedResumeParameter, isSupportedPlayerProgressOrigin } from '../lib/playerProgressMessages.js';
 import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
 import { friendRatingsLabel } from '../lib/ratingLabels.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
@@ -51,19 +51,11 @@ function isEmbedOnly(url) {
   }
 }
 
-const ALLOHA_EXTENSION_SOURCE = 'gulrating-alloha-extension';
-const ALLOHA_WEBSITE_SOURCE = 'gulrating-website';
-const ALLOHA_PLAYER_HOSTS = ['stravers.live', 'alloha.tv', 'alloha.cool'];
-
-function isAllohaPlayerOrigin(origin) {
-  try {
-    const url = new URL(origin);
-    return url.protocol === 'https:'
-      && ALLOHA_PLAYER_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
-  } catch (e) {
-    return false;
-  }
-}
+const PLAYER_PROGRESS_EXTENSION_SOURCES = new Set([
+  'gulrating-player-progress-extension',
+  'gulrating-alloha-extension', // backwards-compatible with installed 1.1.0 extensions
+]);
+const PLAYER_PROGRESS_WEBSITE_SOURCE = 'gulrating-website';
 
 // Same-origin policy blocks inspection of most commercial player iframes.
 // Search the top player frame and any same-origin descendants; cross-origin
@@ -323,15 +315,15 @@ export function openWatchOverlay(opts) {
     if (!frame || !watchKey || !isFromActivePlayer(frame, event.source)) return;
 
     const bridgeMessage = event.data;
-    if (bridgeMessage && bridgeMessage.source === ALLOHA_EXTENSION_SOURCE
-        && isAllohaPlayerOrigin(event.origin)) {
+    if (bridgeMessage && PLAYER_PROGRESS_EXTENSION_SOURCES.has(bridgeMessage.source)
+        && isSupportedPlayerProgressOrigin(event.origin)) {
       if (bridgeMessage.type === 'hello') {
         const latest = getPositions()[watchKey] || savedPosition || null;
         if (latest) savedPosition = latest;
-        hint.textContent = 'Расширение GulRating подключено: позиция Alloha будет сохраняться.';
+        hint.textContent = 'Расширение GulRating подключено: позиция этого плеера будет сохраняться.';
         try {
           event.source.postMessage({
-            source: ALLOHA_WEBSITE_SOURCE,
+            source: PLAYER_PROGRESS_WEBSITE_SOURCE,
             type: 'resume',
             position: latest ? { t: Number(latest.t), d: Number(latest.d) } : null,
           }, event.origin);
@@ -348,8 +340,8 @@ export function openWatchOverlay(opts) {
           const saved = saveRemoteProgress(progress);
           const position = `${formatPlaybackTime(progress.t)} / ${formatPlaybackTime(progress.d)}`;
           hint.textContent = saved
-            ? `Позиция Alloha сохранена: ${position}.`
-            : `Получена позиция Alloha: ${position}; фоновое сохранение каждые 10 секунд.`;
+            ? `Позиция сохранена: ${position}.`
+            : `Получена позиция: ${position}; сохранение продолжится в фоне.`;
         }
         return;
       }

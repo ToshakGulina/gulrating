@@ -1,6 +1,24 @@
 // Parsers and commands for iframe players that expose a postMessage API.
 // Normal web pages cannot inspect a cross-origin iframe's DOM.
 const PLAYERJS_CONTEXT = 'player.js';
+export const PLAYER_PROGRESS_HOSTS = Object.freeze([
+  'stravers.live', 'alloha.tv', 'alloha.cool', 'obrut.show',
+  'kodik.info', 'kodik.cc', 'kodik.club', 'kodik.ws',
+  'videocdn.net', 'videocdn.tv', 'collaps.me', 'collaps.so',
+  'bazon.cc', 'hdzo.fun', 'kurolesya.link', 'nextembed.ws',
+  'kinokino.vip', 'kinobox.tv', 'vidlink.pro',
+]);
+
+export function isSupportedPlayerProgressOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'https:' && PLAYER_PROGRESS_HOSTS.some(host =>
+      url.hostname === host || url.hostname.endsWith(`.${host}`));
+  } catch (error) {
+    return false;
+  }
+}
+
 const PROGRESS_EVENTS = new Set([
   'timeupdate', 'progress', 'playbackprogress', 'watchinglog',
   'playprogress', 'pause', 'seeked', 'ended', 'play', 'state', 'playerstatus'

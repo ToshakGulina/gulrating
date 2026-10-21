@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { PLAYER_PROGRESS_HOSTS } from '../src/lib/playerProgressMessages.js';
 
 const root = new URL('../browser-extension/alloha-progress/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('manifest.json', root), 'utf8'));
 const source = readFileSync(new URL('content.js', root), 'utf8');
 const modal = readFileSync(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+const watchHistory = readFileSync(new URL('../src/lib/watchHistory.js', import.meta.url), 'utf8');
+const activity = readFileSync(new URL('../android/app/src/main/java/dev/gulrating/app/MainActivity.java', import.meta.url), 'utf8');
 const firefoxPackager = readFileSync(new URL('../browser-extension/alloha-progress/package-firefox.sh', import.meta.url), 'utf8');
 
 assert.equal(manifest.manifest_version, 3);
@@ -13,9 +16,16 @@ assert.equal(manifest.content_scripts[0].all_frames, true,
   'the player observer must be injected into embedded Alloha frames');
 assert.equal(manifest.content_scripts[0].run_at, 'document_start');
 assert.equal(manifest.permissions.length, 0, 'the extension must not request unrelated browser permissions');
-assert(manifest.host_permissions.some((host) => host.includes('stravers.live')));
-assert(manifest.host_permissions.some((host) => host.includes('alloha.tv')));
-assert(manifest.host_permissions.some((host) => host.includes('alloha.cool')));
+assert.equal(manifest.host_permissions.length, PLAYER_PROGRESS_HOSTS.length * 2,
+  'site access must remain limited to the known player hosts and their subdomains');
+assert.match(source, /BRIDGE_SOURCE = 'gulrating-player-progress-extension'/,
+  'the extension uses the provider-neutral progress bridge');
+for (const host of PLAYER_PROGRESS_HOSTS) {
+  assert(manifest.host_permissions.includes(`https://${host}/*`), `host permission is scoped to ${host}`);
+  assert(manifest.host_permissions.includes(`https://*.${host}/*`), `subdomain permission is scoped to ${host}`);
+  assert(manifest.content_scripts[0].matches.includes(`https://${host}/*`), `${host} is actively monitored`);
+  assert(manifest.content_scripts[0].matches.includes(`https://*.${host}/*`), `${host} subdomains are monitored`);
+}
 
 const listeners = new Map();
 const sentToTop = [];
@@ -62,7 +72,7 @@ vm.runInNewContext(source, context, { filename: 'alloha-progress/content.js' });
 
 const hello = sentToTop.find((item) => item.data.type === 'hello');
 assert(hello, 'the extension should request the saved position when a video is ready');
-assert.equal(hello.data.source, 'gulrating-alloha-extension');
+assert.equal(hello.data.source, 'gulrating-player-progress-extension');
 assert.equal(hello.data.duration, 1200);
 assert.equal(hello.targetOrigin, '*', 'the initial hello has no private or account data');
 
@@ -105,8 +115,10 @@ onMessage({
 });
 assert.equal(video.currentTime, beforeInvalidReply, 'messages from non-GulRating origins must be ignored');
 
-assert.match(modal, /ALLOHA_EXTENSION_SOURCE/);
-assert.match(modal, /isAllohaPlayerOrigin\(event\.origin\)/);
+assert.match(modal, /PLAYER_PROGRESS_EXTENSION_SOURCES/);
+assert.match(modal, /isSupportedPlayerProgressOrigin\(event\.origin\)/);
+assert.match(modal, /'gulrating-alloha-extension'.*backwards-compatible/,
+  'previously installed Alloha extensions remain supported during the bridge upgrade');
 assert.match(modal, /const EMBED_ONLY_HOSTS = \[[^\]]*'alloha\.tv'[^\]]*'alloha\.cool'/,
   'known Alloha iframe hosts must stay embedded in the Android app instead of opening as a top-level page');
 assert.equal(manifest.browser_specific_settings?.gecko?.id, 'alloha-progress@gulrating.pages.dev',
@@ -123,8 +135,12 @@ assert.match(await readFileSync(new URL('../browser-extension/alloha-progress/RE
 assert.match(modal, /event\.source\.postMessage\([\s\S]*?event\.origin\)/,
   'the website must reply directly to the active Alloha frame with an exact target origin');
 assert.match(modal, /saveRemoteProgress\(progress\)/);
-assert.match(modal, /Позиция Alloha сохранена/,
+assert.match(modal, /Позиция сохранена:/,
   'the player overlay should distinguish an actual saved position from a connection handshake');
+assert.match(watchHistory, /window\.GulRatingBridge\.savePlaybackPosition\(JSON\.stringify\(/,
+  'remote progress messages in the Android overlay are persisted through the native bridge');
+assert.match(activity, /public boolean savePlaybackPosition\(String json\)/,
+  'the Android bridge reports whether a remote position was actually written');
 assert.match(modal, /formatPlaybackTime\(progress\.t\)/);
 
-console.log('Alloha browser extension: scoped permissions, resume handshake, progress reporting and save feedback OK');
+console.log('Provider progress extension: scoped hosts, resume handshake, cross-origin saves and native bridge OK');
