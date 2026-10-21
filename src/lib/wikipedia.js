@@ -1,6 +1,6 @@
 // Franchise membership is derived only from explicit Wikipedia previous/next rows.
 
-const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v3';
+const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v4';
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 const EMPTY_CACHE_TTL = 6 * 60 * 60 * 1000;
 const memoryCache = new Map();
@@ -82,10 +82,9 @@ async function searchArticles(language, query) {
 }
 
 function normalizePageTitle(value) {
-  return normalize(String(value || '').replace(
-    /\s+\((?:(?:18|19|20)\d{2}\s+)?(?:film|movie|tv series|television series|фильм|мультфильм|сериал|телесериал)\)\s*$/i,
-    ''
-  ));
+  return normalize(String(value || '')
+    .replace(/\s+\((?:(?:18|19|20)\d{2}\s+)?(?:film|movie|film series|tv series|television series|фильм|мультфильм|сериал|телесериал)\)\s*$/i, '')
+    .replace(/\s+\((?:film|movie|film series|tv series|television series|фильм|мультфильм|сериал|телесериал),?\s*(?:18|19|20)\d{2}\)\s*$/i, ''));
 }
 
 function decodeHtml(value) {
@@ -137,13 +136,25 @@ function chronologyLinksFromHtml(html, defaultMediaType) {
   return links;
 }
 
-async function findChronologySeed(language, query, titleCandidates) {
+async function findChronologySeed(language, query, titleCandidates, year, mediaType) {
   const articles = await searchArticles(language, query).catch(() => []);
   const wanted = titleCandidates.map(normalize).filter(Boolean);
-  return articles
-    .filter(article => wanted.includes(normalizePageTitle(article.title)))
-    .sort((a, b) => a.rank - b.rank)
-    .slice(0, 1);
+  const matches = articles.filter(article => wanted.includes(normalizePageTitle(article.title)));
+  if (!matches.length) return [];
+
+  // Broad exact-title searches can rank a novel or a franchise page above the
+  // film itself (e.g. “Dune” before “Dune (2021 film)”). Prefer the matching-
+  // year, matching-medium article when Wikipedia supplies one.
+  const yearPattern = year ? new RegExp(`(?:^|\\D)${year}(?:\\D|$)`) : null;
+  const yearMatches = yearPattern ? matches.filter(article => yearPattern.test(article.title)) : [];
+  const mediaPattern = mediaType === 'tv'
+    ? /(?:tv|television|series|show|сериал|телесериал)/i
+    : /(?:film|movie|мультфильм|фильм)/i;
+  const yearAndMediaMatches = yearMatches.filter(article => mediaPattern.test(article.title));
+  const preferred = yearAndMediaMatches.length ? yearAndMediaMatches
+    : yearMatches.length ? yearMatches
+      : matches;
+  return preferred.sort((a, b) => a.rank - b.rank).slice(0, 1);
 }
 
 async function inspectChronologyPage(article, mediaType) {
@@ -160,8 +171,8 @@ async function discoverChronology(title, originalTitle, year, mediaType) {
   const mediaHintRu = mediaType === 'tv' ? 'сериал' : 'фильм';
   const mediaHintEn = mediaType === 'tv' ? 'television series' : 'film';
   const searches = await Promise.all([
-    findChronologySeed('ru', `${title} ${mediaHintRu} ${year || ''}`.trim(), [title]),
-    findChronologySeed('en', `${originalTitle || title} ${mediaHintEn} ${year || ''}`.trim(), [originalTitle || title]),
+    findChronologySeed('ru', `${title} ${mediaHintRu} ${year || ''}`.trim(), [title], year, mediaType),
+    findChronologySeed('en', `${originalTitle || title} ${mediaHintEn} ${year || ''}`.trim(), [originalTitle || title], year, mediaType),
   ]);
   const queue = searches.flat().map(article => ({ ...article, media_type: mediaType, depth: 0 }));
   const visited = new Set();
