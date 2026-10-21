@@ -146,6 +146,7 @@ export function openWatchOverlay(opts) {
   const badBtn = ov.querySelector('#watch-bad');
   let cinemaMode = false;
   let cinemaCursorTimer = null;
+  let cinemaStageSize = null;
   let mirrorMode = false;
   let hasPlayed = false;
   let loadGeneration = 0;
@@ -159,6 +160,7 @@ export function openWatchOverlay(opts) {
     if (overlayClosed) return;
     overlayClosed = true;
     window.clearTimeout(cinemaCursorTimer);
+    window.removeEventListener('resize', resizeCinemaStage);
     stopProgressTracking();
     removeOverlayListeners();
     ov.remove();
@@ -179,18 +181,36 @@ export function openWatchOverlay(opts) {
   };
   ov.addEventListener('pointermove', revealCinemaCursor);
   ov.addEventListener('pointerdown', revealCinemaCursor);
+  const resizeCinemaStage = () => {
+    if (!cinemaMode || !cinemaStageSize) return;
+    const maxWidth = Math.max(1, window.innerWidth - 32);
+    const maxHeight = Math.max(1, window.innerHeight - 32);
+    const scale = Math.min(1, maxWidth / cinemaStageSize.width, maxHeight / cinemaStageSize.height);
+    ov.style.setProperty('--cinema-stage-width', `${Math.round(cinemaStageSize.width * scale)}px`);
+    ov.style.setProperty('--cinema-stage-height', `${Math.round(cinemaStageSize.height * scale)}px`);
+  };
+  window.addEventListener('resize', resizeCinemaStage);
   const setCinemaMode = (enabled) => {
-    cinemaMode = Boolean(enabled);
+    const nextCinemaMode = Boolean(enabled);
+    if (nextCinemaMode && !cinemaMode) {
+      const { width, height } = stage.getBoundingClientRect();
+      cinemaStageSize = width > 0 && height > 0 ? { width, height } : null;
+    }
+    cinemaMode = nextCinemaMode;
     ov.classList.toggle('cinema-mode', cinemaMode);
     cinemaBtn.setAttribute('aria-pressed', String(cinemaMode));
     cinemaBtn.setAttribute('aria-label', cinemaMode ? 'Выйти из кинорежима' : 'Включить кинорежим');
     cinemaBtn.title = cinemaMode ? 'Выйти из кинорежима' : 'Включить кинорежим';
     if (cinemaMode) {
+      resizeCinemaStage();
       cinemaBtn.focus({ preventScroll: true });
       scheduleCinemaCursorHide();
     } else {
       window.clearTimeout(cinemaCursorTimer);
       ov.classList.remove('cinema-cursor-hidden');
+      ov.style.removeProperty('--cinema-stage-width');
+      ov.style.removeProperty('--cinema-stage-height');
+      cinemaStageSize = null;
     }
   };
   cinemaBtn.addEventListener('click', () => setCinemaMode(!cinemaMode));
