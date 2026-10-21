@@ -32,6 +32,10 @@ try {
             : { title: 'Mystery', snippet: 'Mystery is a 2010 film' };
           return Response.json({ query: { search: [article] } });
         }
+        if (query.includes('Dune')) return Response.json({ query: { search: [
+          { title: 'Dune', snippet: 'Dune is a 1965 science fiction novel' },
+          { title: 'Dune (2021 film)', snippet: '2021 American science fiction film' },
+        ] } });
         return Response.json({ query: { search: [
           { title: 'Despicable Me 4', snippet: '2024 animated comedy film' },
           { title: 'Despicable Me (franchise)', snippet: 'American animated media franchise and film series' },
@@ -43,6 +47,10 @@ try {
           { title: 'Керри, Джим', snippet: 'Актёр, сыгравший в фильме Шоу Трумана' },
         ] } });
       }
+      if (query.includes('Дюна')) return Response.json({ query: { search: [
+        { title: 'Дюна', snippet: 'Роман 1965 года' },
+        { title: 'Дюна (фильм, 2021)', snippet: 'Фантастический фильм 2021 года' },
+      ] } });
       return Response.json({ query: { search: [
         { title: 'Гадкий я 4', snippet: 'Мультфильм 2024 года' },
       ] } });
@@ -58,6 +66,11 @@ try {
         'Chronology Zero': '<table><tr><th>Следующий фильм</th><td><a href="/wiki/Chronology_Alpha_(2000_film)">Chronology Alpha</a></td></tr></table>',
         'Chronology Beta': '<table><tr><th>Previous film</th><td><a href="/wiki/Chronology_Alpha_(2000_film)">Chronology Alpha</a></td></tr><tr><th>Next film</th><td><a href="/wiki/Chronology_Gamma">Chronology Gamma</a></td></tr><tr><th>Next television series</th><td><a href="/wiki/Chronology_Series">Chronology Series</a></td></tr><tr><th>Related series</th><td><a href="/wiki/Unrelated_TV">Unrelated TV</a></td></tr></table>',
         'Chronology Gamma': '<table><tr><th>Previous film</th><td><a href="/wiki/Chronology_Beta">Chronology Beta</a></td></tr></table>',
+        'Dune': '<p>Original novel article; no film chronology rows.</p>',
+        'Дюна': '<p>Оригинальный роман; строк хронологии фильмов нет.</p>',
+        'Dune (2021 film)': '<table><tr><th>Followed by</th><td><a href="/wiki/Dune:_Part_Two">Dune: Part Two</a></td></tr></table>',
+        'Дюна (фильм, 2021)': '<table><tr><th>Следующий фильм</th><td><a href="/wiki/Dune:_Part_Two">Dune: Part Two</a></td></tr></table>',
+        'Dune: Part Two': '<table><tr><th>Preceded by</th><td><a href="/wiki/Dune_(2021_film)">Dune (2021 film)</a></td></tr></table>',
       };
       return Response.json({ parse: { text: { '*': rows[page] || '' } } });
     }
@@ -92,6 +105,18 @@ try {
     'inspect each film article for chronology links');
   assert.equal(requests.slice(chronologyRequestStart).some(({ url }) => url.searchParams.get('prop') === 'tocdata'), false,
     'a valid chronology graph takes precedence over broader franchise article lists');
+
+  const duneRequestStart = requests.length;
+  const duneTitles = await getWikipediaFranchiseTitles('Дюна', 'Dune', '2021-10-22', 'movie');
+  assert.deepEqual(duneTitles.map(entry => entry.title).sort(), ['Dune (2021 film)', 'Dune: Part Two'],
+    'when an exact-title search ranks the Dune novel first, choose the 2021 film article and follow its explicit sequel row');
+  const dunePages = requests.slice(duneRequestStart)
+    .filter(({ url }) => url.searchParams.get('prop') === 'text')
+    .map(({ url }) => url.searchParams.get('page'));
+  assert(dunePages.includes('Dune (2021 film)'), 'the English seed selects the year-specific film article');
+  assert(dunePages.includes('Дюна (фильм, 2021)'), 'Russian film disambiguation in “(фильм, 2021)” order is recognized');
+  assert(!dunePages.includes('Dune') && !dunePages.includes('Дюна'),
+    'the novel article must not win over the exact-year film page');
 
   const trumanRequestStart = requests.length;
   assert.deepEqual(
