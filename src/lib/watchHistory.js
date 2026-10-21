@@ -76,13 +76,23 @@ export function getPositions() {
   }
 }
 
-// В браузере записываем только доступное HTML5-видео; на Android позицию
-// снимает нативный слой, чтобы не дублировать её в localStorage.
+// Browser positions are stored locally. In the APK, route remote-player events
+// through the native bridge so iframe Player.js/extension reports use the same
+// native-owned history as document-start HTML5 video tracking.
 export function saveWatchPosition(key, currentTime, duration, force = false) {
-  if (isApk() || !key) return false;
+  if (!key) return false;
   const t = Math.floor(Number(currentTime));
   const d = Math.floor(Number(duration));
   if (!Number.isFinite(t) || !Number.isFinite(d) || t <= 0 || d <= 0) return false;
+  if (isApk()) {
+    try {
+      const result = window.GulRatingBridge.savePlaybackPosition(JSON.stringify({ t, d, force: Boolean(force) }));
+      // Older APK bridges returned void even when they accepted the write.
+      return result === undefined ? true : Boolean(result);
+    } catch (e) {
+      return false;
+    }
+  }
   const all = read(POSITIONS_KEY, {});
   const previous = all[key];
   const now = Date.now();

@@ -1,13 +1,13 @@
 /*
- * GulRating Alloha progress bridge.
- * This content script runs only on Alloha/Stravers player origins, including
- * embedded frames, so it can read the HTML5 video that the website itself
- * cannot inspect because of the browser's same-origin policy.
+ * GulRating player progress bridge.
+ * This content script runs only on the explicitly listed Kinobox player
+ * origins, including embedded frames, so it can read HTML5 video elements
+ * the website itself cannot inspect because of the browser's same-origin policy.
  */
 (() => {
   'use strict';
 
-  const BRIDGE_SOURCE = 'gulrating-alloha-extension';
+  const BRIDGE_SOURCE = 'gulrating-player-progress-extension';
   const WEBSITE_SOURCE = 'gulrating-website';
   const VALID_APP_HOST = (hostname) => hostname === 'gulrating.pages.dev'
     || hostname.endsWith('.gulrating.pages.dev')

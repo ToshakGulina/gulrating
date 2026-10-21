@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { addSupportedResumeParameter, createPlayerJsMessage, parsePlayerProgressMessage } from '../src/lib/playerProgressMessages.js';
+import { addSupportedResumeParameter, createPlayerJsMessage, isSupportedPlayerProgressOrigin, parsePlayerProgressMessage } from '../src/lib/playerProgressMessages.js';
 
 const ratingModal = readFileSync(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+
+assert.equal(isSupportedPlayerProgressOrigin('https://player.kodik.info'), true,
+  'known player subdomains are accepted for extension progress reports');
+assert.equal(isSupportedPlayerProgressOrigin('https://evilalloha.tv.attacker.example'), false,
+  'suffix lookalikes cannot spoof a supported provider origin');
+assert.equal(isSupportedPlayerProgressOrigin('http://kodik.info'), false,
+  'player extension messages must use HTTPS origins');
+assert.equal(isSupportedPlayerProgressOrigin('https://unlisted-player.example'), false,
+  'unlisted third-party origins cannot send extension progress messages');
 
 assert.deepEqual(parsePlayerProgressMessage({
   context: 'player.js',
