@@ -281,9 +281,73 @@ async function resolveArticleTitles(articleTitles) {
   return resolved;
 }
 
+const FRANCHISE_PARTS_CACHE_KEY = 'gulrating:wikipedia_franchise_parts_v1';
+const FRANCHISE_PARTS_CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
+
+function readFranchisePartsCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FRANCHISE_PARTS_CACHE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function franchisePartKey(part) {
+  if (!part || !['movie', 'tv'].includes(part.media_type) || part.id == null) return '';
+  return `${part.media_type}:${part.id}`;
+}
+
+function getCachedFranchiseParts(key) {
+  const entry = readFranchisePartsCache()[key];
+  if (!entry || Date.now() - Number(entry.at || 0) >= FRANCHISE_PARTS_CACHE_TTL
+      || !Array.isArray(entry.parts) || entry.parts.length < 2) return null;
+  return entry.parts;
+}
+
+function sortFranchiseParts(parts) {
+  return [...parts].sort((a, b) => {
+    const dateA = a.release_date || a.first_air_date || '9999-12-31';
+    const dateB = b.release_date || b.first_air_date || '9999-12-31';
+    return String(dateA).localeCompare(String(dateB))
+      || String(a.title || '').localeCompare(String(b.title || ''), 'ru');
+  });
+}
+
+function cacheFranchiseParts(parts) {
+  const cache = readFranchisePartsCache();
+  const queue = [...parts];
+  const merged = new Map();
+  while (queue.length && merged.size < 100) {
+    const part = queue.shift();
+    const key = franchisePartKey(part);
+    if (!key || merged.has(key)) continue;
+    merged.set(key, part);
+    const cached = cache[key];
+    if (cached && Date.now() - Number(cached.at || 0) < FRANCHISE_PARTS_CACHE_TTL
+        && Array.isArray(cached.parts)) queue.push(...cached.parts);
+  }
+  const result = sortFranchiseParts([...merged.values()]);
+  if (result.length < 2) return result;
+  const now = Date.now();
+  for (const part of result) {
+    const key = franchisePartKey(part);
+    if (key) cache[key] = { at: now, parts: result };
+  }
+  const keys = Object.keys(cache).sort((a, b) => (cache[a]?.at || 0) - (cache[b]?.at || 0));
+  while (keys.length > 500) delete cache[keys.shift()];
+  try { localStorage.setItem(FRANCHISE_PARTS_CACHE_KEY, JSON.stringify(cache)); }
+  catch (e) { /* franchise results still work for this modal session */ }
+  return result;
+}
+
 // Собираем части только по явным строкам Wikipedia «предыдущая/следующая».
 // TMDb-коллекцию не подмешиваем: там могут быть нерелевантные тайтлы.
+// Cache the resolved chronology graph under every linked title so opening a
+// sequel later keeps the full component discovered from its first film.
 export async function getFranchiseTitles(id, mediaType) {
+  const cachedParts = getCachedFranchiseParts(`${mediaType}:${id}`);
+  if (cachedParts) return cachedParts;
   const current = await getTitleDetails(id, mediaType);
   const articleTitles = await getWikipediaFranchiseTitles(
     current.title,
@@ -295,12 +359,7 @@ export async function getFranchiseTitles(id, mediaType) {
   const byKey = new Map();
   for (const part of articleParts) byKey.set(`${part.media_type}:${part.id}`, part);
   byKey.set(`${mediaType}:${id}`, { ...current, media_type: mediaType });
-  return [...byKey.values()].sort((a, b) => {
-    const dateA = a.release_date || a.first_air_date || '9999-12-31';
-    const dateB = b.release_date || b.first_air_date || '9999-12-31';
-    return String(dateA).localeCompare(String(dateB))
-      || String(a.title || '').localeCompare(String(b.title || ''), 'ru');
-  });
+  return cacheFranchiseParts([...byKey.values()]);
 }
 
 // Приводим ответ TMDb к общему виду карточки рекомендации

@@ -35,6 +35,8 @@ const AWAIT_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-
 // не показываются вовсе. Кнопка «не играет» прячет источник в памяти
 // браузера и сразу включает следующий.
 const BAD_DUBS_KEY = 'gulrating:bad_dubs';
+const activeRatingModals = new Set();
+let ratingModalPreviousBodyOverflow = '';
 
 // Embed-only плееры: открытые верхним документом отвечают «404 NOT FOUND» /
 // «контент не найден» (скриншоты пользователя из APK), но отлично играют
@@ -842,6 +844,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     </div>
   `;
 
+  if (!activeRatingModals.size) ratingModalPreviousBodyOverflow = document.body.style.overflow;
+  activeRatingModals.add(modal);
   document.body.appendChild(modal);
   document.body.style.overflow = 'hidden';
 
@@ -850,10 +854,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
   let isClosing = false;
   let closeTimer = null;
   const removeModal = () => {
-    if (!modal.isConnected) return;
     window.clearTimeout(closeTimer);
-    modal.remove();
-    document.body.style.overflow = '';
+    if (modal.isConnected) modal.remove();
+    activeRatingModals.delete(modal);
+    document.body.style.overflow = activeRatingModals.size ? 'hidden' : ratingModalPreviousBodyOverflow;
   };
   const closeModal = () => {
     if (isClosing) return;
@@ -877,7 +881,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     if (e.key === 'Escape') closeModal();
   };
   document.addEventListener('keydown', onKeydown);
-  document.getElementById('close-modal').addEventListener('click', closeModal);
+  modal.querySelector('#close-modal').addEventListener('click', closeModal);
   modal.addEventListener('click', (e) => {
     if (e.target === modal) closeModal();
   });
@@ -999,7 +1003,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       : '';
     modal.querySelector('h2').textContent = title.title || 'Фильм';
 
-    document.getElementById('modal-content').innerHTML = `
+    modal.querySelector('#modal-content').innerHTML = `
       <div id="franchise-tabs" class="hidden -mx-4 -mt-4 mb-4 border-b border-slate-700 bg-slate-900/70 px-4 py-2.5">
         <div class="franchise-tabs-viewport flex min-w-0 items-center gap-1.5">
           <button type="button" class="franchise-scroll-left hidden h-8 w-8 flex-shrink-0 rounded-lg bg-slate-800 text-gray-300 hover:bg-slate-700 disabled:opacity-30" aria-label="Прокрутить к предыдущим частям">‹</button>
@@ -1288,7 +1292,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
 
     // --- Постер: клик открывает крупный просмотр ---
-    const posterBox = document.getElementById('poster-box');
+    const posterBox = modal.querySelector('#poster-box');
     if (posterBox && title.poster_path) {
       posterBox.addEventListener('click', () => openLightbox(title.poster_path, title.title));
     }
@@ -1307,8 +1311,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     });
 
     // --- Кнопка «Все рейтинги»: раскрывает скрытые строки ---
-    const moreBtn = document.getElementById('more-ratings-btn');
-    const moreBox = document.getElementById('more-ratings');
+    const moreBtn = modal.querySelector('#more-ratings-btn');
+    const moreBox = modal.querySelector('#more-ratings');
     if (moreBtn && moreBox) {
       moreBtn.addEventListener('click', () => {
         const opened = !moreBox.classList.toggle('hidden');
@@ -1318,8 +1322,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
 
     // --- Раскрывающееся описание ---
-    const overviewText = document.getElementById('overview-text');
-    const overviewToggle = document.getElementById('overview-toggle');
+    const overviewText = modal.querySelector('#overview-text');
+    const overviewToggle = modal.querySelector('#overview-toggle');
     if (overviewText && overviewToggle) {
       // Некоторые браузеры возвращают scrollHeight уже обрезанного текста
       // при -webkit-line-clamp. Сравниваем с невидимой копией без clamp,
@@ -1356,8 +1360,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
 
     // --- Логика слайдера оценки ---
-    const slider = document.getElementById('rating-slider');
-    const bubble = document.getElementById('rating-bubble');
+    const slider = modal.querySelector('#rating-slider');
+    const bubble = modal.querySelector('#rating-bubble');
     let selectedScore = status.hasRating ? Math.round(Number(status.rating.rating) * 10) / 10 : null;
 
     function valueColor(n) {
@@ -1398,10 +1402,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     slider.addEventListener('input', () => setScore(parseFloat(slider.value), true));
     // Кнопки ± step'ают от ТОГО значения, что показывает пузырёк
     // (до первого касания это позиция бегунка), иначе был скачок 5.5 → 5
-    document.getElementById('rating-minus').addEventListener('click', () => {
+    modal.querySelector('#rating-minus').addEventListener('click', () => {
       setScore((selectedScore === null ? Number(slider.value) : selectedScore) - 0.1, false);
     });
-    document.getElementById('rating-plus').addEventListener('click', () => {
+    modal.querySelector('#rating-plus').addEventListener('click', () => {
       setScore((selectedScore === null ? Number(slider.value) : selectedScore) + 0.1, false);
     });
 
@@ -1464,7 +1468,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         showToast('Подвиньте бегунок, чтобы поставить оценку', 'error');
         return;
       }
-      const comment = document.getElementById('rating-comment').value.trim();
+      const comment = modal.querySelector('#rating-comment').value.trim();
       const buttons = [saveRatingButton, keepRatingModalOpenButton];
       buttons.forEach(control => { control.disabled = true; });
       button.textContent = 'Сохраняем...';
@@ -1554,7 +1558,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     });
 
   } catch (e) {
-    document.getElementById('modal-content').innerHTML = `
+    modal.querySelector('#modal-content').innerHTML = `
       <div class="text-center py-8 text-red-400">
         Ошибка загрузки: ${escapeHtml(e.message)}
       </div>

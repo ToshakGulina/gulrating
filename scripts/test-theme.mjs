@@ -58,6 +58,10 @@ assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1') && indexHtml.incl
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered .dot-text-glyph')
   && indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
   'all Nothing headings use the same 3-by-5 dot cells as score numerals');
+assert.ok(indexHtml.includes(':root[data-theme="glass"] #search-input')
+  && indexHtml.includes('rgb(13 25 45 / .97)')
+  && indexHtml.includes(':root[data-theme="glass"] #search-results'),
+  'Glass search input and result surface should have an opaque, readable backdrop');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] .title-card')
   && indexHtml.includes('backdrop-filter: blur(20px) saturate(165%)')
   && indexHtml.includes('rgb(255 255 255 / .085)')
