@@ -17,6 +17,10 @@ assert.ok(!profileSource.includes('id="watch-history"') && !profileSource.includ
 assert.ok(profileSource.includes('id="profile-playback-history"'), 'playback history has a dedicated section outside the status tab panel');
 assert.ok(profileSource.includes('const history = getWatchHistory();') && profileSource.includes('renderPlaybackRows(history)'), 'all playback history renders in its own section');
 assert.ok(profileSource.includes('profileContent.innerHTML = renderProfileStatusTab('), 'status tabs render only title ratings and statuses');
+assert.match(profileSource, /profileContent\.animate\(\[/,
+  'changing profile status tabs slides the new card list horizontally');
+assert.match(profileSource, /prefers-reduced-motion: reduce/,
+  'profile tab transitions respect reduced-motion accessibility settings');
 assert.ok(!profileSource.includes("getWatchHistory().filter(item => item.done)"), 'playback history is not injected into the Watched tab');
 assert.ok(profileSource.includes('queueUserTitleStatus'), 'offline menu changes are saved for later sync');
 assert.ok(!profileSource.includes("${currentUser.offlineOnly ? 'disabled' : ''}"), 'status menus stay enabled in offline mode');

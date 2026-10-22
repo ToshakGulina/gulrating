@@ -141,12 +141,14 @@ export async function submitEpisodeRating(userId, titleId, season, episode, rati
   return { synced, queued: !synced, seriesRating, error: syncError };
 }
 
-export async function getEpisodeRatings(titleId, userId = '') {
+export async function getEpisodeRatings(titleId, userId = '', localOnly = false) {
   if (!titleId) return [];
   const cached = readCachedRatings(userId, titleId);
   const pending = readPending().filter(item => String(item.title_id) === String(titleId)
     && (!userId || String(item.user_id) === String(userId)));
-  if (!supabase) return mergeEpisodeRatings(cached, pending);
+  if (!supabase || localOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+    return mergeEpisodeRatings(cached, pending);
+  }
   try {
     const { data, error } = await supabase.from('episode_ratings')
       .select('user_id,season_number,episode_number,rating,updated_at,profiles(username)')

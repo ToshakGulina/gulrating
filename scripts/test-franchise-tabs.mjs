@@ -302,6 +302,9 @@ try {
     'the full explicit chronology component remains available when a sequel is opened independently later');
 
   const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+  const htmlSource = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(htmlSource, /@keyframes franchise-tab-enter-from-left \{[^\n]+\} \}/,
+    'both directions of the franchise swipe keyframes have complete CSS blocks');
   assert.match(modalSource, /franchiseContext = null/);
   assert.match(modalSource, /openRatingModal\(tab\.dataset\.titleId, tab\.dataset\.mediaType, currentUser, onSaveCallback, \{ parts, direction \}\)/);
   assert.match(modalSource, /const direction = targetIndex >= 0 && currentIndex >= 0 && targetIndex < currentIndex \? -1 : 1/);
