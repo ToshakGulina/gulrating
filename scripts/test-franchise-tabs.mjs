@@ -89,6 +89,9 @@ try {
     if (url.pathname.endsWith('/tv/401')) {
       return Response.json({ id: 401, name: 'Dune', first_air_date: '2021-01-01' });
     }
+    if (url.pathname.endsWith('/tv/402')) {
+      return Response.json({ id: 402, name: 'Dune: Prophecy', first_air_date: '2024-11-17' });
+    }
     if (url.pathname.endsWith('/collection/78')) {
       return Response.json({
         id: 78,
@@ -240,6 +243,10 @@ try {
       { title: 'Dune', media_type: 'movie', year: 2021 },
       { title: 'Dune: Part Two', media_type: 'movie', year: 2024 },
     ],
+    'Dune: Prophecy': [
+      { title: 'Dune (2021 film)', media_type: 'all', year: 2021 },
+      { title: 'Dune: Part Two', media_type: 'all', year: 2024 },
+    ],
   };
 
   const unknownResolutionParts = await getFranchiseTitles(89, 'movie');
@@ -288,6 +295,15 @@ try {
     'the article list maps the related series directly and excludes similarly named but unlisted titles'
   );
 
+  storage.delete('gulrating:wikipedia_franchise_parts_v2');
+  const prophecyParts = await getFranchiseTitles(402, 'tv');
+  assert.deepEqual(
+    prophecyParts.map(part => `${part.media_type}:${part.id}`),
+    ['movie:501', 'movie:503', 'tv:402'],
+    'generic Wikipedia chronology rows resolve a Dune TV-series link to the explicitly linked 2021 movie and its film sequel'
+  );
+
+  storage.delete('gulrating:wikipedia_franchise_parts_v2');
   const duneRequestsStart = tmdbRequests.length;
   const duneFilmParts = await getFranchiseTitles(501, 'movie');
   assert.deepEqual(

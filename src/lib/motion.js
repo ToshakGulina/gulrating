@@ -278,10 +278,36 @@ export function animateOverlayExit(overlay, onComplete, slideDirection = 0) {
 }
 
 export function animateFranchiseModalEnter(overlay, slideDirection) {
-  if (!overlay || !slideDirection || !isMotionEnabled()) return false;
+  if (!overlay || !slideDirection || motionQuery?.matches) return false;
   const panel = getOverlayPanel(overlay);
   if (!panel) return false;
   const enterX = Math.sign(slideDirection) * Math.min(window.innerWidth * .28, 300);
+
+  // Use the browser's native animation timeline for this hand-off. The panel
+  // enters above the outgoing modal, so CSS entry animations and Anime.js must
+  // not compete for the same transform property.
+  if (typeof panel.animate === 'function' && typeof overlay.animate === 'function') {
+    const oldPanelAnimation = panel.style.animation;
+    const oldOverlayAnimation = overlay.style.animation;
+    panel.style.animation = 'none';
+    overlay.style.animation = 'none';
+    overlay.animate([{ opacity: 0 }, { opacity: 1 }], {
+      duration: 180, easing: 'cubic-bezier(.2,.75,.25,1)',
+    });
+    const animation = panel.animate([
+      { opacity: 0, transform: `translateX(${enterX}px) scale(.985)` },
+      { opacity: 1, transform: 'translateX(0) scale(1)' },
+    ], { duration: 440, easing: 'cubic-bezier(.2,.75,.25,1)' });
+    animation.onfinish = () => {
+      animation.cancel();
+      panel.classList.remove('franchise-slide-enter', 'franchise-slide-enter-forward', 'franchise-slide-enter-backward');
+      panel.style.animation = oldPanelAnimation;
+      overlay.style.animation = oldOverlayAnimation;
+    };
+    return true;
+  }
+
+  if (!isMotionEnabled()) return false;
   track(animate(overlay, { opacity: [0, 1], duration: 180, ease: 'out(2)' }));
   track(animate(panel, {
     opacity: [0, 1], x: [enterX, 0], scale: [.985, 1],
