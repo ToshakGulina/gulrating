@@ -355,7 +355,7 @@
     @keyframes profile-panel-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes rating-modal-enter { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
     @keyframes franchise-tab-enter-from-right { from { opacity: 0; transform: translateX(28vw) scale(.985); } to { opacity: 1; transform: translateX(0) scale(1); } }
-    @keyframes franchise-tab-enter-from-left { from { opacity: 0; transform: translateX(-28vw) scale(.985); } to { opacity: 1; transform: translateX(0) scale(1); }
+    @keyframes franchise-tab-enter-from-left { from { opacity: 0; transform: translateX(-28vw) scale(.985); } to { opacity: 1; transform: translateX(0) scale(1); } }
     @keyframes franchise-tab-exit-left { to { opacity: 0; transform: translateX(-28vw) scale(.985); } }
     @keyframes franchise-tab-exit-right { to { opacity: 0; transform: translateX(28vw) scale(.985); } }
     @keyframes rating-modal-overlay-leave { to { opacity: 0; } }
@@ -473,6 +473,22 @@
       --theme-secondary: 167 139 250; --p-rgb: 125 211 252; --glass-surface-alpha: .055; color-scheme: dark;
     }
     body { background-color: rgb(var(--theme-bg)); }
+    .profile-page { color: rgb(var(--theme-text-100)); }
+    .profile-page [class~="text-gray-50"], .profile-page [class~="text-gray-100"],
+    .profile-page [class~="text-slate-50"], .profile-page [class~="text-slate-100"] {
+      color: rgb(var(--theme-text-100)) !important;
+    }
+    .profile-page [class~="text-gray-200"], .profile-page [class~="text-slate-200"] { color: rgb(var(--theme-text-200)) !important; }
+    .profile-page [class~="text-gray-300"], .profile-page [class~="text-slate-300"] { color: rgb(var(--theme-text-300)) !important; }
+    .profile-page [class~="text-gray-400"], .profile-page [class~="text-slate-400"] { color: rgb(var(--theme-text-400)) !important; }
+    .profile-page [class~="text-gray-500"], .profile-page [class~="text-slate-500"] { color: rgb(var(--theme-text-500)) !important; }
+    .profile-page [class~="text-gray-600"], .profile-page [class~="text-slate-600"] { color: rgb(var(--theme-text-600)) !important; }
+    .profile-page [class~="text-gray-700"], .profile-page [class~="text-gray-800"],
+    .profile-page [class~="text-slate-700"] { color: rgb(var(--theme-text-700)) !important; }
+    .profile-page [class~="text-gray-900"], .profile-page [class~="text-gray-950"],
+    .profile-page [class~="text-slate-900"], .profile-page [class~="text-slate-950"] {
+      color: rgb(var(--theme-text-100)) !important;
+    }
     body::before {
       background:
         radial-gradient(680px 460px at 10% -8%, rgb(var(--p-rgb) / .17), transparent 65%),

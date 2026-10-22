@@ -18,6 +18,12 @@ assert.match(modal, /submitEpisodeRating\(currentUser\.id, titleId/,
   'series episodes use their own shared rating records');
 assert.match(modal, /episodeRatingsPanel/,
   'series cards display friends’ episode-by-episode averages');
+assert.match(modal, /id="episode-rating-form"/,
+  'episode ratings can be entered directly from the series card');
+assert.match(modal, /submitEpisodeRating\(currentUser\.id, titleId, season, episode/,
+  'the card form saves an episode score for the selected season and episode');
+assert.match(modal, /episode-rating-list/,
+  'the episode score list refreshes in the open card after submission');
 assert.match(modal, /if \(episode\) savedPosition = episodePosition;/,
   'a recognized new episode does not inherit the previous episode’s resume point');
 assert.match(modal, /const latest = episode \? episodePosition :/,

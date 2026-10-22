@@ -62,6 +62,10 @@ assert.ok(indexHtml.includes(':root[data-theme="glass"] #search-input')
   && indexHtml.includes('rgb(13 25 45 / .97)')
   && indexHtml.includes(':root[data-theme="glass"] #search-results'),
   'Glass search input and result surface should have an opaque, readable backdrop');
+assert.ok(indexHtml.includes('.profile-page [class~="text-gray-100"]')
+  && indexHtml.includes('.profile-page [class~="text-gray-500"]')
+  && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
+  'profile neutral text follows the active theme palette instead of turning dark on dark surfaces');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] .title-card')
   && indexHtml.includes('backdrop-filter: blur(24px) saturate(170%)')
   && indexHtml.includes('--glass-surface-alpha: .055')

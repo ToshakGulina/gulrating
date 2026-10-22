@@ -161,7 +161,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   const approvedUsers = profileList.filter(p => p.is_approved);
 
   pageRoot.innerHTML = `
-    <div class="max-w-4xl xl:max-w-6xl mx-auto pb-20">
+    <div class="profile-page max-w-4xl xl:max-w-6xl mx-auto pb-20">
       <div class="app-header sticky top-0 z-20 bg-dark/80 backdrop-blur-card py-4 px-4 border-b border-slate-800">
         <div class="flex items-center justify-between">
           <h1 class="text-2xl font-bold">Профиль</h1>
@@ -967,7 +967,13 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     initTitleCards(pageRoot, currentUser, updateProfileStatus);
   }
 
-  function setActivityTab(tab) {
+  let activeActivityTab = previousActivityTab;
+  function setActivityTab(tab, animateChange = false) {
+    const previousIndex = PROFILE_ACTIVITY_TABS.findIndex(item => item.id === activeActivityTab);
+    const nextIndex = PROFILE_ACTIVITY_TABS.findIndex(item => item.id === tab);
+    const shouldAnimate = animateChange && activeActivityTab !== tab
+      && previousIndex >= 0 && nextIndex >= 0
+      && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     pageRoot.querySelectorAll('.tab-btn').forEach(button => {
       const selected = button.dataset.tab === tab;
       button.classList.toggle('bg-primary', selected);
@@ -980,10 +986,20 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     profileContent.innerHTML = renderProfileStatusTab(
       tab, myRatingsList, watchlistList, titleStatusesList, statusByTitleId, currentUser
     );
+    if (shouldAnimate && typeof profileContent.animate === 'function') {
+      const direction = nextIndex > previousIndex ? 1 : -1;
+      const distance = Math.min(56, Math.max(28, window.innerWidth * 0.08));
+      const animation = profileContent.animate([
+        { opacity: 0, transform: `translateX(${direction * distance}px)` },
+        { opacity: 1, transform: 'translateX(0)' },
+      ], { duration: 390, easing: 'cubic-bezier(.2,.75,.25,1)' });
+      animation.onfinish = () => animation.cancel();
+    }
+    activeActivityTab = tab;
   }
   pageRoot.querySelectorAll('.tab-btn').forEach(button => {
     button.addEventListener('click', () => {
-      setActivityTab(button.dataset.tab);
+      setActivityTab(button.dataset.tab, true);
       initTitleCards(pageRoot, currentUser, updateProfileStatus);
     });
   });

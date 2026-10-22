@@ -1012,6 +1012,38 @@ function formatRatingCount(n) {
   return `${n} ${word}`;
 }
 
+function renderEpisodeRatingRows(rows, userId) {
+  const groups = new Map();
+  for (const row of rows || []) {
+    const key = `${Number(row.season_number)}:${Number(row.episode_number)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  const html = [...groups.entries()]
+    .sort(([a], [b]) => {
+      const [aSeason, aEpisode] = a.split(':').map(Number);
+      const [bSeason, bEpisode] = b.split(':').map(Number);
+      return aSeason - bSeason || aEpisode - bEpisode;
+    })
+    .map(([key, episodeRows]) => {
+      const [season, episode] = key.split(':').map(Number);
+      const average = episodeRows.reduce((sum, row) => sum + Number(row.rating || 0), 0) / episodeRows.length;
+      const mine = episodeRows.find(row => String(row.user_id) === String(userId));
+      const names = episodeRows.map(row => typeof row.profiles === 'object' ? row.profiles?.username : '').filter(Boolean);
+      return `<li class="flex items-center gap-2 rounded-lg bg-slate-800/70 px-3 py-2 text-xs" data-episode-rating="${season}:${episode}">
+        <span class="min-w-0 flex-1 text-gray-300">${season} сезон · ${episode} серия</span>
+        <span class="font-semibold text-sky-300">${average.toFixed(1)}/10</span>
+        <span class="text-gray-500">${formatRatingCount(episodeRows.length)}</span>
+        ${mine ? `<span class="text-gray-400">· вы ${escapeHtml(formatRating(mine.rating))}</span>` : ''}
+        ${names.length ? `<span class="hidden sm:inline truncate text-gray-500">${escapeHtml(names.join(', '))}</span>` : ''}
+      </li>`;
+    }).join('');
+  return {
+    count: groups.size,
+    html: html || '<li class="px-3 py-2 text-xs text-gray-500">Пока нет оценок серий.</li>',
+  };
+}
+
 const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="#f472b6"><path d="M9 11a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5zm8-2a3.5 3.5 0 10-2.4-6 5.5 5.5 0 010 8c.8.6 1.6 1 2.4 1zm0 2c-.6 0-1.3-.1-2-.3 1.2 1 2 2.3 2 3.8v1.5h6v-2c0-2.2-3.6-3-6-3z"/></svg>';
 
 // Пока оценка не выбрана, пузырёк над бегунком показывает позицию серым
@@ -1113,7 +1145,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         return pendingRating
           ? { ...cachedStatus, hasRating: true, currentStatus: 'watched', rating: { rating: pendingRating.rating, comment: pendingRating.comment || '' } }
           : cachedStatus;
-      })(), [], null, []]
+      })(), [], null, mediaType === 'tv' ? await getEpisodeRatings(titleId, currentUser.id, true) : []]
       : await Promise.all([
         getUserTitleStatus(currentUser.id, titleId)
           .catch(() => ({ hasRating: false, rating: null, isInWatchlist: false, currentStatus: '' })),
@@ -1199,35 +1231,28 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
     const visibleRows = ratingRows.slice(0, 2);
     const extraRows = ratingRows.slice(2);
-    const episodeRatingGroups = new Map();
-    for (const row of allEpisodeRatings || []) {
-      const key = `${Number(row.season_number)}:${Number(row.episode_number)}`;
-      if (!episodeRatingGroups.has(key)) episodeRatingGroups.set(key, []);
-      episodeRatingGroups.get(key).push(row);
-    }
-    const episodeRatingRows = [...episodeRatingGroups.entries()]
-      .sort(([a], [b]) => {
-        const [aSeason, aEpisode] = a.split(':').map(Number);
-        const [bSeason, bEpisode] = b.split(':').map(Number);
-        return aSeason - bSeason || aEpisode - bEpisode;
-      })
-      .map(([key, rows]) => {
-        const [season, episode] = key.split(':').map(Number);
-        const average = rows.reduce((sum, row) => sum + Number(row.rating || 0), 0) / rows.length;
-        const mine = rows.find(row => String(row.user_id) === String(currentUser.id));
-        const names = rows.map(row => typeof row.profiles === 'object' ? row.profiles?.username : '').filter(Boolean);
-        return `<li class="flex items-center gap-2 rounded-lg bg-slate-800/70 px-3 py-2 text-xs">
-          <span class="min-w-0 flex-1 text-gray-300">${season} сезон · ${episode} серия</span>
-          <span class="font-semibold text-sky-300">${average.toFixed(1)}/10</span>
-          <span class="text-gray-500">${rows.length} ${rows.length === 1 ? 'оценка' : rows.length < 5 ? 'оценки' : 'оценок'}</span>
-          ${mine ? `<span class="text-gray-400">· вы ${escapeHtml(formatRating(mine.rating))}</span>` : ''}
-          ${names.length ? `<span class="hidden sm:inline truncate text-gray-500">${escapeHtml(names.join(', '))}</span>` : ''}
-        </li>`;
-      }).join('');
+    const initialEpisodeRatings = renderEpisodeRatingRows(allEpisodeRatings, currentUser.id);
     const episodeRatingsPanel = mediaType === 'tv'
       ? `<details class="mb-4 border-t border-slate-700 pt-3" id="episode-ratings-panel">
-          <summary class="cursor-pointer select-none rounded-xl px-2.5 py-2 text-sm text-gray-300 hover:bg-slate-800">Оценки серий · ${episodeRatingGroups.size}</summary>
-          <ul class="mt-2 space-y-1.5">${episodeRatingRows || '<li class="px-3 py-2 text-xs text-gray-500">Пока нет оценок серий — оцените эпизод после просмотра.</li>'}</ul>
+          <summary class="cursor-pointer select-none rounded-xl px-2.5 py-2 text-sm text-gray-300 hover:bg-slate-800">Оценки серий · <span id="episode-rating-count">${initialEpisodeRatings.count}</span> · добавить оценку</summary>
+          <form id="episode-rating-form" class="mt-2 rounded-xl border border-slate-700/70 bg-slate-900/50 p-3">
+            <p class="mb-2 text-xs font-semibold text-gray-200">Поставить оценку серии</p>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="text-xs text-gray-400">Сезон
+                <input id="episode-rating-season" type="number" min="0" max="999" step="1" required inputmode="numeric" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-gray-100" placeholder="Например, 1">
+              </label>
+              <label class="text-xs text-gray-400">Серия
+                <input id="episode-rating-number" type="number" min="1" max="9999" step="1" required inputmode="numeric" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-gray-100" placeholder="Например, 1">
+              </label>
+            </div>
+            <div class="mt-3 flex items-center gap-3">
+              <input id="episode-rating-score" type="range" min="1" max="10" step="0.5" value="8" class="w-full accent-sky-400" aria-label="Оценка серии от 1 до 10">
+              <output id="episode-rating-score-value" class="min-w-10 text-right text-sm font-bold text-sky-300">8.0</output>
+              <button id="episode-rating-submit" type="submit" class="flex-shrink-0 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white">Сохранить</button>
+            </div>
+            <p id="episode-rating-status" class="mt-2 min-h-4 text-xs text-gray-400" role="status" aria-live="polite"></p>
+          </form>
+          <ul id="episode-rating-list" class="mt-2 space-y-1.5">${initialEpisodeRatings.html}</ul>
         </details>`
       : '';
     const kpPageUrl = kinopoiskPageUrl(kpRatings && kpRatings.kpId);
@@ -1375,6 +1400,70 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         </details>
       ` : ''}
       `;
+
+    let visibleEpisodeRatings = Array.isArray(allEpisodeRatings) ? [...allEpisodeRatings] : [];
+    const episodeRatingForm = modal.querySelector('#episode-rating-form');
+    if (episodeRatingForm) {
+      const seasonInput = modal.querySelector('#episode-rating-season');
+      const episodeInput = modal.querySelector('#episode-rating-number');
+      const scoreInput = modal.querySelector('#episode-rating-score');
+      const scoreValue = modal.querySelector('#episode-rating-score-value');
+      const saveButton = modal.querySelector('#episode-rating-submit');
+      const status = modal.querySelector('#episode-rating-status');
+      const reflectExistingScore = () => {
+        const season = Number(seasonInput.value);
+        const episode = Number(episodeInput.value);
+        if (!Number.isInteger(season) || !Number.isInteger(episode)) return;
+        const mine = visibleEpisodeRatings.find(row => String(row.user_id) === String(currentUser.id)
+          && Number(row.season_number) === season && Number(row.episode_number) === episode);
+        if (mine) {
+          scoreInput.value = String(mine.rating);
+          scoreValue.textContent = Number(mine.rating).toFixed(1);
+          status.textContent = 'Ваша сохранённая оценка загружена — её можно изменить.';
+        } else {
+          scoreInput.value = '8';
+          scoreValue.textContent = '8.0';
+          status.textContent = '';
+        }
+      };
+      scoreInput.addEventListener('input', () => { scoreValue.textContent = Number(scoreInput.value).toFixed(1); });
+      seasonInput.addEventListener('change', reflectExistingScore);
+      episodeInput.addEventListener('change', reflectExistingScore);
+      episodeRatingForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        const season = Number(seasonInput.value);
+        const episode = Number(episodeInput.value);
+        if (!Number.isInteger(season) || season < 0 || season > 999
+            || !Number.isInteger(episode) || episode < 1 || episode > 9999) {
+          status.textContent = 'Укажите корректные номер сезона и серии.';
+          return;
+        }
+        saveButton.disabled = true;
+        status.textContent = 'Сохраняем оценку серии…';
+        try {
+          const result = await submitEpisodeRating(currentUser.id, titleId, season, episode, Number(scoreInput.value));
+          if (result.queued) {
+            status.textContent = currentUser.offlineOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)
+              ? 'Оценка сохранена на устройстве и синхронизируется при появлении сети.'
+              : 'Оценка сохранена локально; проверьте доступ и примените актуальную supabase-schema.sql.';
+          } else {
+            status.textContent = 'Оценка серии сохранена и видна друзьям.';
+          }
+          visibleEpisodeRatings = await getEpisodeRatings(titleId, currentUser.id, Boolean(currentUser.offlineOnly));
+          const rendered = renderEpisodeRatingRows(visibleEpisodeRatings, currentUser.id);
+          modal.querySelector('#episode-rating-count').textContent = String(rendered.count);
+          modal.querySelector('#episode-rating-list').innerHTML = rendered.html;
+          if (result.seriesRating) {
+            showToast(`Оценки всех ${result.seriesRating.episodes} серий усреднены: ${result.seriesRating.rating.toFixed(1)}/10 для сериала.`, 'success', 5000);
+            onSaveCallback?.();
+          }
+        } catch (error) {
+          status.textContent = error?.message || 'Не удалось сохранить оценку серии.';
+        } finally {
+          saveButton.disabled = false;
+        }
+      });
+    }
 
     // Рядом с заголовком показываем вкладки других частей франшизы.
     // TMDb-коллекцию фильмов дополняем точными совпадениями поиска сериалов.
