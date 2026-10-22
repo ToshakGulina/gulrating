@@ -32,6 +32,9 @@ try {
             : { title: 'Mystery', snippet: 'Mystery is a 2010 film' };
           return Response.json({ query: { search: [article] } });
         }
+        if (query.includes('Dune: Prophecy')) return Response.json({ query: { search: [
+          { title: 'Dune: Prophecy', snippet: 'American science fiction television series' },
+        ] } });
         if (query.includes('Dune')) return Response.json({ query: { search: [
           { title: 'Dune', snippet: 'Dune is a 1965 science fiction novel' },
           { title: 'Dune (2021 film)', snippet: '2021 American science fiction film' },
@@ -68,6 +71,7 @@ try {
         'Chronology Gamma': '<table><tr><th>Previous film</th><td><a href="/wiki/Chronology_Beta">Chronology Beta</a></td></tr></table>',
         'Dune': '<p>Original novel article; no film chronology rows.</p>',
         'Дюна': '<p>Оригинальный роман; строк хронологии фильмов нет.</p>',
+        'Dune: Prophecy': '<table><tr><th>Previous</th><td><a href="/wiki/Dune_(2021_film)">Dune (2021 film)</a></td></tr></table>',
         'Dune (2021 film)': '<table><tr><th>Followed by</th><td><a href="/wiki/Dune:_Part_Two">Dune: Part Two</a></td></tr></table>',
         'Дюна (фильм, 2021)': '<table><tr><th>Следующий фильм</th><td><a href="/wiki/Dune:_Part_Two">Dune: Part Two</a></td></tr></table>',
         'Dune: Part Two': '<table><tr><th>Preceded by</th><td><a href="/wiki/Dune_(2021_film)">Dune (2021 film)</a></td></tr></table>',
@@ -119,6 +123,15 @@ try {
   assert(dunePages.includes('Дюна (фильм, 2021)'), 'Russian film disambiguation in “(фильм, 2021)” order is recognized');
   assert(!dunePages.includes('Dune') && !dunePages.includes('Дюна'),
     'the novel article must not win over the exact-year film page');
+
+  const crossMediaDune = await getWikipediaFranchiseTitles(
+    'Дюна: Пророчество', 'Dune: Prophecy', '2024-11-17', 'tv'
+  );
+  assert.deepEqual(
+    crossMediaDune.map(entry => `${entry.media_type}:${entry.title}`).sort(),
+    ['all:Dune (2021 film)', 'all:Dune: Part Two'],
+    'a generic Previous row on the Dune TV-series page must traverse into the explicitly linked 2021 film chronology without inheriting tv type'
+  );
 
   const trumanRequestStart = requests.length;
   assert.deepEqual(

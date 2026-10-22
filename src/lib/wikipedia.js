@@ -1,6 +1,6 @@
 // Franchise membership is derived only from explicit Wikipedia previous/next rows.
 
-const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v4';
+const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v5';
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 const EMPTY_CACHE_TTL = 6 * 60 * 60 * 1000;
 const memoryCache = new Map();
@@ -105,7 +105,7 @@ function plainHtmlText(value) {
     .trim();
 }
 
-function chronologyLinksFromHtml(html, defaultMediaType) {
+function chronologyLinksFromHtml(html) {
   const links = [];
   const rows = String(html || '').match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || [];
   for (const row of rows) {
@@ -117,9 +117,12 @@ function chronologyLinksFromHtml(html, defaultMediaType) {
     if (isPrevious === isNext) continue;
 
     const tv = /(?:tv|television|series|show|сериал|телесериал)/i.test(label);
+    // Bare Previous/Next rows can bridge movies and TV entries. Resolve their
+    // media type from the linked title/year in TMDb instead of inheriting the
+    // current article type (which used to discard Dune 2021 from the TV chain).
     const media_type = tv ? 'tv' : /(?:film|movie|фильм|мультфильм)/i.test(label)
       ? 'movie'
-      : defaultMediaType;
+      : 'all';
     const valueMatch = row.match(/<td\b[^>]*>([\s\S]*?)<\/td>/i);
     if (!valueMatch) continue;
     const anchorMatch = valueMatch[1].match(/<a\b([^>]*)>([\s\S]*?)<\/a>/i);
@@ -159,14 +162,14 @@ async function findChronologySeed(language, query, titleCandidates, year, mediaT
   return preferred.sort((a, b) => a.rank - b.rank).slice(0, 1);
 }
 
-async function inspectChronologyPage(article, mediaType) {
+async function inspectChronologyPage(article) {
   const params = {
     action: 'parse', format: 'json', page: article.title,
     prop: 'text', section: '0', origin: '*',
   };
   const data = await requestJson(apiUrl(article.language, params));
   const html = data?.parse?.text?.['*'] || data?.parse?.text || '';
-  return chronologyLinksFromHtml(html, mediaType);
+  return chronologyLinksFromHtml(html);
 }
 
 async function discoverChronology(title, originalTitle, year, mediaType) {
@@ -193,14 +196,17 @@ async function discoverChronology(title, originalTitle, year, mediaType) {
     if (!batch.length) break;
     processed += batch.length;
     const discovered = await Promise.all(batch.map(article =>
-      inspectChronologyPage(article, article.media_type).catch(() => [])
+      inspectChronologyPage(article).catch(() => [])
     ));
 
     for (let index = 0; index < batch.length; index += 1) {
       const article = batch[index];
       for (const link of discovered[index]) {
-        const key = `${link.media_type}:${normalize(link.title)}`;
-        if (!related.has(key)) related.set(key, link);
+        const key = normalize(link.title);
+        const existing = related.get(key);
+        if (!existing || (existing.media_type === 'all' && link.media_type !== 'all')) {
+          related.set(key, link);
+        }
         if (article.depth < 5) {
           queue.push({
             language: article.language,
