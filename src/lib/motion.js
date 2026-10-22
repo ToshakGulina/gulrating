@@ -250,9 +250,10 @@ export function animateScoreBubble(bubble, score) {
   return true;
 }
 
-export function animateOverlayExit(overlay, onComplete) {
+export function animateOverlayExit(overlay, onComplete, slideDirection = 0) {
   if (!overlay || !isMotionEnabled()) return false;
   const panel = getOverlayPanel(overlay);
+  const exitX = slideDirection ? -Math.sign(slideDirection) * Math.min(window.innerWidth * .28, 300) : 0;
   let finished = false;
   const complete = () => {
     if (finished) return;
@@ -262,15 +263,30 @@ export function animateOverlayExit(overlay, onComplete) {
   };
   pendingCompletions.add(complete);
   track(animate(overlay, {
-    opacity: [1, 0], duration: 260, ease: 'in(3)',
+    opacity: [1, 0], duration: slideDirection ? 220 : 260, ease: 'in(3)',
     ...(!panel ? { onComplete: complete } : {}),
   }));
   if (panel) {
     track(animate(panel, {
-      opacity: [1, 0], y: [0, 20], scale: [1, .965],
-      duration: 300, ease: 'in(3)', onComplete: complete,
+      opacity: [1, 0], y: slideDirection ? [0, 0] : [0, 20],
+      ...(slideDirection ? { x: [0, exitX] } : {}),
+      scale: slideDirection ? [1, .985] : [1, .965],
+      duration: slideDirection ? 300 : 300, ease: 'in(3)', onComplete: complete,
     }));
   }
+  return true;
+}
+
+export function animateFranchiseModalEnter(overlay, slideDirection) {
+  if (!overlay || !slideDirection || !isMotionEnabled()) return false;
+  const panel = getOverlayPanel(overlay);
+  if (!panel) return false;
+  const enterX = Math.sign(slideDirection) * Math.min(window.innerWidth * .28, 300);
+  track(animate(overlay, { opacity: [0, 1], duration: 180, ease: 'out(2)' }));
+  track(animate(panel, {
+    opacity: [0, 1], x: [enterX, 0], scale: [.985, 1],
+    duration: 390, ease: spring({ bounce: .16 }),
+  }));
   return true;
 }
 

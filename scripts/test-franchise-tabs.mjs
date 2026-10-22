@@ -14,6 +14,12 @@ source = source.replace(
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const { getFranchiseTitles } = await import(moduleUrl);
 const originalFetch = globalThis.fetch;
+const storage = new Map();
+globalThis.localStorage = {
+  getItem: key => storage.has(key) ? storage.get(key) : null,
+  setItem: (key, value) => storage.set(key, String(value)),
+  removeItem: key => storage.delete(key),
+};
 const tmdbRequests = [];
 
 try {
@@ -291,11 +297,24 @@ try {
   );
   assert.equal(tmdbRequests.slice(duneRequestsStart).some(url => url.pathname.endsWith('/collection/78')),
     false, 'TMDb collection data does not broaden an explicit chronology list');
+  const openedFromSequel = await getFranchiseTitles(503, 'movie');
+  assert.deepEqual(openedFromSequel.map(part => part.id), [502, 501, 503],
+    'the full explicit chronology component remains available when a sequel is opened independently later');
 
   const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
   assert.match(modalSource, /franchiseContext = null/);
-  assert.match(modalSource, /openRatingModal\(tab\.dataset\.titleId, tab\.dataset\.mediaType, currentUser, onSaveCallback, \{ parts \}\)/);
+  assert.match(modalSource, /openRatingModal\(tab\.dataset\.titleId, tab\.dataset\.mediaType, currentUser, onSaveCallback, \{ parts, direction \}\)/);
+  assert.match(modalSource, /const direction = targetIndex >= 0 && currentIndex >= 0 && targetIndex < currentIndex \? -1 : 1/);
+  assert.match(modalSource, /animateFranchiseModalEnter\(modal, franchiseDirection\)/);
+  assert.match(modalSource, /closeModal\(direction\)/);
   assert.match(modalSource, /franchisePartsPromise/);
+  const ratingModalFunction = modalSource.slice(modalSource.indexOf('export async function openRatingModal('));
+  assert.doesNotMatch(ratingModalFunction, /document\.getElementById\(/,
+    'title switching must scope repeated element IDs to the modal being loaded');
+  assert.match(ratingModalFunction, /modal\.querySelector\('#modal-content'\)\.innerHTML/g,
+    'each selected franchise title renders into its own modal rather than a closing modal');
+  assert.match(ratingModalFunction, /activeRatingModals\.size \? 'hidden' : ratingModalPreviousBodyOverflow/,
+    'closing the previous title during a tab switch does not unlock the page under the new modal');
 } finally {
   globalThis.fetch = originalFetch;
 }

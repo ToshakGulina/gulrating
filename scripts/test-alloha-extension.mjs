@@ -51,6 +51,7 @@ const document = {
 };
 const window = {
   top: topWindow,
+  location: { href: 'https://alloha.tv/embed/show?season=1&episode=2' },
   addEventListener(type, callback) { listeners.set(type, callback); },
 };
 class MutationObserver {
@@ -74,6 +75,8 @@ const hello = sentToTop.find((item) => item.data.type === 'hello');
 assert(hello, 'the extension should request the saved position when a video is ready');
 assert.equal(hello.data.source, 'gulrating-player-progress-extension');
 assert.equal(hello.data.duration, 1200);
+assert.deepEqual(JSON.parse(JSON.stringify(hello.data.episode)), { season: 1, episode: 2, key: 's01e02' },
+  'the extension identifies the current episode without sending account data');
 assert.equal(hello.targetOrigin, '*', 'the initial hello has no private or account data');
 
 const onMessage = listeners.get('message');
@@ -92,6 +95,8 @@ const seekReport = sentToTop.find((item) => item.data.type === 'progress' && ite
 assert(seekReport, 'the successful resume should report its resulting position');
 assert.equal(seekReport.targetOrigin, 'https://gulrating.pages.dev');
 assert.equal(seekReport.data.currentTime, 240);
+assert.deepEqual(JSON.parse(JSON.stringify(seekReport.data.episode)), { season: 1, episode: 2, key: 's01e02' },
+  'extension progress messages carry the episode identity for watch-history aggregation');
 
 video.currentTime = 265;
 video.paused = true;

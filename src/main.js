@@ -77,7 +77,10 @@ window.addEventListener('online', () => {
   if (genuinelyReconnected) {
     showToast('Снова в сети', 'success', 2000);
     checkNewSeasons().catch(() => {});
-    if (!offlineOnlySession) getCurrentUser().then(syncQueuedTitleStatuses).catch(() => {});
+    if (!offlineOnlySession) getCurrentUser().then(user => {
+      syncQueuedTitleStatuses(user);
+      syncQueuedPlaybackRatings(user);
+    }).catch(() => {});
   }
   // Полная перерисовка ленты здесь сбрасывала видимый экран и запускала
   // анимации заново при возврате во вкладку. Обновляем приложение только
@@ -94,6 +97,20 @@ function syncQueuedTitleStatuses(user) {
     .then(({ syncPendingTitleStatuses }) => syncPendingTitleStatuses(user.id))
     .then(count => {
       if (count) showToast(`Синхронизировано статусов: ${count}`, 'success', 2500);
+    })
+    .catch(() => {});
+}
+
+function syncQueuedPlaybackRatings(user) {
+  if (!user || user.offlineOnly || navigator.onLine === false) return;
+  import('./lib/episodeRatings.js')
+    .then(async ({ syncPendingEpisodeRatings, syncNativePlaybackRatings }) => {
+      const counts = await Promise.all([
+        syncPendingEpisodeRatings(user.id),
+        syncNativePlaybackRatings(user.id),
+      ]);
+      const total = counts.reduce((sum, count) => sum + Number(count || 0), 0);
+      if (total) showToast(`Синхронизированы оценки после просмотра: ${total}`, 'success', 3000);
     })
     .catch(() => {});
 }
@@ -122,6 +139,7 @@ async function renderApp() {
   try {
     const currentUser = await getCurrentUser();
     syncQueuedTitleStatuses(currentUser);
+    syncQueuedPlaybackRatings(currentUser);
     renderedAuthUserSignature = authUserSignature(currentUser);
     offlineOnlySession = Boolean(currentUser && currentUser.offlineOnly);
     setSyncUser(currentUser);

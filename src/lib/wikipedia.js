@@ -131,7 +131,9 @@ function chronologyLinksFromHtml(html, defaultMediaType) {
     try { title = decodeURIComponent(title); } catch (error) { /* retain the raw title */ }
     title = plainHtmlText(title);
     if (!title || /^(?:special|category|file|help|portal|wikipedia|template|talk|media|служебная|категория|файл|справка|портал|шаблон|обсуждение):/i.test(title)) continue;
-    links.push({ title, media_type });
+    const year = title.match(/\(((?:18|19|20)\d{2})\s+(?:film|movie|tv series|television series|фильм|мультфильм|сериал|телесериал)\)/i)?.[1]
+      || title.match(/\((?:film|movie|tv series|television series|фильм|мультфильм|сериал|телесериал),?\s*((?:18|19|20)\d{2})\)/i)?.[1];
+    links.push({ title, media_type, ...(year ? { year: Number(year) } : {}) });
   }
   return links;
 }

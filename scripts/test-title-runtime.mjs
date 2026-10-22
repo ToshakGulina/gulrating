@@ -26,7 +26,7 @@ try {
       return Response.json({ id: 2, title: 'Short Film', release_date: '2020-01-01', runtime: 42 });
     }
     if (url.pathname.endsWith('/tv/3')) {
-      return Response.json({ id: 3, name: 'Dune: Prophecy', first_air_date: '2024-01-01', episode_run_time: [55] });
+      return Response.json({ id: 3, name: 'Dune: Prophecy', first_air_date: '2024-01-01', number_of_episodes: 6, episode_run_time: [50, 55] });
     }
     throw new Error(`Unexpected TMDb request: ${url}`);
   };
@@ -36,7 +36,10 @@ try {
   );
   assert.equal((await getTitleDetails(1, 'movie')).runtime, 155, 'movie details should retain TMDb runtime in minutes');
   assert.equal((await getTitleDetails(2, 'movie')).runtime, 42, 'short-film runtimes should be retained');
-  assert.equal((await getTitleDetails(3, 'tv')).runtime, null, 'episode length must not be mistaken for a full-series runtime');
+  const seriesDetails = await getTitleDetails(3, 'tv');
+  assert.equal(seriesDetails.runtime, null, 'episode length must not be mistaken for a full-series runtime');
+  assert.equal(seriesDetails.episode_runtime, 53, 'average episode length supports an estimated whole-series progress total');
+  assert.equal(seriesDetails.episodes, 6, 'total episode count supports the estimated whole-series progress total');
 
   primeTitleCache('movie', 4, { title: 'Cached film', runtime: 101 });
   assert.equal(getCachedTitleDetails(4, 'movie').runtime, 101, 'runtime should survive the local details cache');

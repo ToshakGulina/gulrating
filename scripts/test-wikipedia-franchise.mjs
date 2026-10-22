@@ -110,6 +110,8 @@ try {
   const duneTitles = await getWikipediaFranchiseTitles('Дюна', 'Dune', '2021-10-22', 'movie');
   assert.deepEqual(duneTitles.map(entry => entry.title).sort(), ['Dune (2021 film)', 'Dune: Part Two'],
     'when an exact-title search ranks the Dune novel first, choose the 2021 film article and follow its explicit sequel row');
+  assert.equal(duneTitles.find(entry => entry.title === 'Dune (2021 film)')?.year, 2021,
+    'release year from a linked disambiguated article is preserved for exact TMDb matching');
   const dunePages = requests.slice(duneRequestStart)
     .filter(({ url }) => url.searchParams.get('prop') === 'text')
     .map(({ url }) => url.searchParams.get('page'));

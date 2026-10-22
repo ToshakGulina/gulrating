@@ -9,15 +9,17 @@ import { FEED_SECTIONS, getFeedOrder, getVisibleFeedSections, saveFeedOrder, sav
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, getFullCatalogPendingMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
-import { getWatchHistory, getPositions, removeWatchEntry, markWatchDone, unmarkWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
+import { getWatchHistory, getPositions, getEpisodeWatchPositions, removeWatchEntry, markWatchDone, unmarkWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
 import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
 import { THEMES, getThemeId, setTheme } from '../lib/theme.js';
 import { animateProfilePanel } from '../lib/motion.js';
-import { primeTitleCache, getCachedTitleDetails } from '../lib/tmdb.js';
+import { primeTitleCache, getCachedTitleDetails, getTitleDetails } from '../lib/tmdb.js';
+import { estimateSeriesProgress } from '../lib/seriesProgress.js';
 
 // Полная тема оформления задаётся data-theme на корне документа.
 let installBoxUpdateHandler = null;
+const seriesProgressLoads = new Set();
 
 function formatPlaybackTime(value) {
   const seconds = Math.max(0, Math.floor(Number(value) || 0));
@@ -709,6 +711,10 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       const savedTime = savedSeconds === null ? null : formatPlaybackTime(savedSeconds);
       const pct = pos && Number(pos.d) > 0 && savedSeconds !== null
         ? Math.min(100, Math.round(savedSeconds / Number(pos.d) * 100)) : null;
+      const episodePositions = item.media_type === 'tv' ? getEpisodeWatchPositions(item.key, positions) : [];
+      const seriesProgress = item.media_type === 'tv'
+        ? estimateSeriesProgress(item.key, positions, getCachedTitleDetails(item.id, 'tv'))
+        : null;
       const status = watched
         ? (item.media_type === 'movie'
           ? `Следим за новыми частями: ${escapeHtml(item.done.collectionName || 'список франшизы из Википедии')}`
@@ -722,8 +728,9 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
               <span class="block truncate text-sm font-medium">${escapeHtml(item.title)}</span>
               <span class="block text-[11px] text-gray-500">${status}</span>
               ${watched ? `<span class="block text-[10px] text-gray-600">Отмечено ${new Date(item.done.at).toLocaleDateString('ru-RU')}</span>` : ''}
+              ${seriesProgress ? `<span class="mt-1 block text-[10px] text-sky-300">Весь сериал: ${formatPlaybackTime(seriesProgress.watchedSeconds)} из ~${formatPlaybackTime(seriesProgress.estimatedTotalSeconds)} · ${seriesProgress.percent}%${seriesProgress.estimated ? ' (оценка)' : ''}</span><span class="mt-1 block h-1.5 overflow-hidden rounded-full bg-slate-700"><span class="block h-full rounded-full bg-sky-400" style="width:${seriesProgress.percent}%"></span></span>` : (episodePositions.length ? '<span class="mt-1 block text-[10px] text-gray-500">Оценочная длительность сериала пока недоступна.</span>' : (item.media_type === 'tv' && pos ? '<span class="mt-1 block text-[10px] text-gray-500">Общий прогресс появится после распознавания серии плеером.</span>' : ''))}
               ${pct !== null ? `<span class="mt-1 block h-1 overflow-hidden rounded bg-slate-700"><span class="block h-full bg-red-500" style="width:${pct}%"></span></span>` : ''}
-              ${savedTime !== null ? `<span class="block text-[10px] text-gray-500">Запомнено: ${savedTime}${pct !== null ? ` · ${pct}%` : ''}</span>` : ''}
+              ${savedTime !== null ? `<span class="block text-[10px] text-gray-500">Запомнено в текущей серии: ${savedTime}${pct !== null ? ` · ${pct}%` : ''}</span>` : ''}
             </span>
           </div>
           <div class="flex flex-col gap-1 flex-shrink-0 items-stretch">
@@ -756,7 +763,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     box.querySelectorAll('.wh-continue').forEach(button => button.addEventListener('click', () => {
       const item = getWatchHistory().find(entry => entry.key === button.closest('[data-key]').dataset.key);
       if (!item || !(item.kp_url || item.kpId || item.query)) return;
-      reportWatchNative(item.id, item.media_type);
+      reportWatchNative(item.id, item.media_type, currentUser.id, item.title);
       openWatchOverlay({
         kpId: item.kpId,
         query: item.query || item.title,
@@ -764,6 +771,10 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
         mirrorUrl: item.kp_url,
         watchKey: item.key,
         resumeFromHistory: true,
+        currentUser,
+        titleId: item.id,
+        mediaType: item.media_type,
+        posterPath: item.poster_path,
       });
     }));
     box.querySelectorAll('.wh-done').forEach(button => button.addEventListener('click', async () => {
@@ -802,6 +813,17 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
       ? renderPlaybackRows(history)
       : '<p class="py-4 text-sm text-gray-500">История просмотра пока пуста.</p>'}`;
     bindPlaybackRows();
+    const positions = getPositions();
+    for (const item of history) {
+      if (item.media_type !== 'tv' || !getEpisodeWatchPositions(item.key, positions).length) continue;
+      if (Number(getCachedTitleDetails(item.id, 'tv')?.episodes) > 0) continue;
+      const loadKey = `tv:${item.id}`;
+      if (seriesProgressLoads.has(loadKey)) continue;
+      seriesProgressLoads.add(loadKey);
+      getTitleDetails(item.id, 'tv').then(() => {
+        if (historyRoot.isConnected) paintWatchHistory();
+      }).catch(() => {}).finally(() => seriesProgressLoads.delete(loadKey));
+    }
   }
 
   // Установка на телефон: кнопка системного install-промта либо подсказка

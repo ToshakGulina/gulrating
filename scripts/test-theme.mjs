@@ -58,11 +58,17 @@ assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1') && indexHtml.incl
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered .dot-text-glyph')
   && indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
   'all Nothing headings use the same 3-by-5 dot cells as score numerals');
+assert.ok(indexHtml.includes(':root[data-theme="glass"] #search-input')
+  && indexHtml.includes('rgb(13 25 45 / .97)')
+  && indexHtml.includes(':root[data-theme="glass"] #search-results'),
+  'Glass search input and result surface should have an opaque, readable backdrop');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] .title-card')
-  && indexHtml.includes('backdrop-filter: blur(20px) saturate(165%)')
-  && indexHtml.includes('rgb(255 255 255 / .085)')
+  && indexHtml.includes('backdrop-filter: blur(24px) saturate(170%)')
+  && indexHtml.includes('--glass-surface-alpha: .055')
+  && indexHtml.includes('rgb(255 255 255 / var(--glass-surface-alpha))')
+  && indexHtml.includes(':root[data-theme="glass"] .search-result-item')
   && indexHtml.includes('theme-preview-glass'),
-  'Glass theme combines a colorful field, translucent frosted panels, and edge highlights');
+  'Glass uses one highly transparent shared surface material while search stays dense and readable');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] .rating-score-badge')
   && indexHtml.includes('--glass-score-rgb: 52 211 153;')
   && indexHtml.includes(':root[data-theme="glass"] .rating-slider::-webkit-slider-thumb'),
