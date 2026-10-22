@@ -41,8 +41,14 @@ assert.match(feed, /transitionAppPage\(/,
   'navigation uses the shared page transition');
 assert.match(profile, /animateProfilePanel\(panel\)/,
   'profile tabs animate the newly selected section');
-assert.match(ratingModal, /animateOverlayExit\(modal, removeModal\)/,
+assert.match(ratingModal, /animateOverlayExit\(modal, removeModal, slideDirection\)/,
   'rating modal has a coordinated animated exit');
+assert.match(ratingModal, /animateFranchiseModalEnter\(modal, franchiseDirection\)/,
+  'franchise tab changes enter from the opposite side');
+assert.match(motion, /animateFranchiseModalEnter[\s\S]*?x:\s*\[enterX, 0\][\s\S]*?spring/,
+  'franchise tab transitions use a perceptible horizontal spring slide');
+assert.match(html, /franchise-tab-enter-from-(?:right|left)[\s\S]*?franchise-tab-exit-left/,
+  'franchise tab transitions include directional CSS fallbacks');
 assert.match(ratingModal, /animateScoreBubble\(bubble, selectedScore \?\? val\)/,
   'intentional score changes get a distinct rating-feedback motion');
 assert.match(ratingModal, /prefers-reduced-motion:\s*reduce[\s\S]*?removeModal\(\)/,
@@ -53,7 +59,7 @@ assert.match(ratingModal, /renderValue\(!fromSlider\)/,
   'the score feedback is reserved for deliberate stepper taps, not continuous slider movement');
 assert.match(html, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation-duration:\s*\.01ms/,
   'global CSS motion is reduced for accessibility');
-assert.match(sw, /gulrating-v60[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
+assert.match(sw, /gulrating-v61[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
   'the offline shell precaches the animation engine and app motion module under a fresh cache version');
 assert.doesNotMatch(motion, /from ['"]animejs['"]|from ['"]motion['"]|from ['"]framer-motion['"]|https?:\/\/.*animejs/,
   'the offline-first app does not import or download an animation dependency remotely');

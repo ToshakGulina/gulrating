@@ -2,6 +2,8 @@ import { saveRating, getUserTitleStatus, getCachedUserTitleStatus, deleteRating,
 import { getTitleDetails, getCachedTitleDetails, getFranchiseTitles } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
+import { submitEpisodeRating, getEpisodeRatings } from '../lib/episodeRatings.js';
+import { extractEpisodeIdentity, episodePositionKey } from '../lib/episodeIdentity.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
 import { enqueueRating, getPendingRatings, networkLikeError } from '../lib/offline.js';
@@ -12,7 +14,7 @@ import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
 import { friendRatingsLabel } from '../lib/ratingLabels.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
 import { formatCompactMoney } from '../lib/money.js';
-import { animateOverlayExit, animateScoreBubble } from '../lib/motion.js';
+import { animateOverlayExit, animateFranchiseModalEnter, animateScoreBubble } from '../lib/motion.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -101,7 +103,11 @@ function markBadDub(type, name) {
 }
 
 export function openWatchOverlay(opts) {
-  const { kpId, imdbId, query, titleText, mirrorUrl, watchKey, resumeFromHistory = false } = opts || {};
+  const { kpId, imdbId, query, titleText, mirrorUrl, watchKey, resumeFromHistory = false,
+    currentUser, titleId: explicitTitleId, mediaType: explicitMediaType, posterPath } = opts || {};
+  const [watchMediaType, watchTitleId] = String(watchKey || '').split(':');
+  const titleId = explicitTitleId || watchTitleId;
+  const mediaType = explicitMediaType || watchMediaType;
   const apk = isApk();
   const ov = document.createElement('div');
   ov.id = 'watch-overlay';
@@ -124,6 +130,7 @@ export function openWatchOverlay(opts) {
     </div>
     <div class="watch-footer flex items-center gap-2 flex-shrink-0">
       <button id="watch-bad" class="rounded-full bg-slate-800/70 px-3 py-1.5 text-xs text-gray-400 hover:bg-slate-700 hover:text-gray-200">не играет</button>
+      <button id="watch-rate" type="button" class="rounded-full bg-slate-800/90 px-3 py-1.5 text-xs text-sky-300 hover:bg-slate-700" title="Для плееров без события окончания — оценить после просмотра">Оценить</button>
       <p id="watch-hint" class="text-xs text-gray-500 flex-1"></p>
     </div>`;
   const previousBodyOverflow = document.body.style.overflow;
@@ -138,6 +145,7 @@ export function openWatchOverlay(opts) {
   const modeBtn = ov.querySelector('#watch-mode');
   const cinemaBtn = ov.querySelector('#watch-cinema');
   const badBtn = ov.querySelector('#watch-bad');
+  const rateBtn = ov.querySelector('#watch-rate');
   let cinemaMode = false;
   let cinemaCursorTimer = null;
   let cinemaStageSize = null;
@@ -208,6 +216,12 @@ export function openWatchOverlay(opts) {
     }
   };
   cinemaBtn.addEventListener('click', () => setCinemaMode(!cinemaMode));
+  rateBtn.addEventListener('click', () => {
+    const frame = stage.querySelector('#watch-frame');
+    const video = frame && findAccessibleVideo(frame.contentWindow);
+    const episode = resolveEpisodeIdentity(null, video) || extractEpisodeIdentity(frame?.src, frame?.getAttribute('src'));
+    showPostPlaybackRating(episode, video, null, true);
+  });
 
   let groups = [];        // [{ type, embed, dubs: [{name, quality, url}] }]
   let curType = null;
@@ -217,6 +231,7 @@ export function openWatchOverlay(opts) {
   let savedPosition = (!apk && watchKey) ? getPositions()[watchKey] || null : null;
   const videoProgress = new WeakMap();
   const remotePlayerProgress = new WeakMap();
+  const postPlaybackPrompts = new Set();
 
   function formatPlaybackTime(value) {
     const total = Math.max(0, Math.floor(Number(value) || 0));
@@ -228,13 +243,181 @@ export function openWatchOverlay(opts) {
       : `${minutes}:${String(seconds).padStart(2, '0')}`;
   }
 
+  function resolveEpisodeIdentity(progress = null, video = null) {
+    const frame = stage.querySelector('#watch-frame');
+    let documentUrl = '';
+    let documentTitle = '';
+    try {
+      documentUrl = video?.ownerDocument?.location?.href || '';
+      documentTitle = video?.ownerDocument?.title || '';
+    } catch (error) { /* cross-origin player is identified from its frame URL */ }
+    return extractEpisodeIdentity(
+      progress?.episode, progress?.season != null && progress?.episodeNumber != null
+        ? { season: progress.season, episode: progress.episodeNumber }
+        : null,
+      documentUrl, documentTitle, video?.currentSrc, video?.src,
+      frame?.src, frame?.getAttribute('src')
+    );
+  }
+
+  function showPostPlaybackRating(episode, video = null, reportedDuration = null, manual = false) {
+    const duration = Number(reportedDuration ?? video?.duration);
+    if (!manual && Number.isFinite(duration) && duration > 0 && duration < 120) return;
+    if (!currentUser?.id || !titleId || !['movie', 'tv'].includes(mediaType)) return;
+    const kind = mediaType === 'movie' ? 'movie' : 'episode';
+    const promptKey = kind === 'movie' ? `${watchKey}:movie` : `${watchKey}:${episode?.key || 'manual'}`;
+    if ((!manual && postPlaybackPrompts.has(promptKey)) || stage.querySelector('#watch-post-playback-rating')) return;
+    if (!manual) postPlaybackPrompts.add(promptKey);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'watch-post-playback-rating';
+    overlay.className = 'absolute inset-0 z-30 flex items-center justify-center bg-black/80 p-4';
+    const card = document.createElement('section');
+    card.className = 'w-full max-w-sm rounded-2xl border border-sky-200/30 bg-slate-950/95 p-5 text-white shadow-2xl';
+    const heading = document.createElement('h3');
+    heading.className = 'mb-1 text-lg font-bold';
+    heading.textContent = kind === 'movie' ? 'Фильм закончился' : 'Серия закончилась';
+    const description = document.createElement('p');
+    description.className = 'mb-4 text-sm text-slate-300';
+    description.textContent = kind === 'movie'
+      ? `Оцените фильм «${titleText || 'без названия'}».`
+      : `Оцените серию «${titleText || 'сериала'}». Эта оценка будет общей с друзьями.`;
+    card.append(heading, description);
+
+    let seasonInput = null;
+    let episodeInput = null;
+    if (kind === 'episode') {
+      const numbers = document.createElement('div');
+      numbers.className = 'mb-4 grid grid-cols-2 gap-3';
+      for (const field of [
+        { label: 'Сезон', value: episode?.season, max: 999 },
+        { label: 'Серия', value: episode?.episode, max: 9999 },
+      ]) {
+        const label = document.createElement('label');
+        label.className = 'text-xs text-slate-300';
+        label.textContent = field.label;
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = field.label === 'Сезон' ? '0' : '1';
+        input.max = String(field.max);
+        input.step = '1';
+        input.required = true;
+        input.value = field.value ? String(field.value) : '';
+        input.className = 'mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white';
+        label.appendChild(input);
+        numbers.appendChild(label);
+        if (field.label === 'Сезон') seasonInput = input;
+        else episodeInput = input;
+      }
+      card.appendChild(numbers);
+    }
+
+    const scoreRow = document.createElement('label');
+    scoreRow.className = 'mb-2 flex items-center justify-between text-sm text-slate-200';
+    scoreRow.textContent = 'Ваша оценка';
+    const score = document.createElement('strong');
+    score.className = 'text-2xl text-sky-300';
+    score.textContent = '8.0';
+    scoreRow.appendChild(score);
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '1';
+    slider.max = '10';
+    slider.step = '.5';
+    slider.value = '8';
+    slider.setAttribute('aria-label', 'Оценка от 1 до 10');
+    slider.className = 'mb-5 w-full accent-sky-400';
+    slider.addEventListener('input', () => { score.textContent = Number(slider.value).toFixed(1); });
+    const status = document.createElement('p');
+    status.className = 'mb-3 min-h-4 text-xs text-slate-300';
+    const actions = document.createElement('div');
+    actions.className = 'flex justify-end gap-2';
+    const later = document.createElement('button');
+    later.type = 'button';
+    later.textContent = 'Позже';
+    later.className = 'rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800';
+    later.addEventListener('click', () => overlay.remove());
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.textContent = 'Сохранить оценку';
+    save.className = 'rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500';
+    save.addEventListener('click', async () => {
+      let episodeData = null;
+      if (kind === 'episode') {
+        episodeData = extractEpisodeIdentity({ season: Number(seasonInput.value), episode: Number(episodeInput.value) });
+        if (!episodeData) {
+          status.textContent = 'Укажите корректные номера сезона и серии.';
+          (seasonInput.value ? episodeInput : seasonInput).focus();
+          return;
+        }
+      }
+      save.disabled = true;
+      status.textContent = 'Сохраняем…';
+      try {
+        if (kind === 'movie') {
+          let queued = false;
+          try {
+            await saveRating(currentUser.id, titleId, 'movie', Number(slider.value), '');
+          } catch (error) {
+            if (!networkLikeError(error)) throw error;
+            enqueueRating({ title_id: titleId, media_type: 'movie', rating: Number(slider.value), comment: '', title: titleText || '' });
+            queued = true;
+          }
+          status.textContent = queued
+            ? 'Оценка сохранена на устройстве и синхронизируется при появлении сети.'
+            : 'Оценка фильма сохранена и видна друзьям.';
+        } else {
+          if (video) {
+            const currentTime = Number(video.currentTime);
+            const duration = Number(video.duration);
+            if (Number.isFinite(currentTime) && Number.isFinite(duration) && currentTime > 0 && duration > 0) {
+              saveWatchPosition(watchKey, currentTime, duration, true, episodeData);
+            }
+          }
+          const result = await submitEpisodeRating(currentUser.id, titleId, episodeData.season, episodeData.episode, Number(slider.value));
+          if (result.queued) status.textContent = typeof navigator !== 'undefined' && navigator.onLine === false
+            ? 'Оценка сохранена на устройстве и синхронизируется при появлении сети.'
+            : 'Оценка сохранена на устройстве; сервер не принял её. Проверьте доступ и примените обновлённую supabase-schema.sql.';
+          else {
+            const allRatings = await getEpisodeRatings(titleId, currentUser.id);
+            const sameEpisode = allRatings.filter(row => Number(row.season_number) === episodeData.season
+              && Number(row.episode_number) === episodeData.episode);
+            const friendAverage = sameEpisode.length
+              ? (sameEpisode.reduce((sum, row) => sum + Number(row.rating || 0), 0) / sameEpisode.length).toFixed(1)
+              : null;
+            status.textContent = friendAverage
+              ? `Оценка видна друзьям · среднее серии ${friendAverage}/10 (${sameEpisode.length})`
+              : 'Оценка серии сохранена и будет общей с друзьями.';
+            if (result.seriesRating) {
+              showToast(`Оценки всех ${result.seriesRating.episodes} серий усреднены: ${result.seriesRating.rating.toFixed(1)}/10 для сериала.`, 'success', 5000);
+            }
+          }
+        }
+        save.classList.add('hidden');
+        later.textContent = 'Готово';
+        window.setTimeout(() => overlay.remove(), 1800);
+      } catch (error) {
+        status.textContent = error?.message || 'Не удалось сохранить оценку. Попробуйте ещё раз.';
+        save.disabled = false;
+      }
+    });
+    actions.append(later, save);
+    card.append(scoreRow, slider, status, actions);
+    overlay.appendChild(card);
+    stage.appendChild(overlay);
+    (episode ? save : seasonInput || save).focus();
+  }
+
   function saveRemoteProgress(progress) {
     if (!watchKey || !progress || !Number.isFinite(progress.t) || !Number.isFinite(progress.d)) return false;
     const force = ['pause', 'seeked', 'ended'].includes(progress.event);
-    const saved = saveWatchPosition(watchKey, progress.t, progress.d, force);
+    const frame = stage.querySelector('#watch-frame');
+    const episode = resolveEpisodeIdentity(progress, null) || extractEpisodeIdentity(frame?.src, frame?.getAttribute('src'));
+    const saved = saveWatchPosition(watchKey, progress.t, progress.d, force, episode);
     if (saved) {
-      savedPosition = { t: Math.floor(progress.t), d: Math.floor(progress.d), at: Date.now() };
+      savedPosition = { t: Math.floor(progress.t), d: Math.floor(progress.d), at: Date.now(), ...(episode ? { episodeKey: episode.key } : {}) };
     }
+    if (progress.event === 'ended') showPostPlaybackRating(episode, null, progress.d);
     return saved;
   }
 
@@ -289,6 +472,11 @@ export function openWatchOverlay(opts) {
     if (!frame || !origin || origin === 'null' || !source) return;
     const state = remotePlayerProgress.get(frame) || { methods: new Set(), events: new Set() };
     if (state.ready) return;
+    const episode = extractEpisodeIdentity(frame.src, frame.getAttribute('src'));
+    if (episode) {
+      state.episode = episode;
+      savedPosition = getPositions()[episodePositionKey(watchKey, episode)] || null;
+    }
     state.ready = true;
     state.origin = origin;
     state.targetWindow = source;
@@ -320,9 +508,11 @@ export function openWatchOverlay(opts) {
     if (bridgeMessage && PLAYER_PROGRESS_EXTENSION_SOURCES.has(bridgeMessage.source)
         && isSupportedPlayerProgressOrigin(event.origin)) {
       if (bridgeMessage.type === 'hello') {
-        const latest = getPositions()[watchKey] || savedPosition || null;
+        const episode = extractEpisodeIdentity(bridgeMessage.episode, frame.src);
+        const episodePosition = episode ? getPositions()[episodePositionKey(watchKey, episode)] || null : null;
+        const latest = episode ? episodePosition : (getPositions()[watchKey] || savedPosition || null);
         if (latest) savedPosition = latest;
-        hint.textContent = 'Расширение GulRating подключено: позиция этого плеера будет сохраняться.';
+        hint.textContent = 'Расширение GulRating подключено: позиция этой серии будет сохраняться.';
         try {
           event.source.postMessage({
             source: PLAYER_PROGRESS_WEBSITE_SOURCE,
@@ -337,6 +527,8 @@ export function openWatchOverlay(opts) {
           event: bridgeMessage.event,
           currentTime: bridgeMessage.currentTime,
           duration: bridgeMessage.duration,
+          episode: bridgeMessage.episode,
+          url: frame.src,
         });
         if (progress) {
           const saved = saveRemoteProgress(progress);
@@ -377,9 +569,9 @@ export function openWatchOverlay(opts) {
     if (t <= 0 || !Number.isFinite(t) || !Number.isFinite(d) || d <= 0) return;
     const now = Date.now();
     if (!force && now - (state.lastSavedAt || 0) < 10_000) return;
-    if (saveWatchPosition(watchKey, t, d, force)) {
+    if (saveWatchPosition(watchKey, t, d, force, state.episode)) {
       state.lastSavedAt = now;
-      savedPosition = { t, d, at: now };
+      savedPosition = { t, d, at: now, ...(state.episode ? { episodeKey: state.episode.key } : {}) };
     }
   }
 
@@ -414,7 +606,13 @@ export function openWatchOverlay(opts) {
     if (!video) return;
     let state = videoProgress.get(video);
     if (!state) {
+      const episode = resolveEpisodeIdentity(null, video);
+      const episodePosition = episode && watchKey
+        ? getPositions()[episodePositionKey(watchKey, episode)] || null
+        : null;
+      if (episode) savedPosition = episodePosition;
       state = {
+        episode,
         resumeAttempted: !savedPosition || Number(savedPosition.t) < 30,
         lastSavedAt: Number(savedPosition && savedPosition.at) || 0
       };
@@ -425,7 +623,10 @@ export function openWatchOverlay(opts) {
       video.addEventListener('timeupdate', () => saveVideoPosition(video, state));
       video.addEventListener('pause', () => saveVideoPosition(video, state, true));
       video.addEventListener('seeked', () => saveVideoPosition(video, state, true));
-      video.addEventListener('ended', () => saveVideoPosition(video, state, true));
+      video.addEventListener('ended', () => {
+        saveVideoPosition(video, state, true);
+        showPostPlaybackRating(state.episode || resolveEpisodeIdentity(null, video), video);
+      });
     }
     if (tryResumeVideo(video, state)) saveVideoPosition(video, state);
   }
@@ -816,11 +1017,17 @@ const FRIENDS_ICON = '<svg viewBox="0 0 24 24" class="w-4 h-4 flex-shrink-0" ari
 // Пока оценка не выбрана, пузырёк над бегунком показывает позицию серым
 
 export async function openRatingModal(titleId, mediaType, currentUser, onSaveCallback, franchiseContext = null) {
-  // Создаем оверлей модалки
+  // Создаем оверлей модалки; при переходе между частями франшизы карточка
+  // входит с противоположной стороны, чтобы движение читалось как свайп.
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm';
+  const franchiseDirection = Math.sign(Number(franchiseContext?.direction) || 0);
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const franchiseEnterClass = franchiseDirection && !reduceMotion
+    ? `franchise-slide-enter franchise-slide-enter-${franchiseDirection > 0 ? 'forward' : 'backward'}`
+    : '';
   modal.innerHTML = `
-    <div class="rating-modal-panel bg-card w-full max-w-lg rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+    <div class="rating-modal-panel ${franchiseEnterClass} bg-card w-full max-w-lg rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
       <div class="app-header p-4 flex justify-between items-center border-b border-slate-700 sticky top-0 bg-card z-10">
         <h2 class="text-xl font-bold">Загружаем информацию...</h2>
         <button id="close-modal" class="text-gray-400 hover:text-white" aria-label="Закрыть">
@@ -848,6 +1055,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
   activeRatingModals.add(modal);
   document.body.appendChild(modal);
   document.body.style.overflow = 'hidden';
+  if (franchiseEnterClass) animateFranchiseModalEnter(modal, franchiseDirection);
 
   // Оставляем короткий выход модалки, чтобы закрытие было парным открытию.
   // Удаление по таймеру — fallback для WebView без animationend.
@@ -859,7 +1067,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     activeRatingModals.delete(modal);
     document.body.style.overflow = activeRatingModals.size ? 'hidden' : ratingModalPreviousBodyOverflow;
   };
-  const closeModal = () => {
+  const closeModal = (slideDirection = 0) => {
     if (isClosing) return;
     isClosing = true;
     document.removeEventListener('keydown', onKeydown);
@@ -867,12 +1075,13 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       removeModal();
       return;
     }
-    if (animateOverlayExit(modal, removeModal)) {
+    if (animateOverlayExit(modal, removeModal, slideDirection)) {
       closeTimer = window.setTimeout(removeModal, 620);
       return;
     }
     modal.classList.add('rating-modal-closing');
-    closeTimer = window.setTimeout(removeModal, 260);
+    if (slideDirection) modal.classList.add(slideDirection > 0 ? 'rating-modal-slide-out-forward' : 'rating-modal-slide-out-backward');
+    closeTimer = window.setTimeout(removeModal, slideDirection ? 320 : 260);
   };
   modal.addEventListener('animationend', event => {
     if (event.target === modal && event.animationName === 'rating-modal-overlay-leave') removeModal();
@@ -897,14 +1106,14 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const year = releaseYear(title.release_date);
     const runtime = mediaType === 'movie' ? formatRuntime(title.runtime) : '';
 
-    const [status, allRatings, kpRatings] = useOfflineData
+    const [status, allRatings, kpRatings, allEpisodeRatings] = useOfflineData
       ? [(() => {
         const cachedStatus = getCachedUserTitleStatus(currentUser.id, titleId);
         const pendingRating = getPendingRatings().find(item => String(item.title_id) === String(titleId));
         return pendingRating
           ? { ...cachedStatus, hasRating: true, currentStatus: 'watched', rating: { rating: pendingRating.rating, comment: pendingRating.comment || '' } }
           : cachedStatus;
-      })(), [], null]
+      })(), [], null, []]
       : await Promise.all([
         getUserTitleStatus(currentUser.id, titleId)
           .catch(() => ({ hasRating: false, rating: null, isInWatchlist: false, currentStatus: '' })),
@@ -915,7 +1124,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           .order('rating', { ascending: false })
           .then(({ data }) => data || [])
           .catch(() => []),
-        getKinopoiskRatings(title.title, title.original_title, year)
+        getKinopoiskRatings(title.title, title.original_title, year),
+        mediaType === 'tv' ? getEpisodeRatings(titleId, currentUser.id) : Promise.resolve([])
       ]);
 
     // Запоминаем тайтл в «недавно открытых» для истории поиска
@@ -989,6 +1199,37 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
     const visibleRows = ratingRows.slice(0, 2);
     const extraRows = ratingRows.slice(2);
+    const episodeRatingGroups = new Map();
+    for (const row of allEpisodeRatings || []) {
+      const key = `${Number(row.season_number)}:${Number(row.episode_number)}`;
+      if (!episodeRatingGroups.has(key)) episodeRatingGroups.set(key, []);
+      episodeRatingGroups.get(key).push(row);
+    }
+    const episodeRatingRows = [...episodeRatingGroups.entries()]
+      .sort(([a], [b]) => {
+        const [aSeason, aEpisode] = a.split(':').map(Number);
+        const [bSeason, bEpisode] = b.split(':').map(Number);
+        return aSeason - bSeason || aEpisode - bEpisode;
+      })
+      .map(([key, rows]) => {
+        const [season, episode] = key.split(':').map(Number);
+        const average = rows.reduce((sum, row) => sum + Number(row.rating || 0), 0) / rows.length;
+        const mine = rows.find(row => String(row.user_id) === String(currentUser.id));
+        const names = rows.map(row => typeof row.profiles === 'object' ? row.profiles?.username : '').filter(Boolean);
+        return `<li class="flex items-center gap-2 rounded-lg bg-slate-800/70 px-3 py-2 text-xs">
+          <span class="min-w-0 flex-1 text-gray-300">${season} сезон · ${episode} серия</span>
+          <span class="font-semibold text-sky-300">${average.toFixed(1)}/10</span>
+          <span class="text-gray-500">${rows.length} ${rows.length === 1 ? 'оценка' : rows.length < 5 ? 'оценки' : 'оценок'}</span>
+          ${mine ? `<span class="text-gray-400">· вы ${escapeHtml(formatRating(mine.rating))}</span>` : ''}
+          ${names.length ? `<span class="hidden sm:inline truncate text-gray-500">${escapeHtml(names.join(', '))}</span>` : ''}
+        </li>`;
+      }).join('');
+    const episodeRatingsPanel = mediaType === 'tv'
+      ? `<details class="mb-4 border-t border-slate-700 pt-3" id="episode-ratings-panel">
+          <summary class="cursor-pointer select-none rounded-xl px-2.5 py-2 text-sm text-gray-300 hover:bg-slate-800">Оценки серий · ${episodeRatingGroups.size}</summary>
+          <ul class="mt-2 space-y-1.5">${episodeRatingRows || '<li class="px-3 py-2 text-xs text-gray-500">Пока нет оценок серий — оцените эпизод после просмотра.</li>'}</ul>
+        </details>`
+      : '';
     const kpPageUrl = kinopoiskPageUrl(kpRatings && kpRatings.kpId);
     const kpWatchUrl = getOfficialWatchUrl(kpRatings && kpRatings.watchability, 'kinopoisk');
     const iviWatchUrl = getOfficialWatchUrl(kpRatings && kpRatings.watchability, 'ivi');
@@ -1079,6 +1320,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         <button id="overview-toggle" class="text-xs text-primary hover:underline mb-4 hidden" aria-controls="overview-text" aria-expanded="false">Читать дальше</button>
       ` : ''}
 
+      ${episodeRatingsPanel}
+
       <div class="border-t border-slate-700 pt-4 mb-4">
         <h4 class="font-semibold mb-3">Ваша оценка</h4>
 
@@ -1152,8 +1395,11 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       }).join('');
       tabs.querySelectorAll('.franchise-tab').forEach(tab => tab.addEventListener('click', () => {
         if (Number(tab.dataset.titleId) === Number(titleId) && tab.dataset.mediaType === mediaType) return;
-        closeModal();
-        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback, { parts });
+        const currentIndex = parts.findIndex(part => Number(part.id) === Number(titleId) && part.media_type === mediaType);
+        const targetIndex = parts.findIndex(part => Number(part.id) === Number(tab.dataset.titleId) && part.media_type === tab.dataset.mediaType);
+        const direction = targetIndex >= 0 && currentIndex >= 0 && targetIndex < currentIndex ? -1 : 1;
+        closeModal(direction);
+        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback, { parts, direction });
       }));
 
       const scrollLeftButton = franchiseBox.querySelector('.franchise-scroll-left');
@@ -1430,7 +1676,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           kpId: kpRatings && kpRatings.kpId,
           query: `${title.title || title.name || ''} ${yr}`.trim()
         });
-        reportWatchNative(titleId, mediaType);
+        reportWatchNative(titleId, mediaType, currentUser.id, title.title || title.name || '');
         if (isApk() && kpPageUrl) {
           window.location.href = kpPageUrl;
           return;
@@ -1440,7 +1686,11 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           query: `${title.title || title.name || ''} ${yr}`.trim(),
           titleText: title.title || title.name || '',
           mirrorUrl: kpPageUrl,
-          watchKey: `${mediaType}:${titleId}`
+          watchKey: `${mediaType}:${titleId}`,
+          currentUser,
+          titleId,
+          mediaType,
+          posterPath: title.poster_path
         });
       });
     }

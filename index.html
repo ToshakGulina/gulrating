@@ -174,8 +174,12 @@
     .profile-section-tab:active { translate: 0 1px; }
     .profile-section-panel:not(.hidden) { animation: profile-panel-enter .24s var(--ease-spring-out); }
     .rating-modal-panel { animation: rating-modal-enter .28s var(--ease-spring-out); }
+    .rating-modal-panel.franchise-slide-enter-forward { animation: franchise-tab-enter-from-right .39s var(--ease-spring-out); }
+    .rating-modal-panel.franchise-slide-enter-backward { animation: franchise-tab-enter-from-left .39s var(--ease-spring-out); }
     .fixed.inset-0.rating-modal-closing { animation: rating-modal-overlay-leave .18s ease-in both; }
     .rating-modal-closing .rating-modal-panel { animation: rating-modal-panel-leave .18s ease-in both; }
+    .rating-modal-slide-out-forward .rating-modal-panel { animation: franchise-tab-exit-left .3s ease-in both; }
+    .rating-modal-slide-out-backward .rating-modal-panel { animation: franchise-tab-exit-right .3s ease-in both; }
     .rating-value-pop { animation: rating-value-pop .22s var(--ease-spring-out); }
     .rating-modal-panel .poster-frame { border-radius: .75rem; }
     .watch-header {
@@ -333,6 +337,7 @@
     html.anime-motion-ready .search-result-item,
     html.anime-motion-ready .profile-section-panel:not(.hidden),
     html.anime-motion-ready .rating-modal-panel,
+    html.anime-motion-ready .rating-modal-panel.franchise-slide-enter,
     html.anime-motion-ready .fixed.inset-0,
     html.anime-motion-ready nav.fixed,
     html.anime-motion-ready #toast-container > *:not(.toast-leaving) { animation: none !important; }
@@ -349,6 +354,10 @@
     @keyframes button-ripple { 0% { opacity: .18; transform: scale(0); } 100% { opacity: 0; transform: scale(1); } }
     @keyframes profile-panel-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes rating-modal-enter { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes franchise-tab-enter-from-right { from { opacity: 0; transform: translateX(28vw) scale(.985); } to { opacity: 1; transform: translateX(0) scale(1); } }
+    @keyframes franchise-tab-enter-from-left { from { opacity: 0; transform: translateX(-28vw) scale(.985); } to { opacity: 1; transform: translateX(0) scale(1); }
+    @keyframes franchise-tab-exit-left { to { opacity: 0; transform: translateX(-28vw) scale(.985); } }
+    @keyframes franchise-tab-exit-right { to { opacity: 0; transform: translateX(28vw) scale(.985); } }
     @keyframes rating-modal-overlay-leave { to { opacity: 0; } }
     @keyframes rating-modal-panel-leave { to { opacity: 0; transform: translateY(7px) scale(.985); } }
     @keyframes rating-value-pop { 0% { scale: .88; } 68% { scale: 1.12; } 100% { scale: 1; } }
@@ -461,7 +470,7 @@
       --theme-raised: 49 69 101; --theme-hover: 64 87 123; --theme-border: 126 153 187;
       --theme-text-100: 248 251 255; --theme-text-200: 229 239 250; --theme-text-300: 203 220 238;
       --theme-text-400: 173 194 218; --theme-text-500: 145 168 194; --theme-text-600: 119 143 171; --theme-text-700: 96 120 150;
-      --theme-secondary: 167 139 250; --p-rgb: 125 211 252; color-scheme: dark;
+      --theme-secondary: 167 139 250; --p-rgb: 125 211 252; --glass-surface-alpha: .055; color-scheme: dark;
     }
     body { background-color: rgb(var(--theme-bg)); }
     body::before {
@@ -480,43 +489,55 @@
     }
     :root[data-theme="glass"] .sticky.top-0,
     :root[data-theme="glass"] #feed-filters,
-    :root[data-theme="glass"] nav.fixed {
-      background: linear-gradient(135deg, rgb(255 255 255 / .10), rgb(255 255 255 / .025) 52%, rgb(125 211 252 / .045)) !important;
-      border-color: rgb(220 239 255 / .22) !important;
-      box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), 0 10px 30px rgb(2 8 23 / .2);
-      backdrop-filter: blur(28px) saturate(170%);
-      -webkit-backdrop-filter: blur(28px) saturate(170%);
-    }
+    :root[data-theme="glass"] nav.fixed,
+    :root[data-theme="glass"] .app-header,
     :root[data-theme="glass"] .title-card,
     :root[data-theme="glass"] .rec-card,
     :root[data-theme="glass"] .history-title,
     :root[data-theme="glass"] .history-query,
     :root[data-theme="glass"] .catalog-item,
-    :root[data-theme="glass"] .search-result-item,
     :root[data-theme="glass"] [class~="bg-card"] {
-      background: linear-gradient(138deg, rgb(255 255 255 / .085), rgb(255 255 255 / .025) 48%, rgb(125 211 252 / .04)) !important;
-      border: 1px solid rgb(222 240 255 / .24) !important;
-      box-shadow: inset 0 1px 0 rgb(255 255 255 / .24), inset 0 0 0 1px rgb(255 255 255 / .025), 0 14px 34px rgb(2 8 23 / .22);
-      backdrop-filter: blur(20px) saturate(165%);
-      -webkit-backdrop-filter: blur(20px) saturate(165%);
+      background: rgb(255 255 255 / var(--glass-surface-alpha)) !important;
+      border-color: rgb(222 240 255 / .22) !important;
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / .2), 0 12px 30px rgb(2 8 23 / .2);
+      backdrop-filter: blur(24px) saturate(170%);
+      -webkit-backdrop-filter: blur(24px) saturate(170%);
     }
     :root[data-theme="glass"] .title-card:hover,
     :root[data-theme="glass"] .catalog-item:hover,
     :root[data-theme="glass"] .rec-card:hover {
       border-color: rgb(230 246 255 / .42) !important;
-      background: linear-gradient(138deg, rgb(255 255 255 / .13), rgb(255 255 255 / .04) 48%, rgb(125 211 252 / .075)) !important;
-      box-shadow: inset 0 1px 0 rgb(255 255 255 / .3), 0 18px 40px rgb(2 8 23 / .3), 0 0 22px rgb(125 211 252 / .08);
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / .24), 0 18px 40px rgb(2 8 23 / .3), 0 0 22px rgb(125 211 252 / .08);
     }
     :root[data-theme="glass"] .profile-section-switch,
     :root[data-theme="glass"] .theme-option,
     :root[data-theme="glass"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
     :root[data-theme="glass"] select,
     :root[data-theme="glass"] textarea {
-      background: linear-gradient(135deg, rgb(255 255 255 / .075), rgb(255 255 255 / .02)) !important;
+      background: rgb(255 255 255 / var(--glass-surface-alpha)) !important;
       border-color: rgb(222 240 255 / .19) !important;
-      box-shadow: inset 0 1px 0 rgb(255 255 255 / .12);
-      backdrop-filter: blur(14px) saturate(150%);
-      -webkit-backdrop-filter: blur(14px) saturate(150%);
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / .14);
+      backdrop-filter: blur(24px) saturate(170%);
+      -webkit-backdrop-filter: blur(24px) saturate(170%);
+    }
+    :root[data-theme="glass"] #search-input {
+      background: linear-gradient(135deg, rgb(13 25 45 / .97), rgb(21 37 61 / .95)) !important;
+      border-color: rgb(222 240 255 / .34) !important;
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / .17), 0 8px 22px rgb(2 8 23 / .2) !important;
+      backdrop-filter: blur(18px) saturate(155%);
+      -webkit-backdrop-filter: blur(18px) saturate(155%);
+    }
+    :root[data-theme="glass"] #search-results {
+      background: rgb(12 23 42 / .97) !important;
+      backdrop-filter: blur(20px) saturate(160%);
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+    }
+    :root[data-theme="glass"] .search-result-item {
+      background: rgb(21 37 61 / .9) !important;
+      border-color: rgb(222 240 255 / .22) !important;
+    }
+    :root[data-theme="glass"] .search-result-item:hover {
+      background: rgb(31 51 78 / .98) !important;
     }
     :root[data-theme="glass"] #search-input {
       background: linear-gradient(135deg, rgb(13 25 45 / .97), rgb(21 37 61 / .95)) !important;
@@ -559,11 +580,6 @@
       margin-left: -.5rem;
       margin-right: -.5rem;
       border-radius: 1.5rem;
-    }
-    :root[data-theme="glass"] .app-header {
-      background: linear-gradient(135deg, rgb(255 255 255 / .09), rgb(255 255 255 / .025) 54%, rgb(125 211 252 / .045)) !important;
-      border: 1px solid rgb(225 242 255 / .26) !important;
-      box-shadow: inset 0 1px 0 rgb(255 255 255 / .3), 0 12px 30px rgb(2 8 23 / .18);
     }
     :root[data-theme="glass"] .rating-score-badge,
     :root[data-theme="glass"] .search-rating-score {

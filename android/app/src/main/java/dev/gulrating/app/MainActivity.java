@@ -85,8 +85,11 @@ public class MainActivity extends Activity {
     private NotificationManager notifManager;
     // Ключ тайтла, который сейчас смотрят: "tv:123" / "movie:456"
     private volatile String currentWatchKey = "";
+    private volatile String currentWatchUserId = "";
+    private volatile String currentWatchTitle = "";
     private volatile boolean playbackTrackingEnabled = false;
     private final Object positionsLock = new Object();
+    private final Object playbackRatingsLock = new Object();
     // Идёт сеанс плеера: после входа на хост плеера держим внутри WebView
     // любые редиректы и смежные домены, пока пользователь не вернётся на сайт
     private volatile boolean inPlayerSession = false;
@@ -247,6 +250,8 @@ public class MainActivity extends Activity {
                         inPlayerSession = false;
                         playbackTrackingEnabled = false;
                         currentWatchKey = "";
+                        currentWatchUserId = "";
+                        currentWatchTitle = "";
                         exitCinema();
                         web.getSettings().setUserAgentString(homeUA);
                     }
@@ -277,6 +282,8 @@ public class MainActivity extends Activity {
                         inPlayerSession = false;
                         playbackTrackingEnabled = false;
                         currentWatchKey = "";
+                        currentWatchUserId = "";
+                        currentWatchTitle = "";
                         if (useBundledWebApp) checkRemoteBuildAndUpdate();
                         checkForAppUpdate(false);
                     }
@@ -295,9 +302,13 @@ public class MainActivity extends Activity {
                     org.json.JSONObject o = new org.json.JSONObject(json);
                     String type = o.optString("type");
                     String id = o.optString("id");
+                    String userId = o.optString("user_id", "");
                     if (!("movie".equals(type) || "tv".equals(type))
                             || !id.matches("[A-Za-z0-9_-]{1,100}")) return;
                     currentWatchKey = type + ":" + id;
+                    currentWatchUserId = userId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ? userId : "";
+                    currentWatchTitle = o.optString("title", "").trim();
+                    if (currentWatchTitle.length() > 240) currentWatchTitle = currentWatchTitle.substring(0, 240);
                     playbackTrackingEnabled = true;
                 } catch (Exception ignored) {
                 }
@@ -314,6 +325,11 @@ public class MainActivity extends Activity {
             }
 
             @JavascriptInterface
+            public String getCurrentWatchTitle() {
+                return playbackTrackingEnabled ? currentWatchTitle : "";
+            }
+
+            @JavascriptInterface
             public boolean savePlaybackPosition(String json) {
                 if (!playbackTrackingEnabled) return false;
                 try {
@@ -321,7 +337,7 @@ public class MainActivity extends Activity {
                     return storePlaybackPosition(currentWatchKey,
                             Math.round(o.optDouble("t", 0)),
                             Math.round(o.optDouble("d", 0)),
-                            o.optBoolean("force", false));
+                            o.optBoolean("force", false), o.optJSONObject("episode"));
                 } catch (Exception ignored) {
                     return false;
                 }
@@ -342,6 +358,94 @@ public class MainActivity extends Activity {
                         return current == null ? "{}" : current.toString();
                     } catch (Exception ignored) {
                         return "{}";
+                    }
+                }
+            }
+
+            @JavascriptInterface
+            public String getCurrentEpisodePosition(String episodeKey) {
+                if (!playbackTrackingEnabled || currentWatchKey.isEmpty()) return "{}";
+                if (episodeKey == null || !episodeKey.matches("s\\d{2,3}e\\d{2,4}")) return getCurrentPosition();
+                synchronized (positionsLock) {
+                    try {
+                        org.json.JSONObject all = new org.json.JSONObject(prefs().getString("positions", "{}"));
+                        org.json.JSONObject current = all.optJSONObject(currentWatchKey + ":episode:" + episodeKey);
+                        return current == null ? "{}" : current.toString();
+                    } catch (Exception ignored) {
+                        return "{}";
+                    }
+                }
+            }
+
+            @JavascriptInterface
+            public String getPendingPlaybackRatings() {
+                return prefs().getString("pending_playback_ratings", "[]");
+            }
+
+            @JavascriptInterface
+            public boolean savePendingPlaybackRating(String json) {
+                if (!playbackTrackingEnabled || currentWatchKey.isEmpty() || currentWatchUserId.isEmpty()) return false;
+                try {
+                    org.json.JSONObject input = new org.json.JSONObject(json == null ? "{}" : json);
+                    String[] keyParts = currentWatchKey.split(":", 2);
+                    if (keyParts.length != 2 || !keyParts[1].matches("\\d{1,18}")) return false;
+                    String kind = input.optString("kind", "");
+                    double rating = input.optDouble("rating", 0);
+                    if (Double.isNaN(rating) || Double.isInfinite(rating) || rating < 1 || rating > 10) return false;
+                    if (("movie".equals(kind) && !"movie".equals(keyParts[0]))
+                            || ("episode".equals(kind) && !"tv".equals(keyParts[0]))) return false;
+                    if (!("movie".equals(kind) || "episode".equals(kind))) return false;
+
+                    org.json.JSONObject queued = new org.json.JSONObject();
+                    String queueId;
+                    if ("episode".equals(kind)) {
+                        int season = input.optInt("season_number", 0);
+                        int episode = input.optInt("episode_number", 0);
+                        if (season < 0 || season > 999 || episode < 1 || episode > 9999) return false;
+                        queueId = currentWatchUserId + ":" + currentWatchKey + ":episode:s"
+                                + String.format(java.util.Locale.ROOT, "%02d", season)
+                                + "e" + String.format(java.util.Locale.ROOT, "%02d", episode);
+                        queued.put("season_number", season);
+                        queued.put("episode_number", episode);
+                    } else {
+                        queueId = currentWatchUserId + ":" + currentWatchKey + ":movie";
+                    }
+                    queued.put("queue_id", queueId);
+                    queued.put("user_id", currentWatchUserId);
+                    queued.put("kind", kind);
+                    queued.put("title_id", Long.parseLong(keyParts[1]));
+                    queued.put("rating", Math.round(rating * 10.0) / 10.0);
+                    queued.put("updated_at", System.currentTimeMillis());
+
+                    synchronized (playbackRatingsLock) {
+                        org.json.JSONArray old = new org.json.JSONArray(prefs().getString("pending_playback_ratings", "[]"));
+                        org.json.JSONArray next = new org.json.JSONArray();
+                        for (int index = 0; index < old.length(); index++) {
+                            org.json.JSONObject item = old.optJSONObject(index);
+                            if (item != null && !queueId.equals(item.optString("queue_id"))) next.put(item);
+                        }
+                        next.put(queued);
+                        prefs().edit().putString("pending_playback_ratings", next.toString()).apply();
+                    }
+                    return true;
+                } catch (Exception ignored) {
+                    return false;
+                }
+            }
+
+            @JavascriptInterface
+            public void clearPendingPlaybackRating(String queueId) {
+                if (queueId == null || queueId.isEmpty()) return;
+                synchronized (playbackRatingsLock) {
+                    try {
+                        org.json.JSONArray old = new org.json.JSONArray(prefs().getString("pending_playback_ratings", "[]"));
+                        org.json.JSONArray next = new org.json.JSONArray();
+                        for (int index = 0; index < old.length(); index++) {
+                            org.json.JSONObject item = old.optJSONObject(index);
+                            if (item != null && !queueId.equals(item.optString("queue_id"))) next.put(item);
+                        }
+                        prefs().edit().putString("pending_playback_ratings", next.toString()).apply();
+                    } catch (Exception ignored) {
                     }
                 }
             }
@@ -1051,6 +1155,10 @@ public class MainActivity extends Activity {
     }
 
     private boolean storePlaybackPosition(String key, long t, long d, boolean force) {
+        return storePlaybackPosition(key, t, d, force, null);
+    }
+
+    private boolean storePlaybackPosition(String key, long t, long d, boolean force, org.json.JSONObject episode) {
         if (!playbackTrackingEnabled || key == null || key.isEmpty()
                 || !key.equals(currentWatchKey) || t <= 0 || d <= 0
                 || d > 7L * 24L * 60L * 60L || t > d + 30) return false;
@@ -1059,27 +1167,48 @@ public class MainActivity extends Activity {
             if (!playbackTrackingEnabled || !key.equals(currentWatchKey)) return false;
             try {
                 org.json.JSONObject all = new org.json.JSONObject(prefs().getString("positions", "{}"));
-                org.json.JSONObject previous = all.optJSONObject(key);
-                if (previous != null) {
-                    long previousAt = previous.optLong("at", 0);
-                    long previousDuration = previous.optLong("d", 0);
-                    // Ignore tiny ad/preview clips that would otherwise replace
-                    // a saved feature-length movie or full episode position.
-                    if (previousDuration >= 600 && d * 3 < previousDuration) return false;
-                    long minInterval = force ? 750L : 2500L;
-                    if (now - previousAt < minInterval) return false;
-                }
-                org.json.JSONObject record = new org.json.JSONObject();
-                record.put("t", t);
-                record.put("d", d);
-                record.put("at", now);
-                all.put(key, record);
-                prefs().edit().putString("positions", all.toString()).apply();
-                return true;
+                boolean saved = storePositionRecord(all, key, t, d, now, force, false);
+                String episodeKey = episodePositionStorageKey(key, episode);
+                if (episodeKey != null) saved |= storePositionRecord(all, episodeKey, t, d, now, force, true);
+                if (saved) prefs().edit().putString("positions", all.toString()).apply();
+                return saved;
             } catch (Exception ignored) {
                 return false;
             }
         }
+    }
+
+    private String episodePositionStorageKey(String titleKey, org.json.JSONObject episode) {
+        if (episode == null) return null;
+        String episodeKey = episode.optString("key", "").toLowerCase(java.util.Locale.ROOT);
+        if (!episodeKey.matches("s\\d{2,3}e\\d{2,4}")) {
+            int season = episode.optInt("season", 0);
+            int number = episode.optInt("episode", 0);
+            if (season < 1 || season > 999 || number < 1 || number > 9999) return null;
+            episodeKey = "s" + String.format(java.util.Locale.ROOT, "%02d", season)
+                    + "e" + String.format(java.util.Locale.ROOT, "%02d", number);
+        }
+        return titleKey + ":episode:" + episodeKey;
+    }
+
+    private boolean storePositionRecord(org.json.JSONObject all, String storageKey, long t, long d,
+                                       long now, boolean force, boolean keepFurthestTime) throws org.json.JSONException {
+        org.json.JSONObject previous = all.optJSONObject(storageKey);
+        if (previous != null) {
+            long previousAt = previous.optLong("at", 0);
+            long previousDuration = previous.optLong("d", 0);
+            // Ignore tiny ad/preview clips that would otherwise replace
+            // a saved feature-length movie or full episode position.
+            if (previousDuration >= 600 && d * 3 < previousDuration) return false;
+            long minInterval = force ? 750L : 2500L;
+            if (now - previousAt < minInterval) return false;
+        }
+        org.json.JSONObject record = new org.json.JSONObject();
+        record.put("t", keepFurthestTime && previous != null ? Math.max(t, previous.optLong("t", 0)) : t);
+        record.put("d", keepFurthestTime && previous != null ? Math.max(d, previous.optLong("d", 0)) : d);
+        record.put("at", now);
+        all.put(storageKey, record);
+        return true;
     }
 
     private void probePlayer() {

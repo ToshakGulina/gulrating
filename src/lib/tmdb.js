@@ -164,6 +164,9 @@ export function primeTitleCache(mediaType, id, partial) {
     collection_id: partial.collection_id || (partial.belongs_to_collection && partial.belongs_to_collection.id) || null,
     collection_name: partial.collection_name || (partial.belongs_to_collection && partial.belongs_to_collection.name) || null,
     runtime: partial.runtime != null ? Number(partial.runtime) : null,
+    episode_runtime: partial.episode_runtime != null ? Number(partial.episode_runtime) : null,
+    episodes: partial.episodes != null ? Number(partial.episodes) : null,
+    seasons: partial.seasons != null ? Number(partial.seasons) : null,
     genres: Array.isArray(partial.genres)
       ? partial.genres.map(g => (typeof g === 'string' ? g : g && g.name)).filter(Boolean)
       : []
@@ -213,6 +216,12 @@ export async function getTitleDetails(id, mediaType) {
     revenue: data.revenue || null,
     seasons: data.number_of_seasons != null ? data.number_of_seasons : null,
     episodes: data.number_of_episodes != null ? data.number_of_episodes : null,
+    episode_runtime: mediaType === 'tv' && Array.isArray(data.episode_run_time)
+      ? (() => {
+        const runtimes = data.episode_run_time.map(Number).filter(value => Number.isFinite(value) && value > 0);
+        return runtimes.length ? Math.round(runtimes.reduce((sum, value) => sum + value, 0) / runtimes.length) : null;
+      })()
+      : null,
     runtime: mediaType === 'movie' && data.runtime != null ? Number(data.runtime) : null,
     collection_id: data.belongs_to_collection ? data.belongs_to_collection.id : null,
     collection_name: data.belongs_to_collection ? data.belongs_to_collection.name : null

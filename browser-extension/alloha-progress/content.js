@@ -27,6 +27,38 @@
     }
   }
 
+  function normalizeEpisode(season, episode) {
+    const s = Number(season);
+    const e = Number(episode);
+    if (!Number.isInteger(s) || !Number.isInteger(e) || s < 1 || s > 999 || e < 1 || e > 9999) return null;
+    return { season: s, episode: e, key: `s${String(s).padStart(2, '0')}e${String(e).padStart(2, '0')}` };
+  }
+
+  function episodeFromText(value) {
+    const text = String(value || '').replace(/[?#&]/g, ' ');
+    try {
+      const params = new URL(value, window.location && window.location.href).searchParams;
+      const season = params.get('season') || params.get('season_number') || params.get('s');
+      const episode = params.get('episode') || params.get('episode_number') || params.get('ep') || params.get('e');
+      if (season && episode) return normalizeEpisode(season, episode);
+    } catch (error) { /* text may not be a URL */ }
+    let match = /(?:^|[^a-z0-9])s(\d{1,3})[ ._-]*e(\d{1,4})(?:$|[^a-z0-9])/i.exec(text)
+      || /(?:^|[^\d])(\d{1,3})\s*x\s*(\d{1,4})(?:$|[^\d])/i.exec(text)
+      || /(?:season|сезон)\s*#?\s*(\d{1,3})[^\d]{0,32}(?:episode|эпизод|сер(?:ия|ии|ию))\s*#?\s*(\d{1,4})/i.exec(text)
+      || /(?:^|[^\d])(\d{1,3})\s*сезон[^\d]{0,24}(\d{1,4})\s*сер(?:ия|ии|ию)(?:$|[^а-яё])/i.exec(text);
+    if (match) return normalizeEpisode(match[1], match[2]);
+    match = /(?:episode|эпизод|сер(?:ия|ии|ию))\s*#?\s*(\d{1,4})[^\d]{0,32}(?:season|сезон)\s*#?\s*(\d{1,3})/i.exec(text);
+    return match ? normalizeEpisode(match[2], match[1]) : null;
+  }
+
+  function episodeOf(video) {
+    for (const value of [window.location && window.location.href, document.title, video && video.currentSrc, video && video.src]) {
+      const episode = episodeFromText(value);
+      if (episode) return episode;
+    }
+    return null;
+  }
+
   function durationOf(video) {
     const duration = Number(video && video.duration);
     return Number.isFinite(duration) && duration > 0 ? duration : 0;
@@ -73,6 +105,7 @@
     sendToApp({
       type: 'hello',
       duration: durationOf(video),
+      episode: episodeOf(video),
     });
   }
 
@@ -110,6 +143,7 @@
       event: eventName,
       currentTime,
       duration,
+      episode: episodeOf(video),
     });
   }
 

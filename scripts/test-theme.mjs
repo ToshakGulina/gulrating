@@ -63,10 +63,12 @@ assert.ok(indexHtml.includes(':root[data-theme="glass"] #search-input')
   && indexHtml.includes(':root[data-theme="glass"] #search-results'),
   'Glass search input and result surface should have an opaque, readable backdrop');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] .title-card')
-  && indexHtml.includes('backdrop-filter: blur(20px) saturate(165%)')
-  && indexHtml.includes('rgb(255 255 255 / .085)')
+  && indexHtml.includes('backdrop-filter: blur(24px) saturate(170%)')
+  && indexHtml.includes('--glass-surface-alpha: .055')
+  && indexHtml.includes('rgb(255 255 255 / var(--glass-surface-alpha))')
+  && indexHtml.includes(':root[data-theme="glass"] .search-result-item')
   && indexHtml.includes('theme-preview-glass'),
-  'Glass theme combines a colorful field, translucent frosted panels, and edge highlights');
+  'Glass uses one highly transparent shared surface material while search stays dense and readable');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] .rating-score-badge')
   && indexHtml.includes('--glass-score-rgb: 52 211 153;')
   && indexHtml.includes(':root[data-theme="glass"] .rating-slider::-webkit-slider-thumb'),

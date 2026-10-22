@@ -5,6 +5,7 @@
 // доступен как same-origin HTML5 video или сообщает позицию через postMessage API.
 
 import { getTitleDetails, getCachedTitleDetails, getMovieCollection, getFranchiseTitles } from './tmdb.js';
+import { episodePositionKey } from './episodeIdentity.js';
 
 const HIST_KEY = 'gulrating:watch_history';
 const NOTIF_KEY = 'gulrating:notifications';
@@ -79,14 +80,17 @@ export function getPositions() {
 // Browser positions are stored locally. In the APK, route remote-player events
 // through the native bridge so iframe Player.js/extension reports use the same
 // native-owned history as document-start HTML5 video tracking.
-export function saveWatchPosition(key, currentTime, duration, force = false) {
+export function saveWatchPosition(key, currentTime, duration, force = false, episode = null) {
   if (!key) return false;
   const t = Math.floor(Number(currentTime));
   const d = Math.floor(Number(duration));
   if (!Number.isFinite(t) || !Number.isFinite(d) || t <= 0 || d <= 0) return false;
+  const episodeKey = episodePositionKey(key, episode);
   if (isApk()) {
     try {
-      const result = window.GulRatingBridge.savePlaybackPosition(JSON.stringify({ t, d, force: Boolean(force) }));
+      const result = window.GulRatingBridge.savePlaybackPosition(JSON.stringify({
+        t, d, force: Boolean(force), ...(episodeKey ? { episode } : {}),
+      }));
       // Older APK bridges returned void even when they accepted the write.
       return result === undefined ? true : Boolean(result);
     } catch (e) {
@@ -97,15 +101,36 @@ export function saveWatchPosition(key, currentTime, duration, force = false) {
   const previous = all[key];
   const now = Date.now();
   if (!force && previous && now - (Number(previous.at) || 0) < 10_000) return false;
-  all[key] = { t, d, at: now };
+  all[key] = { t, d, at: now, ...(episodeKey ? { episodeKey: episode.key } : {}) };
+  if (episodeKey) {
+    const episodePrevious = all[episodeKey];
+    all[episodeKey] = {
+      t: Math.max(t, Number(episodePrevious?.t) || 0),
+      d: Math.max(d, Number(episodePrevious?.d) || 0),
+      at: now,
+      season: Number(episode.season),
+      episode: Number(episode.episode),
+      episodeKey: episode.key,
+    };
+  }
   write(POSITIONS_KEY, all);
   return true;
 }
 
-export function reportWatchNative(id, mediaType) {
+export function getEpisodeWatchPositions(titleKey, positions = getPositions()) {
+  if (!titleKey || !positions || typeof positions !== 'object') return [];
+  const prefix = `${titleKey}:episode:`;
+  return Object.entries(positions)
+    .filter(([key, position]) => key.startsWith(prefix) && position && Number(position.d) > 0)
+    .map(([key, position]) => ({ key, ...position }));
+}
+
+export function reportWatchNative(id, mediaType, userId = '', title = '') {
   if (!isApk()) return;
   try {
-    window.GulRatingBridge.reportWatch(JSON.stringify({ id: String(id), type: mediaType }));
+    window.GulRatingBridge.reportWatch(JSON.stringify({
+      id: String(id), type: mediaType, user_id: String(userId || ''), title: String(title || '').slice(0, 240),
+    }));
   } catch (e) { /* мост недоступен */ }
 }
 

@@ -107,6 +107,10 @@ async function ensureTitle(tmdbId, mediaType) {
   return titleDetails;
 }
 
+export async function ensureTitleInDatabase(tmdbId, mediaType) {
+  return ensureTitle(tmdbId, mediaType);
+}
+
 // Добавить или обновить оценку пользователя
 export async function saveRating(userId, tmdbId, mediaType, rating, comment = '') {
   await ensureTitle(tmdbId, mediaType);

@@ -30,6 +30,7 @@ source = source.replace(
     getFranchiseTitles: async () => { globalThis.__watchTest.franchiseCalls += 1; return globalThis.__watchTest.franchiseParts; },
   };`
 );
+source = source.replace("import { episodePositionKey } from './episodeIdentity.js';", 'const episodePositionKey = () => null;');
 const { addWatchEntry, markWatchDone, checkNewSeasons, getNotifications } = await import(
   `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
 );

@@ -80,6 +80,19 @@ CREATE TABLE IF NOT EXISTS public.ratings (
   UNIQUE(user_id, title_id) -- Один пользователь — одна оценка на тайтл
 );
 
+-- Личные оценки отдельных серий; одобренный круг друзей читает общие оценки.
+CREATE TABLE IF NOT EXISTS public.episode_ratings (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  title_id BIGINT REFERENCES public.titles(id) ON DELETE CASCADE NOT NULL,
+  season_number INTEGER NOT NULL CHECK (season_number >= 0),
+  episode_number INTEGER NOT NULL CHECK (episode_number > 0),
+  rating NUMERIC(3,1) NOT NULL CHECK (rating BETWEEN 1 AND 10),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  UNIQUE(user_id, title_id, season_number, episode_number)
+);
+
 -- ----------------------------------------------------------------------------
 -- 4. Таблица со списком «Хочу посмотреть»
 -- ----------------------------------------------------------------------------
@@ -115,6 +128,8 @@ ALTER TABLE public.ratings ALTER COLUMN rating TYPE NUMERIC(3,1);
 CREATE INDEX IF NOT EXISTS idx_ratings_created_at ON public.ratings (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ratings_title_id ON public.ratings (title_id);
 CREATE INDEX IF NOT EXISTS idx_ratings_user_id ON public.ratings (user_id);
+CREATE INDEX IF NOT EXISTS idx_episode_ratings_title_id ON public.episode_ratings (title_id);
+CREATE INDEX IF NOT EXISTS idx_episode_ratings_user_title ON public.episode_ratings (user_id, title_id);
 CREATE INDEX IF NOT EXISTS idx_watchlist_user_id ON public.watchlist (user_id);
 CREATE INDEX IF NOT EXISTS idx_watchlist_title_id ON public.watchlist (title_id);
 
@@ -124,6 +139,7 @@ CREATE INDEX IF NOT EXISTS idx_watchlist_title_id ON public.watchlist (title_id)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.titles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.episode_ratings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.watchlist ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.title_statuses ENABLE ROW LEVEL SECURITY;
 
@@ -241,6 +257,24 @@ DROP POLICY IF EXISTS "Пользователи могут удалять сво
 CREATE POLICY "Пользователи могут удалять свои оценки" ON public.ratings
   FOR DELETE USING (auth.uid() = user_id);
 
+-- Оценки серий видны всему одобренному кругу; запись изменяет только владелец.
+DROP POLICY IF EXISTS "Оценки серий видны одобренным" ON public.episode_ratings;
+CREATE POLICY "Оценки серий видны одобренным" ON public.episode_ratings
+  FOR SELECT USING (public.is_approved());
+
+DROP POLICY IF EXISTS "Одобренные могут добавлять оценки серий" ON public.episode_ratings;
+CREATE POLICY "Одобренные могут добавлять оценки серий" ON public.episode_ratings
+  FOR INSERT WITH CHECK (auth.uid() = user_id AND public.is_approved());
+
+DROP POLICY IF EXISTS "Пользователи могут изменять свои оценки серий" ON public.episode_ratings;
+CREATE POLICY "Пользователи могут изменять свои оценки серий" ON public.episode_ratings
+  FOR UPDATE USING (auth.uid() = user_id AND public.is_approved())
+  WITH CHECK (auth.uid() = user_id AND public.is_approved());
+
+DROP POLICY IF EXISTS "Пользователи могут удалять свои оценки серий" ON public.episode_ratings;
+CREATE POLICY "Пользователи могут удалять свои оценки серий" ON public.episode_ratings
+  FOR DELETE USING (auth.uid() = user_id);
+
 -- Watchlist: одобренные видят все списки, изменяют только свой.
 -- UPDATE политика обязательна: добавление в watchlist работает через upsert.
 DROP POLICY IF EXISTS "Списки желаемого видны одобренным" ON public.watchlist;
@@ -310,6 +344,12 @@ BEGIN
     WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'ratings'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.ratings;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'episode_ratings'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.episode_ratings;
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_publication_tables

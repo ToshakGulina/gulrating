@@ -1,5 +1,6 @@
 // Parsers and commands for iframe players that expose a postMessage API.
 // Normal web pages cannot inspect a cross-origin iframe's DOM.
+import { extractEpisodeIdentity } from './episodeIdentity.js';
 const PLAYERJS_CONTEXT = 'player.js';
 export const PLAYER_PROGRESS_HOSTS = Object.freeze([
   'stravers.live', 'alloha.tv', 'alloha.cool', 'obrut.show',
@@ -99,7 +100,13 @@ export function parsePlayerProgressMessage(raw) {
   );
   const d = numberFrom(payload.duration, payload.player_duration, message.duration);
   if (t === null || d === null || d <= 0 || t > d + 30) return null;
-  return { kind: 'progress', event, t, d, playerJs };
+  const episode = extractEpisodeIdentity(
+    payload.episode, payload.season && payload.episodeNumber != null
+      ? { season: payload.season, episode: payload.episodeNumber }
+      : null,
+    payload.url, payload.href, payload.title, message.episode, message.url, message.href
+  );
+  return { kind: 'progress', event, t, d, playerJs, ...(episode ? { episode } : {}) };
 }
 
 export function createPlayerJsMessage(method, value, listener) {

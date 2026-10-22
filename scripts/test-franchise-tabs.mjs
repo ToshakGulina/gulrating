@@ -303,7 +303,10 @@ try {
 
   const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
   assert.match(modalSource, /franchiseContext = null/);
-  assert.match(modalSource, /openRatingModal\(tab\.dataset\.titleId, tab\.dataset\.mediaType, currentUser, onSaveCallback, \{ parts \}\)/);
+  assert.match(modalSource, /openRatingModal\(tab\.dataset\.titleId, tab\.dataset\.mediaType, currentUser, onSaveCallback, \{ parts, direction \}\)/);
+  assert.match(modalSource, /const direction = targetIndex >= 0 && currentIndex >= 0 && targetIndex < currentIndex \? -1 : 1/);
+  assert.match(modalSource, /animateFranchiseModalEnter\(modal, franchiseDirection\)/);
+  assert.match(modalSource, /closeModal\(direction\)/);
   assert.match(modalSource, /franchisePartsPromise/);
   const ratingModalFunction = modalSource.slice(modalSource.indexOf('export async function openRatingModal('));
   assert.doesNotMatch(ratingModalFunction, /document\.getElementById\(/,
