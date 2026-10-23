@@ -1,6 +1,6 @@
 // Franchise membership is derived only from explicit Wikipedia previous/next rows.
 
-const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v5';
+const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v6';
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 const EMPTY_CACHE_TTL = 6 * 60 * 60 * 1000;
 const memoryCache = new Map();
@@ -117,12 +117,10 @@ function chronologyLinksFromHtml(html) {
     if (isPrevious === isNext) continue;
 
     const tv = /(?:tv|television|series|show|сериал|телесериал)/i.test(label);
-    // Bare Previous/Next rows can bridge movies and TV entries. Resolve their
-    // media type from the linked title/year in TMDb instead of inheriting the
-    // current article type (which used to discard Dune 2021 from the TV chain).
-    const media_type = tv ? 'tv' : /(?:film|movie|фильм|мультфильм)/i.test(label)
-      ? 'movie'
-      : 'all';
+    const film = /(?:film|movie|фильм|мультфильм)/i.test(label);
+    // Bare Previous/Next rows can bridge movies and TV entries. Never inherit
+    // the current article's type; use a type explicitly stated by the row or
+    // by the linked article's own disambiguation suffix, otherwise defer to TMDb.
     const valueMatch = row.match(/<td\b[^>]*>([\s\S]*?)<\/td>/i);
     if (!valueMatch) continue;
     const anchorMatch = valueMatch[1].match(/<a\b([^>]*)>([\s\S]*?)<\/a>/i);
@@ -136,6 +134,11 @@ function chronologyLinksFromHtml(html) {
     if (!title || /^(?:special|category|file|help|portal|wikipedia|template|talk|media|служебная|категория|файл|справка|портал|шаблон|обсуждение):/i.test(title)) continue;
     const year = title.match(/\(((?:18|19|20)\d{2})\s+(?:film|movie|tv series|television series|фильм|мультфильм|сериал|телесериал)\)/i)?.[1]
       || title.match(/\((?:film|movie|tv series|television series|фильм|мультфильм|сериал|телесериал),?\s*((?:18|19|20)\d{2})\)/i)?.[1];
+    const disambiguation = title.match(/\(([^()]*)\)\s*$/)?.[1] || '';
+    const linkedType = /(?:film|movie|фильм|мультфильм)/i.test(disambiguation) ? 'movie'
+      : /(?:tv|television|series|сериал|телесериал)/i.test(disambiguation) ? 'tv'
+        : 'all';
+    const media_type = tv ? 'tv' : film ? 'movie' : linkedType;
     links.push({ title, media_type, ...(year ? { year: Number(year) } : {}) });
   }
   return links;

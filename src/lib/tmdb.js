@@ -261,6 +261,14 @@ function normalizeArticleTitle(value) {
     .trim();
 }
 
+function articleMediaType(entry) {
+  if (entry?.media_type !== 'all') return entry?.media_type;
+  const disambiguation = String(entry.title || '').match(/\(([^()]*)\)\s*$/)?.[1] || '';
+  if (/(?:film|movie|фильм|мультфильм)/i.test(disambiguation)) return 'movie';
+  if (/(?:tv|television|series|сериал|телесериал)/i.test(disambiguation)) return 'tv';
+  return 'all';
+}
+
 async function resolveArticleTitles(articleTitles) {
   const resolved = [];
   let cursor = 0;
@@ -271,8 +279,9 @@ async function resolveArticleTitles(articleTitles) {
       if (query.length < 2) continue;
       const matches = await searchTitles(query).catch(() => []);
       const wanted = normalizeArticleTitle(entry.title);
+      const expectedMediaType = articleMediaType(entry);
       let exact = matches.filter(match => {
-        if (entry.media_type !== 'all' && match.media_type !== entry.media_type) return false;
+        if (expectedMediaType !== 'all' && match.media_type !== expectedMediaType) return false;
         return normalizeArticleTitle(match.title) === wanted
           || normalizeArticleTitle(match.original_title) === wanted;
       });
@@ -290,7 +299,7 @@ async function resolveArticleTitles(articleTitles) {
   return resolved;
 }
 
-const FRANCHISE_PARTS_CACHE_KEY = 'gulrating:wikipedia_franchise_parts_v2';
+const FRANCHISE_PARTS_CACHE_KEY = 'gulrating:wikipedia_franchise_parts_v3';
 const FRANCHISE_PARTS_CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 
 function readFranchisePartsCache() {
