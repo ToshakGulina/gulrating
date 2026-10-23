@@ -1,6 +1,6 @@
 // Franchise membership is derived only from explicit Wikipedia previous/next rows.
 
-const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v8';
+const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v9';
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 const EMPTY_CACHE_TTL = 6 * 60 * 60 * 1000;
 const memoryCache = new Map();
@@ -180,10 +180,17 @@ async function inspectChronologyPage(article) {
   return chronologyLinksFromHtml(html);
 }
 
+function backlinkRelevance(candidate, targetTitle) {
+  const targetTokens = normalizePageTitle(targetTitle).split(' ').filter(token => token.length > 2);
+  const candidateTokens = new Set(normalizePageTitle(candidate.title).split(' '));
+  const overlap = targetTokens.filter(token => candidateTokens.has(token)).length;
+  return overlap * 10 + (candidate.year ? 4 : 0) + (candidate.media_type !== 'all' ? 2 : 0);
+}
+
 async function findChronologyBacklinks(language, title) {
   const params = {
     action: 'query', format: 'json', list: 'backlinks',
-    bltitle: title, blnamespace: '0', blfilterredir: 'nonredirects', bllimit: '20', origin: '*',
+    bltitle: title, blnamespace: '0', blfilterredir: 'nonredirects', bllimit: '100', origin: '*',
   };
   const data = await requestJson(apiUrl(language, params));
   return (data?.query?.backlinks || []).map(page => {
@@ -199,7 +206,7 @@ async function findChronologyBacklinks(language, title) {
       media_type,
       ...(year ? { year: Number(year) } : {}),
     };
-  });
+  }).sort((a, b) => backlinkRelevance(b, title) - backlinkRelevance(a, title));
 }
 
 async function discoverChronology(title, originalTitle, year, mediaType) {
@@ -231,7 +238,7 @@ async function discoverChronology(title, originalTitle, year, mediaType) {
     ));
     const backlinks = await Promise.all(batch.map((article, index) => {
       const hasPrevious = discovered[index].some(link => link.relation === 'previous');
-      if (article.depth > 0 || hasPrevious || backlinkQueries >= 2) return [];
+      if (article.depth > 1 || hasPrevious || backlinkQueries >= 4) return [];
       backlinkQueries += 1;
       return findChronologyBacklinks(article.language, article.title).catch(() => []);
     }));
@@ -279,7 +286,7 @@ async function discoverChronology(title, originalTitle, year, mediaType) {
 
       // Backlinks are only candidates. A title joins the franchise graph only
       // after its own explicit Previous/Next row points back to this article.
-      for (const candidate of backlinks[index].slice(0, 12)) {
+      for (const candidate of backlinks[index].slice(0, 20)) {
         const candidateKey = `${candidate.language}:${normalize(candidate.title)}`;
         if (article.depth < 5 && !visited.has(candidateKey)) {
           queue.push({

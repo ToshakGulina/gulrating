@@ -9,7 +9,7 @@ const originalLocalStorage = globalThis.localStorage;
 const requests = [];
 const storage = new Map();
 const staleTitleKey = 'despicable me 4|гадкий я 4|movie|';
-storage.set('gulrating:wikipedia_franchise_cache_v6', JSON.stringify({
+storage.set('gulrating:wikipedia_franchise_cache_v8', JSON.stringify({
   [staleTitleKey]: { at: Date.now(), titles: [{ title: 'stale franchise result', media_type: 'movie' }] },
 }));
 globalThis.localStorage = {
@@ -27,7 +27,9 @@ try {
       const target = url.searchParams.get('bltitle');
       const backlinks = target === 'Dune: Part Two'
         ? [{ title: 'Dune (2021 film)' }, { title: 'Dune film series' }]
-        : [];
+        : target === 'Dune (2021 film)'
+          ? [{ title: 'Dune: Prophecy' }]
+          : [];
       return Response.json({ query: { backlinks } });
     }
 
@@ -135,8 +137,11 @@ try {
 
   const duneRequestStart = requests.length;
   const duneTitles = await getWikipediaFranchiseTitles('Дюна', 'Dune', '2021-10-22', 'movie');
-  assert.deepEqual(duneTitles.map(entry => entry.title).sort(), ['Dune: Part Three', 'Dune: Part Two'],
-    'when an exact-title search ranks the Dune novel first, choose the 2021 film article and traverse its explicit sequel chronology');
+  assert.deepEqual(duneTitles.map(entry => entry.title).sort(),
+    ['Dune (2021 film)', 'Dune: Part Three', 'Dune: Part Two', 'Dune: Prophecy'],
+    'when an exact-title search ranks the Dune novel first, traverse explicit incoming and outgoing film and TV chronology links');
+  assert.equal(duneTitles.find(entry => entry.title === 'Dune (2021 film)')?.year, 2021,
+    'a reverse-discovered film retains its disambiguation year for exact TMDb matching');
   const dunePages = requests.slice(duneRequestStart)
     .filter(({ url }) => url.searchParams.get('prop') === 'text')
     .map(({ url }) => url.searchParams.get('page'));
@@ -150,8 +155,8 @@ try {
     'Dune: Part Two', 'Dune: Part Two', '2024-02-28', 'movie'
   );
   assert.deepEqual(partTwoTitles.map(entry => entry.title).sort(),
-    ['Dune (2021 film)', 'Dune: Part Three', 'Dune: Part Two'],
-    'opening from a sequel with no Previous row discovers an earlier film only through a verified explicit Next row on its Wikipedia article');
+    ['Dune (2021 film)', 'Dune: Part Three', 'Dune: Part Two', 'Dune: Prophecy'],
+    'opening from a sequel discovers both its earlier film and linked TV-series branch through verified explicit Previous/Next rows');
   assert.equal(partTwoTitles.find(entry => entry.title === 'Dune (2021 film)')?.year, 2021,
     'backlink articles retain their disambiguation year for exact TMDb matching');
   assert(requests.slice(partTwoRequestStart).some(({ url }) =>
