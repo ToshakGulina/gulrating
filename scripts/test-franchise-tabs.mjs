@@ -322,11 +322,8 @@ try {
   assert.match(htmlSource, /@keyframes franchise-tab-enter-from-left \{[^\n]+\} \}/,
     'both directions of the franchise swipe keyframes have complete CSS blocks');
   assert.match(modalSource, /franchiseContext = null/);
-  assert.match(modalSource, /openRatingModal\(tab\.dataset\.titleId, tab\.dataset\.mediaType, currentUser, onSaveCallback, \{[\s\S]*?parts, direction, panelRect: transitionRect/);
-  assert.match(modalSource, /const panelRect = modal\.querySelector\('\.rating-modal-panel'\)\?\.getBoundingClientRect\(\)/,
-    'the incoming panel uses the outgoing panel geometry as its stable frame');
-  assert.match(modalSource, /position: 'fixed',[\s\S]*?left: `\$\{rect\.left\}px`[\s\S]*?top: `\$\{rect\.top\}px`[\s\S]*?height: `\$\{rect\.height\}px`/,
-    'the new panel retains the same position and size while its content changes');
+  assert.match(modalSource, /openRatingModal\(tab\.dataset\.titleId, tab\.dataset\.mediaType, currentUser, onSaveCallback, \{ parts, direction \}\)/,
+    'a franchise switch passes its ordered parts and direction without pinning the modal to a stale viewport rectangle');
   assert.match(modalSource, /const direction = targetIndex >= 0 && currentIndex >= 0 && targetIndex < currentIndex \? -1 : 1/);
   assert.match(modalSource, /animateFranchiseModalEnter\(modal, franchiseDirection\)/);
   assert.match(modalSource, /modal\.dataset\.franchiseTransitioning = 'true'[\s\S]*?document\.body\.appendChild\(modal\)/,

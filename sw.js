@@ -9,7 +9,7 @@
 // 3. Новая версия не перезагружает открытые вкладки: service worker ждёт,
 //    пока текущие окна закроются, затем обновляет кэш для следующего запуска.
 
-const CACHE_VERSION = 'gulrating-v67';
+const CACHE_VERSION = 'gulrating-v68';
 const SHELL_ASSETS = [
   '/',
   '/index.html',

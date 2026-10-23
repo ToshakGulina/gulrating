@@ -1054,8 +1054,9 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm';
   const franchiseDirection = Math.sign(Number(franchiseContext?.direction) || 0);
-  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const shouldAnimateFranchiseEnter = Boolean(franchiseDirection && !reduceMotion);
+  // A franchise tab is an explicit navigation gesture: keep its directional
+  // hand-off visible even when the device-wide preference suppresses ambient motion.
+  const shouldAnimateFranchiseEnter = Boolean(franchiseDirection);
   modal.innerHTML = `
     <div class="rating-modal-panel bg-card w-full max-w-lg rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
       <div class="app-header p-4 flex justify-between items-center border-b border-slate-700 sticky top-0 bg-card z-10">
@@ -1081,23 +1082,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     </div>
   `;
 
-  if (shouldAnimateFranchiseEnter) {
-    modal.dataset.franchiseTransitioning = 'true';
-    const rect = franchiseContext?.panelRect;
-    const panel = modal.querySelector('.rating-modal-panel');
-    if (panel && rect && [rect.left, rect.top, rect.width, rect.height].every(Number.isFinite)
-        && rect.width > 0 && rect.height > 0) {
-      Object.assign(panel.style, {
-        position: 'fixed',
-        left: `${rect.left}px`,
-        top: `${rect.top}px`,
-        width: `${rect.width}px`,
-        height: `${rect.height}px`,
-        maxHeight: '90vh',
-        margin: '0',
-      });
-    }
-  }
+  if (shouldAnimateFranchiseEnter) modal.dataset.franchiseTransitioning = 'true';
   let franchiseEnterStarted = false;
   const startFranchiseEnter = () => {
     if (!shouldAnimateFranchiseEnter || franchiseEnterStarted || !modal.isConnected) return;
@@ -1512,14 +1497,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         const currentIndex = parts.findIndex(part => Number(part.id) === Number(titleId) && part.media_type === mediaType);
         const targetIndex = parts.findIndex(part => Number(part.id) === Number(tab.dataset.titleId) && part.media_type === tab.dataset.mediaType);
         const direction = targetIndex >= 0 && currentIndex >= 0 && targetIndex < currentIndex ? -1 : 1;
-        const panelRect = modal.querySelector('.rating-modal-panel')?.getBoundingClientRect();
-        const transitionRect = panelRect && panelRect.width > 0 && panelRect.height > 0
-          ? { left: panelRect.left, top: panelRect.top, width: panelRect.width, height: panelRect.height }
-          : null;
         closeModal(direction);
-        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback, {
-          parts, direction, panelRect: transitionRect,
-        });
+        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback, { parts, direction });
       }));
 
       const scrollLeftButton = franchiseBox.querySelector('.franchise-scroll-left');
