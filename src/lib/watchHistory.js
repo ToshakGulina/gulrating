@@ -60,6 +60,14 @@ export function getWatchHistory() {
   return read(HIST_KEY, []);
 }
 
+export function getUnfinishedWatchHistory() {
+  return getWatchHistory().filter(entry => !entry.done);
+}
+
+export function getCompletedWatchHistory() {
+  return getWatchHistory().filter(entry => Boolean(entry.done));
+}
+
 export function removeWatchEntry(key) {
   const deleted = read('gulrating:watch_history_tombstones', {});
   deleted[key] = Date.now();
