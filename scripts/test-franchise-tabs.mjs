@@ -295,7 +295,7 @@ try {
     'the article list maps the related series directly and excludes similarly named but unlisted titles'
   );
 
-  storage.delete('gulrating:wikipedia_franchise_parts_v3');
+  storage.delete('gulrating:wikipedia_franchise_parts_v4');
   const prophecyParts = await getFranchiseTitles(402, 'tv');
   assert.deepEqual(
     prophecyParts.map(part => `${part.media_type}:${part.id}`),
@@ -303,7 +303,13 @@ try {
     'the Dune (2021 film) disambiguation forces movie matching even when TMDb ranks a same-year TV title first'
   );
 
-  storage.delete('gulrating:wikipedia_franchise_parts_v3');
+  storage.set('gulrating:wikipedia_franchise_parts_v3', JSON.stringify({
+    'movie:501': { at: Date.now(), parts: [
+      { id: 501, media_type: 'movie', title: 'Dune: Part Two', release_date: '2024-02-28' },
+      { id: 503, media_type: 'movie', title: 'Dune: Part Three', release_date: '2026-12-18' },
+    ] },
+  }));
+  storage.delete('gulrating:wikipedia_franchise_parts_v4');
   const duneRequestsStart = tmdbRequests.length;
   const duneFilmParts = await getFranchiseTitles(501, 'movie');
   assert.deepEqual(
@@ -318,7 +324,13 @@ try {
     'the full explicit chronology component remains available when a sequel is opened independently later');
 
   const modalSource = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+  const franchiseCacheSource = await readFile(new URL('../src/lib/tmdb.js', import.meta.url), 'utf8');
+  const wikiCacheSource = await readFile(new URL('../src/lib/wikipedia.js', import.meta.url), 'utf8');
   const htmlSource = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(franchiseCacheSource, /FRANCHISE_PARTS_CACHE_KEY = 'gulrating:wikipedia_franchise_parts_v4'/,
+    'the incomplete franchise graphs from earlier previews are invalidated');
+  assert.match(wikiCacheSource, /CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v7'/,
+    'the incomplete Wikipedia chronology results from earlier previews are invalidated');
   assert.match(htmlSource, /@keyframes franchise-tab-enter-from-left \{[^\n]+\} \}/,
     'both directions of the franchise swipe keyframes have complete CSS blocks');
   assert.match(modalSource, /franchiseContext = null/);

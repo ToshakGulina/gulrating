@@ -5,7 +5,18 @@ import { getWikipediaFranchiseTitles } from '../src/lib/wikipedia.js';
 import { onRequestGet } from '../functions/wiki/[[path]].js';
 
 const originalFetch = globalThis.fetch;
+const originalLocalStorage = globalThis.localStorage;
 const requests = [];
+const storage = new Map();
+const staleTitleKey = 'despicable me 4|гадкий я 4|movie|';
+storage.set('gulrating:wikipedia_franchise_cache_v6', JSON.stringify({
+  [staleTitleKey]: { at: Date.now(), titles: [{ title: 'stale franchise result', media_type: 'movie' }] },
+}));
+globalThis.localStorage = {
+  getItem: key => storage.get(key) || null,
+  setItem: (key, value) => storage.set(key, String(value)),
+  removeItem: key => storage.delete(key),
+};
 try {
   globalThis.fetch = async (input, options = {}) => {
     const url = new URL(String(input));
@@ -169,6 +180,8 @@ try {
   })).status, 404);
 } finally {
   globalThis.fetch = originalFetch;
+  if (originalLocalStorage === undefined) delete globalThis.localStorage;
+  else globalThis.localStorage = originalLocalStorage;
 }
 
 console.log('Wikipedia explicit chronology traversal, TV-series rows, and Pages proxy: OK');

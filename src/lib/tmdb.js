@@ -299,7 +299,7 @@ async function resolveArticleTitles(articleTitles) {
   return resolved;
 }
 
-const FRANCHISE_PARTS_CACHE_KEY = 'gulrating:wikipedia_franchise_parts_v3';
+const FRANCHISE_PARTS_CACHE_KEY = 'gulrating:wikipedia_franchise_parts_v4';
 const FRANCHISE_PARTS_CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 
 function readFranchisePartsCache() {

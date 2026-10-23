@@ -1,6 +1,6 @@
 // Franchise membership is derived only from explicit Wikipedia previous/next rows.
 
-const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v6';
+const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v7';
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 const EMPTY_CACHE_TTL = 6 * 60 * 60 * 1000;
 const memoryCache = new Map();
