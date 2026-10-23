@@ -122,7 +122,7 @@ assert.match(ratingModal, /renderValue\(!fromSlider\)/,
   'the score feedback is reserved for deliberate stepper taps, not continuous slider movement');
 assert.match(html, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation-duration:\s*\.01ms/,
   'global CSS motion is reduced for accessibility');
-assert.match(sw, /gulrating-v69[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
+assert.match(sw, /gulrating-v70[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
   'the offline shell precaches the animation engine and app motion module under a fresh cache version');
 assert.doesNotMatch(motion, /from ['"]animejs['"]|from ['"]motion['"]|from ['"]framer-motion['"]|https?:\/\/.*animejs/,
   'the offline-first app does not import or download an animation dependency remotely');

@@ -295,7 +295,7 @@ try {
     'the article list maps the related series directly and excludes similarly named but unlisted titles'
   );
 
-  storage.delete('gulrating:wikipedia_franchise_parts_v4');
+  storage.delete('gulrating:wikipedia_franchise_parts_v5');
   const prophecyParts = await getFranchiseTitles(402, 'tv');
   assert.deepEqual(
     prophecyParts.map(part => `${part.media_type}:${part.id}`),
@@ -309,7 +309,7 @@ try {
       { id: 503, media_type: 'movie', title: 'Dune: Part Three', release_date: '2026-12-18' },
     ] },
   }));
-  storage.delete('gulrating:wikipedia_franchise_parts_v4');
+  storage.delete('gulrating:wikipedia_franchise_parts_v5');
   const duneRequestsStart = tmdbRequests.length;
   const duneFilmParts = await getFranchiseTitles(501, 'movie');
   assert.deepEqual(
@@ -327,9 +327,9 @@ try {
   const franchiseCacheSource = await readFile(new URL('../src/lib/tmdb.js', import.meta.url), 'utf8');
   const wikiCacheSource = await readFile(new URL('../src/lib/wikipedia.js', import.meta.url), 'utf8');
   const htmlSource = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-  assert.match(franchiseCacheSource, /FRANCHISE_PARTS_CACHE_KEY = 'gulrating:wikipedia_franchise_parts_v4'/,
+  assert.match(franchiseCacheSource, /FRANCHISE_PARTS_CACHE_KEY = 'gulrating:wikipedia_franchise_parts_v5'/,
     'the incomplete franchise graphs from earlier previews are invalidated');
-  assert.match(wikiCacheSource, /CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v7'/,
+  assert.match(wikiCacheSource, /CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v8'/,
     'the incomplete Wikipedia chronology results from earlier previews are invalidated');
   assert.match(htmlSource, /@keyframes franchise-tab-enter-from-left \{[^\n]+\} \}/,
     'both directions of the franchise swipe keyframes have complete CSS blocks');
