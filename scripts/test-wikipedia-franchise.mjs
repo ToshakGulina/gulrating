@@ -129,7 +129,7 @@ try {
   );
   assert.deepEqual(
     crossMediaDune.map(entry => `${entry.media_type}:${entry.title}`).sort(),
-    ['all:Dune (2021 film)', 'all:Dune: Part Two'],
+    ['all:Dune: Part Two', 'movie:Dune (2021 film)'],
     'a generic Previous row on the Dune TV-series page must traverse into the explicitly linked 2021 film chronology without inheriting tv type'
   );
 

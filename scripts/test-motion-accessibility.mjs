@@ -45,45 +45,49 @@ assert.match(ratingModal, /animateOverlayExit\(modal, removeModal, slideDirectio
   'rating modal has a coordinated animated exit');
 assert.match(ratingModal, /animateFranchiseModalEnter\(modal, franchiseDirection\)/,
   'franchise tab changes enter from the opposite side');
-assert.match(motion, /animateFranchiseModalEnter[\s\S]*?x:\s*\[enterX, 0\][\s\S]*?spring/,
-  'franchise tab transitions use a perceptible horizontal spring slide');
-assert.match(motion, /panel\.animate\(\[[\s\S]*?duration:\s*440/,
-  'franchise modal hand-offs use a native, perceptible 440ms horizontal entrance when supported');
-assert.match(motion, /animation\.onfinish = \(\) => \{[\s\S]*?panel\.classList\.remove\('franchise-slide-enter'/,
-  'the native entrance removes the CSS animation class before restoring styles, preventing competing/replayed animations');
+assert.match(motion, /animateFranchiseModalEnter[\s\S]*?translateX\(\$\{enterX\}px\)[\s\S]*?translateX\(0\) scale\(1\)/,
+  'franchise tab transitions slide the next panel across the viewport');
+assert.match(motion, /panel\.style\.transition = 'opacity 440ms[^']*transform 440ms/,
+  'franchise modal hand-offs use an explicit, perceptible 440ms slide');
+assert.match(motion, /void panel\.offsetWidth[\s\S]*?requestFrame\(\(\) =>/,
+  'the transition commits its starting position before applying the destination, avoiding same-frame style collapse');
+assert.match(motion, /panel\.classList\.remove\(\.\.\.enteringClasses\)/,
+  'the transition removes competing CSS keyframe classes');
 const { animateFranchiseModalEnter } = await import('../src/lib/motion.js');
 const previousWindow = globalThis.window;
-globalThis.window = { innerWidth: 1200 };
+globalThis.window = { innerWidth: 1200, requestAnimationFrame: callback => { globalThis.__motionFrame = callback; }, setTimeout: callback => { globalThis.__motionCleanup = callback; } };
 try {
   const removedClasses = [];
-  const animations = [];
   const panel = {
-    style: { animation: 'initial-panel-animation' },
+    offsetWidth: 280,
+    style: { animation: 'initial-panel-animation', transition: 'initial-panel-transition', opacity: '', transform: '', willChange: '' },
     classList: { remove: (...classes) => removedClasses.push(...classes) },
-    animate: (frames, options) => {
-      const animation = { frames, options, cancel() { this.cancelled = true; } };
-      animations.push(animation);
-      return animation;
-    },
   };
   const overlay = {
-    style: { animation: 'initial-overlay-animation' },
+    offsetWidth: 500,
+    style: { animation: 'initial-overlay-animation', transition: 'initial-overlay-transition', opacity: '' },
     querySelector: () => panel,
-    animate: (frames, options) => { animations.push({ frames, options }); },
   };
   assert.equal(animateFranchiseModalEnter(overlay, 1), true,
-    'franchise hand-off starts using WAAPI when the browser supports it');
-  const panelAnimation = animations.find(animation => animation.frames?.[0]?.transform);
-  assert.equal(panelAnimation.options.duration, 440);
-  assert.match(panelAnimation.frames[0].transform, /translateX\(300px\)/,
-    'the next part visibly enters from the outgoing-tab direction');
-  panelAnimation.onfinish();
-  assert(panelAnimation.cancelled, 'finished WAAPI animation releases its transform');
-  assert(removedClasses.includes('franchise-slide-enter-forward'),
-    'the CSS entrance class is removed after the native slide finishes');
+    'franchise hand-off starts without relying on Element.animate()');
+  assert.match(panel.style.transform, /translateX\(300px\)/,
+    'the next part is placed visibly offscreen before the transition');
+  assert.equal(panel.style.transition, 'none');
+  globalThis.__motionFrame();
+  assert.equal(panel.style.transform, 'translateX(0) scale(1)',
+    'the next part transitions into the viewport');
+  assert.equal(panel.style.opacity, '1');
+  assert.match(panel.style.transition, /440ms/);
+  assert.equal(overlay.style.opacity, '1');
+  globalThis.__motionCleanup();
   assert.equal(panel.style.animation, 'initial-panel-animation');
+  assert.equal(panel.style.transition, 'initial-panel-transition');
   assert.equal(overlay.style.animation, 'initial-overlay-animation');
+  assert(removedClasses.includes('franchise-slide-enter-forward'),
+    'the CSS entrance class is removed to prevent replay');
 } finally {
+  delete globalThis.__motionFrame;
+  delete globalThis.__motionCleanup;
   if (previousWindow === undefined) delete globalThis.window;
   else globalThis.window = previousWindow;
 }
@@ -99,7 +103,7 @@ assert.match(ratingModal, /renderValue\(!fromSlider\)/,
   'the score feedback is reserved for deliberate stepper taps, not continuous slider movement');
 assert.match(html, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation-duration:\s*\.01ms/,
   'global CSS motion is reduced for accessibility');
-assert.match(sw, /gulrating-v63[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
+assert.match(sw, /gulrating-v65[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
   'the offline shell precaches the animation engine and app motion module under a fresh cache version');
 assert.doesNotMatch(motion, /from ['"]animejs['"]|from ['"]motion['"]|from ['"]framer-motion['"]|https?:\/\/.*animejs/,
   'the offline-first app does not import or download an animation dependency remotely');

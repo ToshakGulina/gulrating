@@ -282,37 +282,51 @@ export function animateFranchiseModalEnter(overlay, slideDirection) {
   const panel = getOverlayPanel(overlay);
   if (!panel) return false;
   const enterX = Math.sign(slideDirection) * Math.min(window.innerWidth * .28, 300);
+  const enteringClasses = ['franchise-slide-enter', 'franchise-slide-enter-forward', 'franchise-slide-enter-backward'];
+  const originalPanelStyle = {
+    animation: panel.style.animation,
+    transition: panel.style.transition,
+    opacity: panel.style.opacity,
+    transform: panel.style.transform,
+    willChange: panel.style.willChange,
+  };
+  const originalOverlayStyle = {
+    animation: overlay.style.animation,
+    transition: overlay.style.transition,
+    opacity: overlay.style.opacity,
+  };
 
-  // Use the browser's native animation timeline for this hand-off. The panel
-  // enters above the outgoing modal, so CSS entry animations and Anime.js must
-  // not compete for the same transform property.
-  if (typeof panel.animate === 'function' && typeof overlay.animate === 'function') {
-    const oldPanelAnimation = panel.style.animation;
-    const oldOverlayAnimation = overlay.style.animation;
-    panel.style.animation = 'none';
-    overlay.style.animation = 'none';
-    overlay.animate([{ opacity: 0 }, { opacity: 1 }], {
-      duration: 180, easing: 'cubic-bezier(.2,.75,.25,1)',
-    });
-    const animation = panel.animate([
-      { opacity: 0, transform: `translateX(${enterX}px) scale(.985)` },
-      { opacity: 1, transform: 'translateX(0) scale(1)' },
-    ], { duration: 440, easing: 'cubic-bezier(.2,.75,.25,1)' });
-    animation.onfinish = () => {
-      animation.cancel();
-      panel.classList.remove('franchise-slide-enter', 'franchise-slide-enter-forward', 'franchise-slide-enter-backward');
-      panel.style.animation = oldPanelAnimation;
-      overlay.style.animation = oldOverlayAnimation;
-    };
-    return true;
-  }
+  // Use explicit style transitions for the hand-off. Unlike competing CSS
+  // keyframes or an animation-engine timeline, these also run in older Android
+  // WebViews where Element.animate() is absent or unreliable.
+  panel.classList.remove(...enteringClasses);
+  panel.style.animation = 'none';
+  overlay.style.animation = 'none';
+  panel.style.transition = 'none';
+  overlay.style.transition = 'none';
+  panel.style.opacity = '0';
+  panel.style.transform = `translateX(${enterX}px) scale(.985)`;
+  panel.style.willChange = 'opacity, transform';
+  overlay.style.opacity = '0';
 
-  if (!isMotionEnabled()) return false;
-  track(animate(overlay, { opacity: [0, 1], duration: 180, ease: 'out(2)' }));
-  track(animate(panel, {
-    opacity: [0, 1], x: [enterX, 0], scale: [.985, 1],
-    duration: 390, ease: spring({ bounce: .16 }),
-  }));
+  // Commit the starting styles before applying the destination styles.
+  void panel.offsetWidth;
+  void overlay.offsetWidth;
+  const requestFrame = window.requestAnimationFrame?.bind(window)
+    || (callback => window.setTimeout(callback, 16));
+  requestFrame(() => {
+    panel.style.transition = 'opacity 440ms cubic-bezier(.2,.75,.25,1), transform 440ms cubic-bezier(.2,.75,.25,1)';
+    overlay.style.transition = 'opacity 180ms cubic-bezier(.2,.75,.25,1)';
+    panel.style.opacity = '1';
+    panel.style.transform = 'translateX(0) scale(1)';
+    overlay.style.opacity = '1';
+  });
+
+  window.setTimeout(() => {
+    for (const [property, value] of Object.entries(originalPanelStyle)) panel.style[property] = value;
+    for (const [property, value] of Object.entries(originalOverlayStyle)) overlay.style[property] = value;
+    panel.classList.remove(...enteringClasses);
+  }, 500);
   return true;
 }
 
