@@ -5,15 +5,39 @@ import { getWikipediaFranchiseTitles } from '../src/lib/wikipedia.js';
 import { onRequestGet } from '../functions/wiki/[[path]].js';
 
 const originalFetch = globalThis.fetch;
+const originalLocalStorage = globalThis.localStorage;
 const requests = [];
+const storage = new Map();
+const staleTitleKey = 'despicable me 4|гадкий я 4|movie|';
+storage.set('gulrating:wikipedia_franchise_cache_v8', JSON.stringify({
+  [staleTitleKey]: { at: Date.now(), titles: [{ title: 'stale franchise result', media_type: 'movie' }] },
+}));
+globalThis.localStorage = {
+  getItem: key => storage.get(key) || null,
+  setItem: (key, value) => storage.set(key, String(value)),
+  removeItem: key => storage.delete(key),
+};
 try {
   globalThis.fetch = async (input, options = {}) => {
     const url = new URL(String(input));
     requests.push({ url, options });
     if (!url.hostname.endsWith('wikipedia.org')) throw new Error(`Unexpected request: ${url}`);
 
+    if (url.searchParams.get('list') === 'backlinks') {
+      const target = url.searchParams.get('bltitle');
+      const backlinks = target === 'Dune: Part Two'
+        ? [{ title: 'Dune (2021 film)' }, { title: 'Dune film series' }]
+        : target === 'Dune (2021 film)'
+          ? [{ title: 'Dune: Prophecy' }]
+          : [];
+      return Response.json({ query: { backlinks } });
+    }
+
     if (url.searchParams.get('list') === 'search') {
       const query = url.searchParams.get('srsearch') || '';
+      if (query.includes('Dune: Part Two')) return Response.json({ query: { search: [
+        { title: 'Dune: Part Two', snippet: '2024 science fiction film' },
+      ] } });
       if (url.hostname.startsWith('en.')) {
         if (query.includes('The Truman Show')) {
           return Response.json({ query: { search: [
@@ -74,7 +98,8 @@ try {
         'Dune: Prophecy': '<table><tr><th>Previous</th><td><a href="/wiki/Dune_(2021_film)">Dune (2021 film)</a></td></tr></table>',
         'Dune (2021 film)': '<table><tr><th>Followed by</th><td><a href="/wiki/Dune:_Part_Two">Dune: Part Two</a></td></tr></table>',
         'Дюна (фильм, 2021)': '<table><tr><th>Следующий фильм</th><td><a href="/wiki/Dune:_Part_Two">Dune: Part Two</a></td></tr></table>',
-        'Dune: Part Two': '<table><tr><th>Preceded by</th><td><a href="/wiki/Dune_(2021_film)">Dune (2021 film)</a></td></tr></table>',
+        'Dune: Part Two': '<table><tr><th>Next film</th><td><a href="/wiki/Dune:_Part_Three">Dune: Part Three</a></td></tr></table>',
+        'Dune: Part Three': '<table><tr><th>Previous film</th><td><a href="/wiki/Dune:_Part_Two">Dune: Part Two</a></td></tr></table>',
       };
       return Response.json({ parse: { text: { '*': rows[page] || '' } } });
     }
@@ -112,10 +137,11 @@ try {
 
   const duneRequestStart = requests.length;
   const duneTitles = await getWikipediaFranchiseTitles('Дюна', 'Dune', '2021-10-22', 'movie');
-  assert.deepEqual(duneTitles.map(entry => entry.title).sort(), ['Dune (2021 film)', 'Dune: Part Two'],
-    'when an exact-title search ranks the Dune novel first, choose the 2021 film article and follow its explicit sequel row');
+  assert.deepEqual(duneTitles.map(entry => entry.title).sort(),
+    ['Dune (2021 film)', 'Dune: Part Three', 'Dune: Part Two', 'Dune: Prophecy'],
+    'when an exact-title search ranks the Dune novel first, traverse explicit incoming and outgoing film and TV chronology links');
   assert.equal(duneTitles.find(entry => entry.title === 'Dune (2021 film)')?.year, 2021,
-    'release year from a linked disambiguated article is preserved for exact TMDb matching');
+    'a reverse-discovered film retains its disambiguation year for exact TMDb matching');
   const dunePages = requests.slice(duneRequestStart)
     .filter(({ url }) => url.searchParams.get('prop') === 'text')
     .map(({ url }) => url.searchParams.get('page'));
@@ -124,13 +150,26 @@ try {
   assert(!dunePages.includes('Dune') && !dunePages.includes('Дюна'),
     'the novel article must not win over the exact-year film page');
 
+  const partTwoRequestStart = requests.length;
+  const partTwoTitles = await getWikipediaFranchiseTitles(
+    'Dune: Part Two', 'Dune: Part Two', '2024-02-28', 'movie'
+  );
+  assert.deepEqual(partTwoTitles.map(entry => entry.title).sort(),
+    ['Dune (2021 film)', 'Dune: Part Three', 'Dune: Part Two', 'Dune: Prophecy'],
+    'opening from a sequel discovers both its earlier film and linked TV-series branch through verified explicit Previous/Next rows');
+  assert.equal(partTwoTitles.find(entry => entry.title === 'Dune (2021 film)')?.year, 2021,
+    'backlink articles retain their disambiguation year for exact TMDb matching');
+  assert(requests.slice(partTwoRequestStart).some(({ url }) =>
+    url.searchParams.get('list') === 'backlinks' && url.searchParams.get('bltitle') === 'Dune: Part Two'
+  ), 'incoming chronology candidates are searched when a page has no Previous row');
+
   const crossMediaDune = await getWikipediaFranchiseTitles(
     'Дюна: Пророчество', 'Dune: Prophecy', '2024-11-17', 'tv'
   );
   assert.deepEqual(
     crossMediaDune.map(entry => `${entry.media_type}:${entry.title}`).sort(),
-    ['all:Dune: Part Two', 'movie:Dune (2021 film)'],
-    'a generic Previous row on the Dune TV-series page must traverse into the explicitly linked 2021 film chronology without inheriting tv type'
+    ['movie:Dune (2021 film)', 'movie:Dune: Part Three', 'movie:Dune: Part Two'],
+    'a generic Previous row on the Dune TV-series page must traverse incoming and outgoing explicit links without inheriting tv type'
   );
 
   const trumanRequestStart = requests.length;
@@ -169,6 +208,8 @@ try {
   })).status, 404);
 } finally {
   globalThis.fetch = originalFetch;
+  if (originalLocalStorage === undefined) delete globalThis.localStorage;
+  else globalThis.localStorage = originalLocalStorage;
 }
 
 console.log('Wikipedia explicit chronology traversal, TV-series rows, and Pages proxy: OK');

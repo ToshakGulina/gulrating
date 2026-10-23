@@ -101,8 +101,13 @@ const mainJs = await readFile(new URL('../src/main.js', import.meta.url), 'utf8'
 assert.ok(mainJs.includes('installDotMatrixHeadings();'), 'the app installs matrix rendering globally, not only in the feed');
 assert.ok(dotMatrixJs.includes('А: [\'010\', \'101\', \'111\', \'101\', \'101\']')
   && dotMatrixJs.includes("const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role=\"heading\"]'")
+  && dotMatrixJs.includes("heading.closest('.title-card, .catalog-item, .rec-card, .history-title, .search-result-item')")
   && dotMatrixJs.includes('new MutationObserver'),
-  'all static and dynamically-added headings use the shared Cyrillic dot font');
+  'section headings use the shared Cyrillic dot font while dense card titles stay plain');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] .title-card h3')
+  && indexHtml.includes('letter-spacing: 0 !important;')
+  && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
+  'Nothing card titles use high-contrast, normal type for legibility');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered'),
   'Nothing theme displays dot glyphs and visually hides duplicate plain text while preserving accessibility');
 const { renderDotMatrixText } = await import('../src/lib/dotMatrix.js');

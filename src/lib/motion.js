@@ -281,7 +281,7 @@ export function animateOverlayExit(overlay, onComplete, slideDirection = 0) {
 }
 
 export function animateFranchiseModalEnter(overlay, slideDirection) {
-  if (!overlay || !slideDirection || motionQuery?.matches) return false;
+  if (!overlay || !slideDirection) return false;
   const panel = getOverlayPanel(overlay);
   if (!panel) return false;
   const enterX = Math.sign(slideDirection) * Math.min(window.innerWidth * .28, 300);
@@ -320,8 +320,11 @@ export function animateFranchiseModalEnter(overlay, slideDirection) {
   const requestFrame = window.requestAnimationFrame?.bind(window)
     || (callback => window.setTimeout(callback, 16));
   requestFrame(() => {
-    panel.style.transition = 'opacity 440ms cubic-bezier(.2,.75,.25,1), transform 440ms cubic-bezier(.2,.75,.25,1)';
-    overlay.style.transition = 'opacity 180ms cubic-bezier(.2,.75,.25,1)';
+    // The app-wide reduced-motion stylesheet uses !important transition durations.
+    // Franchise navigation is explicitly requested motion, so this short hand-off
+    // overrides that global cap instead of silently becoming visually static.
+    panel.style.setProperty('transition', 'opacity 440ms cubic-bezier(.2,.75,.25,1), transform 440ms cubic-bezier(.2,.75,.25,1)', 'important');
+    overlay.style.setProperty('transition', 'opacity 180ms cubic-bezier(.2,.75,.25,1)', 'important');
     panel.style.opacity = '1';
     panel.style.transform = 'translateX(0) scale(1)';
     overlay.style.opacity = '1';

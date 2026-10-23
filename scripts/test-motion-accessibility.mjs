@@ -47,8 +47,12 @@ assert.match(ratingModal, /animateFranchiseModalEnter\(modal, franchiseDirection
   'franchise tab changes enter from the opposite side');
 assert.match(motion, /animateFranchiseModalEnter[\s\S]*?translateX\(\$\{enterX\}px\)[\s\S]*?translateX\(0\) scale\(1\)/,
   'franchise tab transitions slide the next panel across the viewport');
-assert.match(motion, /panel\.style\.transition = 'opacity 440ms[^']*transform 440ms/,
-  'franchise modal hand-offs use an explicit, perceptible 440ms slide');
+assert.match(motion, /panel\.style\.setProperty\('transition', 'opacity 440ms[^']*transform 440ms[^']*', 'important'\)/,
+  'franchise modal hand-offs use an explicit, perceptible 440ms slide even under the global reduced-motion CSS cap');
+assert.match(ratingModal, /const shouldAnimateFranchiseEnter = Boolean\(franchiseDirection\)/,
+  'an explicit franchise-navigation gesture is not silently discarded by the device-wide motion preference');
+assert.doesNotMatch(motion.match(/export function animateFranchiseModalEnter\([\s\S]*?\n\}/)?.[0] || '', /motionQuery\?\.matches/,
+  'the explicit franchise hand-off is not short-circuited by the ambient motion preference');
 assert.match(motion, /void panel\.offsetWidth[\s\S]*?requestFrame\(\(\) =>/,
   'the transition commits its starting position before applying the destination, avoiding same-frame style collapse');
 assert.match(motion, /panel\.classList\.remove\(\.\.\.enteringClasses\)/,
@@ -62,13 +66,19 @@ try {
   const removedClasses = [];
   const panel = {
     offsetWidth: 280,
-    style: { animation: 'initial-panel-animation', transition: 'initial-panel-transition', opacity: '', transform: '', willChange: '' },
+    style: {
+      animation: 'initial-panel-animation', transition: 'initial-panel-transition', opacity: '', transform: '', willChange: '',
+      setProperty(name, value, priority) { this[name] = value; this.priority = priority; },
+    },
     classList: { remove: (...classes) => removedClasses.push(...classes) },
   };
   const overlay = {
     offsetWidth: 500,
     dataset: {},
-    style: { animation: 'initial-overlay-animation', transition: 'initial-overlay-transition', opacity: '' },
+    style: {
+      animation: 'initial-overlay-animation', transition: 'initial-overlay-transition', opacity: '',
+      setProperty(name, value, priority) { this[name] = value; this.priority = priority; },
+    },
     querySelector: () => panel,
   };
   assert.equal(animateFranchiseModalEnter(overlay, 1), true,
@@ -83,6 +93,8 @@ try {
     'the next part transitions into the viewport');
   assert.equal(panel.style.opacity, '1');
   assert.match(panel.style.transition, /440ms/);
+  assert.equal(panel.style.priority, 'important',
+    'the explicit slide overrides the global reduced-motion stylesheet duration');
   assert.equal(overlay.style.opacity, '1');
   globalThis.__motionCleanup();
   assert.equal(panel.style.animation, 'initial-panel-animation');
@@ -110,7 +122,7 @@ assert.match(ratingModal, /renderValue\(!fromSlider\)/,
   'the score feedback is reserved for deliberate stepper taps, not continuous slider movement');
 assert.match(html, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation-duration:\s*\.01ms/,
   'global CSS motion is reduced for accessibility');
-assert.match(sw, /gulrating-v67[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
+assert.match(sw, /gulrating-v71[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
   'the offline shell precaches the animation engine and app motion module under a fresh cache version');
 assert.doesNotMatch(motion, /from ['"]animejs['"]|from ['"]motion['"]|from ['"]framer-motion['"]|https?:\/\/.*animejs/,
   'the offline-first app does not import or download an animation dependency remotely');
