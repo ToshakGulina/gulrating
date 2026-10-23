@@ -1,4 +1,4 @@
-import { saveRating, getUserTitleStatus, getCachedUserTitleStatus, deleteRating, setUserTitleStatus, queueUserTitleStatus } from '../lib/ratings.js';
+import { saveRating, getUserTitleStatus, getCachedUserTitleStatus, deleteRating, setUserTitleStatus, queueUserTitleStatus, getPendingTitleStatuses, syncPendingTitleStatuses } from '../lib/ratings.js';
 import { getTitleDetails, getCachedTitleDetails, getFranchiseTitles } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
@@ -1765,6 +1765,25 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           kpId: kpRatings && kpRatings.kpId,
           query: `${title.title || title.name || ''} ${yr}`.trim()
         });
+        const queuedStatus = getPendingTitleStatuses(currentUser.id)
+          .find(item => String(item.title_id) === String(titleId))?.status;
+        const playbackStatus = queuedStatus || status.currentStatus;
+        if (!status.hasRating && !['in_progress', 'watched', 'dropped'].includes(playbackStatus)) {
+          try {
+            queueUserTitleStatus(currentUser.id, titleId, mediaType, 'in_progress');
+            status.currentStatus = 'in_progress';
+            status.isInWatchlist = false;
+            const statusSelect = modal.querySelector('#title-status-select');
+            if (statusSelect) {
+              statusSelect.value = 'in_progress';
+              statusSelect.dataset.currentStatus = 'in_progress';
+            }
+            onSaveCallback?.();
+            syncPendingTitleStatuses(currentUser.id).then(synced => {
+              if (synced) onSaveCallback?.();
+            }).catch(() => {});
+          } catch (error) { /* keep playback available if status storage is unavailable */ }
+        }
         reportWatchNative(titleId, mediaType, currentUser.id, title.title || title.name || '');
         if (isApk() && kpPageUrl) {
           window.location.href = kpPageUrl;

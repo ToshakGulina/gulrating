@@ -8,9 +8,11 @@ const player = await readFile(new URL('../src/components/RatingModal.js', import
 const continueHandler = profile.match(/box\.querySelectorAll\('\.wh-continue'\)[\s\S]*?\n    \}\)\);/)?.[0] || '';
 
 assert.ok(continueHandler, 'playback history has a Continue action');
-assert.match(continueHandler, /resumeFromHistory:\s*true/,
+assert.match(profile, /function continuePlaybackItem\([\s\S]*?resumeFromHistory:\s*true/,
   'Continue tells the player to auto-launch the remembered dub');
-assert.doesNotMatch(continueHandler, /window\.location\.href/,
+assert.match(continueHandler, /continuePlaybackItem\(item, currentUser\)/,
+  'history Continue delegates to the same in-app resume flow as In Progress');
+assert.doesNotMatch(profile.match(/function continuePlaybackItem\([\s\S]*?\n\}/)?.[0] || '', /window\.location\.href/,
   'Continue stays in the player flow instead of opening a bare provider page');
 assert.match(player, /resumeFromHistory\s*=\s*false/,
   'normal Watch actions keep their existing explicit-play behavior');

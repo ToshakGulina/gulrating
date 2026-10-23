@@ -53,6 +53,8 @@ assert.match(motion, /void panel\.offsetWidth[\s\S]*?requestFrame\(\(\) =>/,
   'the transition commits its starting position before applying the destination, avoiding same-frame style collapse');
 assert.match(motion, /panel\.classList\.remove\(\.\.\.enteringClasses\)/,
   'the transition removes competing CSS keyframe classes');
+assert.match(motion, /function enterOverlay\(overlay\)[\s\S]*?overlay\.dataset\?\.franchiseTransitioning === 'true'\) return/,
+  'the global motion observer does not animate a franchise modal a second time');
 const { animateFranchiseModalEnter } = await import('../src/lib/motion.js');
 const previousWindow = globalThis.window;
 globalThis.window = { innerWidth: 1200, requestAnimationFrame: callback => { globalThis.__motionFrame = callback; }, setTimeout: callback => { globalThis.__motionCleanup = callback; } };
@@ -65,11 +67,14 @@ try {
   };
   const overlay = {
     offsetWidth: 500,
+    dataset: {},
     style: { animation: 'initial-overlay-animation', transition: 'initial-overlay-transition', opacity: '' },
     querySelector: () => panel,
   };
   assert.equal(animateFranchiseModalEnter(overlay, 1), true,
     'franchise hand-off starts without relying on Element.animate()');
+  assert.equal(overlay.dataset.franchiseTransitioning, 'true',
+    'the modal is marked before the global observer can start a competing entrance');
   assert.match(panel.style.transform, /translateX\(300px\)/,
     'the next part is placed visibly offscreen before the transition');
   assert.equal(panel.style.transition, 'none');
@@ -85,6 +90,8 @@ try {
   assert.equal(overlay.style.animation, 'initial-overlay-animation');
   assert(removedClasses.includes('franchise-slide-enter-forward'),
     'the CSS entrance class is removed to prevent replay');
+  assert.equal(overlay.dataset.franchiseTransitioning, undefined,
+    'the global-observer suppression marker is cleaned up after the transition');
 } finally {
   delete globalThis.__motionFrame;
   delete globalThis.__motionCleanup;
@@ -103,7 +110,7 @@ assert.match(ratingModal, /renderValue\(!fromSlider\)/,
   'the score feedback is reserved for deliberate stepper taps, not continuous slider movement');
 assert.match(html, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation-duration:\s*\.01ms/,
   'global CSS motion is reduced for accessibility');
-assert.match(sw, /gulrating-v65[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
+assert.match(sw, /gulrating-v66[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
   'the offline shell precaches the animation engine and app motion module under a fresh cache version');
 assert.doesNotMatch(motion, /from ['"]animejs['"]|from ['"]motion['"]|from ['"]framer-motion['"]|https?:\/\/.*animejs/,
   'the offline-first app does not import or download an animation dependency remotely');

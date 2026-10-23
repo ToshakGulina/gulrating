@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase.js';
-import { setUserTitleStatus, queueUserTitleStatus, getPendingTitleStatuses } from '../lib/ratings.js';
+import { setUserTitleStatus, queueUserTitleStatus, getPendingTitleStatuses, syncPendingTitleStatuses } from '../lib/ratings.js';
 import { getPendingRatings } from '../lib/offline.js';
 import { mountPage } from '../lib/pageState.js';
 import { APP_BUILD } from '../config.js';
@@ -9,7 +9,7 @@ import { FEED_SECTIONS, getFeedOrder, getVisibleFeedSections, saveFeedOrder, sav
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, getFullCatalogPendingMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
-import { getWatchHistory, getPositions, getEpisodeWatchPositions, removeWatchEntry, markWatchDone, unmarkWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
+import { getWatchHistory, getUnfinishedWatchHistory, getCompletedWatchHistory, getPositions, getEpisodeWatchPositions, removeWatchEntry, markWatchDone, unmarkWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
 import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
 import { THEMES, getThemeId, setTheme } from '../lib/theme.js';
@@ -27,6 +27,23 @@ function formatPlaybackTime(value) {
   const remainder = String(seconds % 60).padStart(2, '0');
   if (minutes < 60) return `${minutes}:${remainder}`;
   return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}:${remainder}`;
+}
+
+function continuePlaybackItem(item, currentUser) {
+  if (!item || !(item.kp_url || item.kpId || item.query)) return;
+  reportWatchNative(item.id, item.media_type, currentUser.id, item.title);
+  openWatchOverlay({
+    kpId: item.kpId,
+    query: item.query || item.title,
+    titleText: item.title,
+    mirrorUrl: item.kp_url,
+    watchKey: item.key,
+    resumeFromHistory: true,
+    currentUser,
+    titleId: item.id,
+    mediaType: item.media_type,
+    posterPath: item.poster_path,
+  });
 }
 
 const PROFILE_SNAPSHOT_PREFIX = 'gulrating:profile_snapshot:';
@@ -132,6 +149,30 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     }
   }
   const statusByTitleId = new Map(titleStatusesList.map(row => [String(row.title_id), row.status]));
+  let migratedPlaybackStatuses = false;
+  for (const item of getUnfinishedWatchHistory()) {
+    const id = String(item.id);
+    const hasRating = myRatingsList.some(row => String(row.title_id) === id);
+    const pendingStatus = getPendingTitleStatuses(currentUser.id).find(row => String(row.title_id) === id)?.status;
+    const currentStatus = pendingStatus || statusByTitleId.get(id)
+      || (watchlistList.some(row => String(row.title_id) === id) ? 'watchlist' : '');
+    if (hasRating || ['in_progress', 'watched', 'dropped'].includes(currentStatus)) continue;
+
+    const title = myRatingsList.find(row => String(row.title_id) === id)?.titles
+      || watchlistList.find(row => String(row.title_id) === id)?.titles
+      || titleStatusesList.find(row => String(row.title_id) === id)?.titles
+      || getCachedTitleDetails(item.id, item.media_type)
+      || { id: item.id, title: item.title, poster_path: item.poster_path, media_type: item.media_type };
+    queueUserTitleStatus(currentUser.id, item.id, item.media_type, 'in_progress');
+    watchlistList = watchlistList.filter(row => String(row.title_id) !== id);
+    titleStatusesList = titleStatusesList.filter(row => String(row.title_id) !== id);
+    titleStatusesList.unshift({ user_id: currentUser.id, title_id: item.id, status: 'in_progress', titles: title });
+    statusByTitleId.set(id, 'in_progress');
+    migratedPlaybackStatuses = true;
+  }
+  if (migratedPlaybackStatuses) {
+    syncPendingTitleStatuses(currentUser.id).catch(() => {});
+  }
   for (const pending of getPendingTitleStatuses(currentUser.id)) {
     const id = String(pending.title_id);
     const title = myRatingsList.find(item => String(item.title_id) === id)?.titles
@@ -762,20 +803,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     });
     box.querySelectorAll('.wh-continue').forEach(button => button.addEventListener('click', () => {
       const item = getWatchHistory().find(entry => entry.key === button.closest('[data-key]').dataset.key);
-      if (!item || !(item.kp_url || item.kpId || item.query)) return;
-      reportWatchNative(item.id, item.media_type, currentUser.id, item.title);
-      openWatchOverlay({
-        kpId: item.kpId,
-        query: item.query || item.title,
-        titleText: item.title,
-        mirrorUrl: item.kp_url,
-        watchKey: item.key,
-        resumeFromHistory: true,
-        currentUser,
-        titleId: item.id,
-        mediaType: item.media_type,
-        posterPath: item.poster_path,
-      });
+      continuePlaybackItem(item, currentUser);
     }));
     box.querySelectorAll('.wh-done').forEach(button => button.addEventListener('click', async () => {
       const key = button.closest('[data-key]').dataset.key;
@@ -808,10 +836,10 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   function paintWatchHistory() {
     const historyRoot = pageRoot.querySelector('#profile-playback-history');
     if (!historyRoot) return;
-    const history = getWatchHistory();
+    const history = getCompletedWatchHistory();
     historyRoot.innerHTML = `<h2 class="text-lg font-semibold">История просмотра</h2>${history.length
       ? renderPlaybackRows(history)
-      : '<p class="py-4 text-sm text-gray-500">История просмотра пока пуста.</p>'}`;
+      : '<p class="py-4 text-sm text-gray-500">Завершённые просмотры пока не отмечены. Незавершённые тайтлы находятся во вкладке «В процессе».</p>'}`;
     bindPlaybackRows();
     const positions = getPositions();
     for (const item of history) {
@@ -965,6 +993,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
     const activeTab = pageRoot.querySelector('.tab-btn[aria-selected="true"]')?.dataset.tab || 'watched';
     setActivityTab(activeTab);
     initTitleCards(pageRoot, currentUser, updateProfileStatus);
+    paintWatchHistory();
   }
 
   let activeActivityTab = previousActivityTab;
@@ -1231,8 +1260,23 @@ function renderTitleStatuses(items, ratings, currentUser) {
   if (!visibleStatuses.length) {
     return `<div class="col-span-full text-center py-10 text-sm text-gray-500">Нет тайтлов со статусами «В процессе», «Просмотрено» или «Заброшено» без оценки.</div>`;
   }
+  const resumableItems = new Map(getUnfinishedWatchHistory()
+    .map(item => [item.key, item]));
+  const positions = getPositions();
 
-  return visibleStatuses.map(item => `
+  return visibleStatuses.map(item => {
+    const watchKey = `${item.titles.media_type}:${item.title_id}`;
+    const resumable = resumableItems.get(watchKey);
+    const position = positions[watchKey];
+    const savedSeconds = position && Number(position.t) > 0 ? Number(position.t) : null;
+    const savedTime = savedSeconds === null ? null : formatPlaybackTime(savedSeconds);
+    const percent = position && Number(position.d) > 0 && savedSeconds !== null
+      ? Math.min(100, Math.round(savedSeconds / Number(position.d) * 100)) : null;
+    const episodePositions = item.titles.media_type === 'tv' ? getEpisodeWatchPositions(watchKey, positions) : [];
+    const seriesProgress = item.titles.media_type === 'tv'
+      ? estimateSeriesProgress(watchKey, positions, getCachedTitleDetails(item.title_id, 'tv'))
+      : null;
+    return `
     <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(item.titles.id)}" data-media-type="${escapeHtml(item.titles.media_type)}">
       <div class="profile-card-poster flex-shrink-0">
         ${posterImg(item.titles.poster_path, item.titles.title, 'w-full aspect-[2/3] rounded-lg')}
@@ -1250,12 +1294,28 @@ function renderTitleStatuses(items, ratings, currentUser) {
       <div class="flex-1 min-w-0">
         <h3 class="font-semibold leading-tight">${escapeHtml(item.titles.title)}</h3>
         <p class="text-sm text-gray-400">${releaseYear(item.titles.release_date)} · ${item.titles.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
+        ${seriesProgress ? `<span class="mt-1 block text-[10px] text-sky-300">Весь сериал: ${formatPlaybackTime(seriesProgress.watchedSeconds)} из ~${formatPlaybackTime(seriesProgress.estimatedTotalSeconds)} · ${seriesProgress.percent}%${seriesProgress.estimated ? ' (оценка)' : ''}</span><span class="mt-1 block h-1.5 overflow-hidden rounded-full bg-slate-700"><span class="block h-full rounded-full bg-sky-400" style="width:${seriesProgress.percent}%"></span></span>` : (episodePositions.length ? '<span class="mt-1 block text-[10px] text-gray-500">Оценочная длительность сериала пока недоступна.</span>' : '')}
+        ${percent !== null ? `<span class="mt-1 block h-1 overflow-hidden rounded bg-slate-700"><span class="block h-full bg-red-500" style="width:${percent}%"></span></span>` : ''}
+        ${savedTime !== null ? `<span class="block text-[10px] text-gray-500">Запомнено: ${savedTime}${percent !== null ? ` · ${percent}%` : ''}</span>` : ''}
+        ${resumable && (resumable.kp_url || resumable.kpId || resumable.query)
+          ? `<button type="button" class="profile-continue-watch mt-2 rounded-lg bg-primary px-3 py-1.5 text-xs text-white" data-watch-key="${escapeHtml(watchKey)}">Продолжить</button>`
+          : ''}
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function initTitleCards(pageRoot, currentUser, onStatusUpdated) {
+  const syncPlaybackCompletion = (titleId, mediaType, offline) => {
+    const key = `${mediaType}:${titleId}`;
+    const item = getUnfinishedWatchHistory().find(entry => entry.key === key);
+    if (item) {
+      markWatchDone(key, { offline }).then(updated => {
+        if (updated) onStatusUpdated?.(titleId, mediaType, 'watched');
+      }).catch(() => {});
+    }
+  };
   pageRoot.querySelectorAll('.profile-status-select').forEach(select => {
     select.addEventListener('click', event => event.stopPropagation());
     select.addEventListener('keydown', event => event.stopPropagation());
@@ -1272,6 +1332,7 @@ function initTitleCards(pageRoot, currentUser, onStatusUpdated) {
           queueUserTitleStatus(currentUser.id, titleId, mediaType, nextStatus);
           select.dataset.currentStatus = actualStatus;
           onStatusUpdated?.(titleId, mediaType, actualStatus);
+          if (actualStatus === 'watched') syncPlaybackCompletion(titleId, mediaType, true);
           showToast('Статус сохранён на устройстве и синхронизируется при подключении', 'info', 4500);
         } catch (error) {
           select.value = previousStatus;
@@ -1288,6 +1349,7 @@ function initTitleCards(pageRoot, currentUser, onStatusUpdated) {
       setMatchingSelectsDisabled(true);
       try {
         await setUserTitleStatus(currentUser.id, titleId, mediaType, nextStatus);
+        if (actualStatus === 'watched') syncPlaybackCompletion(titleId, mediaType, false);
         const labels = { watchlist: 'Хочу посмотреть', in_progress: 'В процессе', watched: 'Просмотрено', dropped: 'Заброшено', '': 'Не отмечено' };
         showToast(`Статус: ${labels[actualStatus] || labels['']}`, 'success');
         setMatchingSelectsDisabled(false);
@@ -1299,6 +1361,14 @@ function initTitleCards(pageRoot, currentUser, onStatusUpdated) {
         setMatchingSelectsDisabled(false);
         showToast(`Не удалось изменить статус: ${error.message}`, 'error', 5000);
       }
+    });
+  });
+
+  pageRoot.querySelectorAll('.profile-continue-watch').forEach(button => {
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      const item = getUnfinishedWatchHistory().find(entry => entry.key === button.dataset.watchKey);
+      continuePlaybackItem(item, currentUser);
     });
   });
 

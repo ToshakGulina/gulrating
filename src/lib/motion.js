@@ -117,6 +117,9 @@ function getOverlayPanel(overlay) {
 }
 
 function enterOverlay(overlay) {
+  // Franchise hand-offs own the incoming modal's opacity/transform. The normal
+  // modal entrance would race that transition and make the tab change look static.
+  if (overlay.dataset?.franchiseTransitioning === 'true') return;
   if (seenOverlays.has(overlay) || !isMotionEnabled()) return;
   seenOverlays.add(overlay);
   const panel = getOverlayPanel(overlay);
@@ -282,6 +285,8 @@ export function animateFranchiseModalEnter(overlay, slideDirection) {
   const panel = getOverlayPanel(overlay);
   if (!panel) return false;
   const enterX = Math.sign(slideDirection) * Math.min(window.innerWidth * .28, 300);
+  // Set before MutationObserver sees the appended modal and starts its generic entrance.
+  overlay.dataset.franchiseTransitioning = 'true';
   const enteringClasses = ['franchise-slide-enter', 'franchise-slide-enter-forward', 'franchise-slide-enter-backward'];
   const originalPanelStyle = {
     animation: panel.style.animation,
@@ -326,6 +331,7 @@ export function animateFranchiseModalEnter(overlay, slideDirection) {
     for (const [property, value] of Object.entries(originalPanelStyle)) panel.style[property] = value;
     for (const [property, value] of Object.entries(originalOverlayStyle)) overlay.style[property] = value;
     panel.classList.remove(...enteringClasses);
+    delete overlay.dataset.franchiseTransitioning;
   }, 500);
   return true;
 }

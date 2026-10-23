@@ -15,13 +15,18 @@ assert.deepEqual(tabs, [
 ], 'profile tabs have the requested order');
 assert.ok(!profileSource.includes('id="watch-history"') && !profileSource.includes('id="watched-history"'), 'standalone playback history sections are removed');
 assert.ok(profileSource.includes('id="profile-playback-history"'), 'playback history has a dedicated section outside the status tab panel');
-assert.ok(profileSource.includes('const history = getWatchHistory();') && profileSource.includes('renderPlaybackRows(history)'), 'all playback history renders in its own section');
+assert.ok(profileSource.includes('const history = getCompletedWatchHistory();') && profileSource.includes('renderPlaybackRows(history)'), 'completed playback stays in its own history section while unfinished playback is moved to statuses');
 assert.ok(profileSource.includes('profileContent.innerHTML = renderProfileStatusTab('), 'status tabs render only title ratings and statuses');
 assert.match(profileSource, /profileContent\.animate\(\[/,
   'changing profile status tabs slides the new card list horizontally');
 assert.match(profileSource, /prefers-reduced-motion: reduce/,
   'profile tab transitions respect reduced-motion accessibility settings');
-assert.ok(!profileSource.includes("getWatchHistory().filter(item => item.done)"), 'playback history is not injected into the Watched tab');
+assert.ok(profileSource.includes('getCompletedWatchHistory()'), 'unfinished playback entries are not rendered in the playback-history section');
+assert.ok(profileSource.includes('getUnfinishedWatchHistory()'), 'unfinished playback remains available to migrate and resume');
+assert.match(profileSource, /for \(const item of getUnfinishedWatchHistory\(\)\)[\s\S]*?queueUserTitleStatus\(currentUser\.id, item\.id, item\.media_type, 'in_progress'\)/,
+  'legacy unfinished playback entries are migrated to the In Progress status');
+assert.match(profileSource, /profile-continue-watch[\s\S]*?continuePlaybackItem\(item, currentUser\)/,
+  'an unfinished title remains resumable from its In Progress card');
 assert.ok(profileSource.includes('queueUserTitleStatus'), 'offline menu changes are saved for later sync');
 assert.ok(!profileSource.includes("${currentUser.offlineOnly ? 'disabled' : ''}"), 'status menus stay enabled in offline mode');
 const statusControls = [...profileSource.matchAll(/<select class="profile-status-select([^\"]*)"/g)];
@@ -31,6 +36,10 @@ const modalSource = await readFile(new URL('../src/components/RatingModal.js', i
 assert.ok(modalSource.includes('getCachedTitleDetails') && modalSource.includes('getCachedUserTitleStatus'), 'offline title cards open from local data');
 assert.ok(!modalSource.includes('disabled title="Недоступно офлайн"'), 'title-card status selector is enabled offline');
 assert.ok(modalSource.includes('queueUserTitleStatus'), 'title-card status selection queues offline');
+assert.match(modalSource, /addWatchEntry\([\s\S]*?queueUserTitleStatus\(currentUser\.id, titleId, mediaType, 'in_progress'\)/,
+  'starting playback places an unrated, unfinished title in the In Progress status');
+assert.match(modalSource, /getPendingTitleStatuses\(currentUser\.id\)[\s\S]*?status\.hasRating[\s\S]*?syncPendingTitleStatuses\(currentUser\.id\)/,
+  'the playback status respects explicit and pending states, and syncs offline-first');
 const match = profileSource.match(/function renderProfileStatusTab\([\s\S]*?(?=\nfunction renderWatchlist\()/);
 assert.ok(match, 'profile status tab renderer exists');
 
