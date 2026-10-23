@@ -325,6 +325,15 @@ try {
   assert.match(modalSource, /openRatingModal\(tab\.dataset\.titleId, tab\.dataset\.mediaType, currentUser, onSaveCallback, \{ parts, direction \}\)/);
   assert.match(modalSource, /const direction = targetIndex >= 0 && currentIndex >= 0 && targetIndex < currentIndex \? -1 : 1/);
   assert.match(modalSource, /animateFranchiseModalEnter\(modal, franchiseDirection\)/);
+  assert.match(modalSource, /modal\.dataset\.franchiseTransitioning = 'true'[\s\S]*?document\.body\.appendChild\(modal\)/,
+    'the modal is reserved before the shared MutationObserver sees it');
+  assert.match(modalSource, /rating-modal-panel bg-card/,
+    'the new modal does not run a CSS keyframe on its loading skeleton');
+  const tabsReadyIndex = modalSource.indexOf('tabs.innerHTML = parts.map');
+  const scrollReadyIndex = modalSource.indexOf('requestAnimationFrame(() => {', tabsReadyIndex);
+  const enterReadyIndex = modalSource.indexOf('startFranchiseEnter();', scrollReadyIndex);
+  assert(tabsReadyIndex >= 0 && scrollReadyIndex > tabsReadyIndex && enterReadyIndex > scrollReadyIndex,
+    'franchise entrance begins only after the full content and tab strip have settled, preventing vertical re-centering during the slide');
   assert.match(modalSource, /closeModal\(direction\)/);
   assert.match(modalSource, /franchisePartsPromise/);
   const ratingModalFunction = modalSource.slice(modalSource.indexOf('export async function openRatingModal('));

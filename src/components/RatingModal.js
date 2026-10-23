@@ -1055,11 +1055,9 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
   modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm';
   const franchiseDirection = Math.sign(Number(franchiseContext?.direction) || 0);
   const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const franchiseEnterClass = franchiseDirection && !reduceMotion
-    ? `franchise-slide-enter franchise-slide-enter-${franchiseDirection > 0 ? 'forward' : 'backward'}`
-    : '';
+  const shouldAnimateFranchiseEnter = Boolean(franchiseDirection && !reduceMotion);
   modal.innerHTML = `
-    <div class="rating-modal-panel ${franchiseEnterClass} bg-card w-full max-w-lg rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+    <div class="rating-modal-panel bg-card w-full max-w-lg rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
       <div class="app-header p-4 flex justify-between items-center border-b border-slate-700 sticky top-0 bg-card z-10">
         <h2 class="text-xl font-bold">Загружаем информацию...</h2>
         <button id="close-modal" class="text-gray-400 hover:text-white" aria-label="Закрыть">
@@ -1083,11 +1081,18 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     </div>
   `;
 
+  if (shouldAnimateFranchiseEnter) modal.dataset.franchiseTransitioning = 'true';
+  let franchiseEnterStarted = false;
+  const startFranchiseEnter = () => {
+    if (!shouldAnimateFranchiseEnter || franchiseEnterStarted || !modal.isConnected) return;
+    franchiseEnterStarted = true;
+    animateFranchiseModalEnter(modal, franchiseDirection);
+  };
+
   if (!activeRatingModals.size) ratingModalPreviousBodyOverflow = document.body.style.overflow;
   activeRatingModals.add(modal);
   document.body.appendChild(modal);
   document.body.style.overflow = 'hidden';
-  if (franchiseEnterClass) animateFranchiseModalEnter(modal, franchiseDirection);
 
   // Оставляем короткий выход модалки, чтобы закрытие было парным открытию.
   // Удаление по таймеру — fallback для WebView без animationend.
@@ -1474,7 +1479,11 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         ? Promise.resolve([])
         : getFranchiseTitles(titleId, mediaType);
     franchisePartsPromise.then(parts => {
-      if (!modal.isConnected || !franchiseBox || !Array.isArray(parts) || parts.length < 2) return;
+      if (!modal.isConnected) return;
+      if (!franchiseBox || !Array.isArray(parts) || parts.length < 2) {
+        startFranchiseEnter();
+        return;
+      }
       franchiseBox.classList.remove('hidden');
       const tabs = franchiseBox.querySelector('.franchise-tabs-list');
       tabs.innerHTML = parts.map(part => {
@@ -1524,7 +1533,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         }
         updateFranchiseScrollButtons();
       });
-    }).catch(() => {});
+      startFranchiseEnter();
+    }).catch(() => startFranchiseEnter());
 
     // Статус живёт в карточке тайтла под постером, отдельно от блока оценки.
     const titleStatusSelect = modal.querySelector('#title-status-select');
@@ -1921,6 +1931,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         Ошибка загрузки: ${escapeHtml(e.message)}
       </div>
     `;
+    startFranchiseEnter();
   }
 }
 
