@@ -1081,7 +1081,23 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     </div>
   `;
 
-  if (shouldAnimateFranchiseEnter) modal.dataset.franchiseTransitioning = 'true';
+  if (shouldAnimateFranchiseEnter) {
+    modal.dataset.franchiseTransitioning = 'true';
+    const rect = franchiseContext?.panelRect;
+    const panel = modal.querySelector('.rating-modal-panel');
+    if (panel && rect && [rect.left, rect.top, rect.width, rect.height].every(Number.isFinite)
+        && rect.width > 0 && rect.height > 0) {
+      Object.assign(panel.style, {
+        position: 'fixed',
+        left: `${rect.left}px`,
+        top: `${rect.top}px`,
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+        maxHeight: '90vh',
+        margin: '0',
+      });
+    }
+  }
   let franchiseEnterStarted = false;
   const startFranchiseEnter = () => {
     if (!shouldAnimateFranchiseEnter || franchiseEnterStarted || !modal.isConnected) return;
@@ -1496,8 +1512,14 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         const currentIndex = parts.findIndex(part => Number(part.id) === Number(titleId) && part.media_type === mediaType);
         const targetIndex = parts.findIndex(part => Number(part.id) === Number(tab.dataset.titleId) && part.media_type === tab.dataset.mediaType);
         const direction = targetIndex >= 0 && currentIndex >= 0 && targetIndex < currentIndex ? -1 : 1;
+        const panelRect = modal.querySelector('.rating-modal-panel')?.getBoundingClientRect();
+        const transitionRect = panelRect && panelRect.width > 0 && panelRect.height > 0
+          ? { left: panelRect.left, top: panelRect.top, width: panelRect.width, height: panelRect.height }
+          : null;
         closeModal(direction);
-        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback, { parts, direction });
+        openRatingModal(tab.dataset.titleId, tab.dataset.mediaType, currentUser, onSaveCallback, {
+          parts, direction, panelRect: transitionRect,
+        });
       }));
 
       const scrollLeftButton = franchiseBox.querySelector('.franchise-scroll-left');
