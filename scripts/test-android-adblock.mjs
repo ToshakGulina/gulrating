@@ -26,8 +26,8 @@ assert.match(java, /return !request\.isForMainFrame\(\) && hasExplicitAdPath\(ur
   'path-based rules only affect embedded subresources, not legitimate navigation');
 assert.match(java, /return new WebResourceResponse\("text\/plain", "UTF-8", 204, "No Content"/,
   'blocked requests receive an empty no-content response');
-assert.match(java, /isBlockedAdResource\(uri\)[\s\S]*?blockedAdResponse\(\)/,
-  'the Android service-worker interception path applies the same filter');
+assert.match(java, /ServiceWorkerClient[\s\S]*?shouldBlockAdRequest\(request\)[\s\S]*?blockedAdResponse\(\)/,
+  'the Android service-worker interception path applies the same request-scoped filter');
 assert.match(java, /shouldBlockAdRequest\(request\)[\s\S]*?blockedAdResponse\(\)/,
   'the regular WebView resource path filters ads');
 assert.match(java, /if \(isBlockedAdHost\(host\)[\s\S]*?return true;/,

@@ -224,7 +224,7 @@ public class MainActivity extends Activity {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
                 Uri uri = request.getUrl();
-                if (isBlockedAdResource(uri)) {
+                if (shouldBlockAdRequest(request)) {
                     return blockedAdResponse();
                 }
                 if (useBundledWebApp && HOME_HOST.equals(uri.getHost())
@@ -1080,10 +1080,6 @@ public class MainActivity extends Activity {
             }
         }
         return false;
-    }
-
-    private static boolean isBlockedAdResource(Uri uri) {
-        return uri != null && (isBlockedAdHost(uri.getHost()) || hasExplicitAdPath(uri));
     }
 
     private static boolean shouldBlockAdRequest(WebResourceRequest request) {
