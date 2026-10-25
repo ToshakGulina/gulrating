@@ -1,6 +1,6 @@
 // Franchise membership is derived only from explicit Wikipedia previous/next rows.
 
-const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v6';
+const CACHE_KEY = 'gulrating:wikipedia_franchise_cache_v9';
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 const EMPTY_CACHE_TTL = 6 * 60 * 60 * 1000;
 const memoryCache = new Map();
@@ -139,7 +139,12 @@ function chronologyLinksFromHtml(html) {
       : /(?:tv|television|series|сериал|телесериал)/i.test(disambiguation) ? 'tv'
         : 'all';
     const media_type = tv ? 'tv' : film ? 'movie' : linkedType;
-    links.push({ title, media_type, ...(year ? { year: Number(year) } : {}) });
+    links.push({
+      title,
+      media_type,
+      relation: isPrevious ? 'previous' : 'next',
+      ...(year ? { year: Number(year) } : {}),
+    });
   }
   return links;
 }
@@ -175,6 +180,35 @@ async function inspectChronologyPage(article) {
   return chronologyLinksFromHtml(html);
 }
 
+function backlinkRelevance(candidate, targetTitle) {
+  const targetTokens = normalizePageTitle(targetTitle).split(' ').filter(token => token.length > 2);
+  const candidateTokens = new Set(normalizePageTitle(candidate.title).split(' '));
+  const overlap = targetTokens.filter(token => candidateTokens.has(token)).length;
+  return overlap * 10 + (candidate.year ? 4 : 0) + (candidate.media_type !== 'all' ? 2 : 0);
+}
+
+async function findChronologyBacklinks(language, title) {
+  const params = {
+    action: 'query', format: 'json', list: 'backlinks',
+    bltitle: title, blnamespace: '0', blfilterredir: 'nonredirects', bllimit: '100', origin: '*',
+  };
+  const data = await requestJson(apiUrl(language, params));
+  return (data?.query?.backlinks || []).map(page => {
+    const disambiguation = String(page.title || '').match(/\(([^()]*)\)\s*$/)?.[1] || '';
+    const media_type = /(?:film|movie|фильм|мультфильм)/i.test(disambiguation) ? 'movie'
+      : /(?:tv|television|series|сериал|телесериал)/i.test(disambiguation) ? 'tv'
+        : 'all';
+    const year = String(page.title || '').match(/\(((?:18|19|20)\d{2})\s+(?:film|movie|tv series|television series|фильм|мультфильм|сериал|телесериал)\)/i)?.[1]
+      || String(page.title || '').match(/\((?:film|movie|tv series|television series|фильм|мультфильм|сериал|телесериал),?\s*((?:18|19|20)\d{2})\)/i)?.[1];
+    return {
+      language,
+      title: page.title,
+      media_type,
+      ...(year ? { year: Number(year) } : {}),
+    };
+  }).sort((a, b) => backlinkRelevance(b, title) - backlinkRelevance(a, title));
+}
+
 async function discoverChronology(title, originalTitle, year, mediaType) {
   const mediaHintRu = mediaType === 'tv' ? 'сериал' : 'фильм';
   const mediaHintEn = mediaType === 'tv' ? 'television series' : 'film';
@@ -186,6 +220,7 @@ async function discoverChronology(title, originalTitle, year, mediaType) {
   const visited = new Set();
   const related = new Map();
   let processed = 0;
+  let backlinkQueries = 0;
 
   while (queue.length && processed < 20) {
     const batch = [];
@@ -201,10 +236,39 @@ async function discoverChronology(title, originalTitle, year, mediaType) {
     const discovered = await Promise.all(batch.map(article =>
       inspectChronologyPage(article).catch(() => [])
     ));
+    const backlinks = await Promise.all(batch.map((article, index) => {
+      const hasPrevious = discovered[index].some(link => link.relation === 'previous');
+      if (article.depth > 1 || hasPrevious || backlinkQueries >= 4) return [];
+      backlinkQueries += 1;
+      return findChronologyBacklinks(article.language, article.title).catch(() => []);
+    }));
 
     for (let index = 0; index < batch.length; index += 1) {
       const article = batch[index];
-      for (const link of discovered[index]) {
+      const links = discovered[index];
+      if (article.requiredLink && !links.some(link =>
+        normalizePageTitle(link.title) === normalizePageTitle(article.requiredLink)
+      )) continue;
+
+      if (article.requiredLink) {
+        const disambiguation = String(article.title || '').match(/\(([^()]*)\)\s*$/)?.[1] || '';
+        const pageYear = String(article.title || '').match(/\(((?:18|19|20)\d{2})\s+(?:film|movie|tv series|television series|фильм|мультфильм|сериал|телесериал)\)/i)?.[1]
+          || String(article.title || '').match(/\((?:film|movie|tv series|television series|фильм|мультфильм|сериал|телесериал),?\s*((?:18|19|20)\d{2})\)/i)?.[1];
+        const pageType = /(?:film|movie|фильм|мультфильм)/i.test(disambiguation) ? 'movie'
+          : /(?:tv|television|series|сериал|телесериал)/i.test(disambiguation) ? 'tv'
+            : 'all';
+        const key = normalize(article.title);
+        const existing = related.get(key);
+        if (!existing || (existing.media_type === 'all' && pageType !== 'all')) {
+          related.set(key, {
+            title: article.title,
+            media_type: pageType,
+            ...(pageYear ? { year: Number(pageYear) } : {}),
+          });
+        }
+      }
+
+      for (const link of links) {
         const key = normalize(link.title);
         const existing = related.get(key);
         if (!existing || (existing.media_type === 'all' && link.media_type !== 'all')) {
@@ -216,6 +280,19 @@ async function discoverChronology(title, originalTitle, year, mediaType) {
             title: link.title,
             media_type: link.media_type,
             depth: article.depth + 1,
+          });
+        }
+      }
+
+      // Backlinks are only candidates. A title joins the franchise graph only
+      // after its own explicit Previous/Next row points back to this article.
+      for (const candidate of backlinks[index].slice(0, 20)) {
+        const candidateKey = `${candidate.language}:${normalize(candidate.title)}`;
+        if (article.depth < 5 && !visited.has(candidateKey)) {
+          queue.push({
+            ...candidate,
+            depth: article.depth + 1,
+            requiredLink: article.title,
           });
         }
       }

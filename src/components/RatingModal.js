@@ -1054,8 +1054,9 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
   const modal = document.createElement('div');
   modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm';
   const franchiseDirection = Math.sign(Number(franchiseContext?.direction) || 0);
-  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const shouldAnimateFranchiseEnter = Boolean(franchiseDirection && !reduceMotion);
+  // A franchise tab is an explicit navigation gesture: keep its directional
+  // hand-off visible even when the device-wide preference suppresses ambient motion.
+  const shouldAnimateFranchiseEnter = Boolean(franchiseDirection);
   modal.innerHTML = `
     <div class="rating-modal-panel bg-card w-full max-w-lg rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
       <div class="app-header p-4 flex justify-between items-center border-b border-slate-700 sticky top-0 bg-card z-10">

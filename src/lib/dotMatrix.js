@@ -122,6 +122,9 @@ export function renderDotMatrixText(value, { unsupported = 'question' } = {}) {
 const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
 
 function enhanceHeading(heading) {
+  // Card titles are dense, frequently truncated metadata—not decorative section
+  // headings. Keep them in the normal font so the Nothing theme remains readable.
+  if (heading.closest('.title-card, .catalog-item, .rec-card, .history-title, .search-result-item')) return;
   const showText = document.defaultView?.NodeFilter?.SHOW_TEXT ?? 4;
   const walker = document.createTreeWalker(heading, showText);
   const textNodes = [];
