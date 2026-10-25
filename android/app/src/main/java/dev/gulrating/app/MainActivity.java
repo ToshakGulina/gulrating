@@ -38,9 +38,12 @@ import android.webkit.ServiceWorkerController;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.Locale;
 
 /**
  * ГульРейтинг на Android без Google Play: тонкая WebView-обёртка поверх
@@ -68,6 +71,26 @@ public class MainActivity extends Activity {
             "videocdn.net", "videocdn.tv", "collaps.me", "collaps.so",
             "bazon.cc", "alloha.cool", "hdzo.fun", "pleer.videocdn.net",
             "kurolesya.link", "obrut.show", "nextembed.ws"
+    };
+    // Built-in WebView ad/tracker filter. Keep player hosts out of this list;
+    // providers are allowed to load their actual stream and subtitle endpoints.
+    private static final String[] AD_HOST_SUFFIXES = {
+            "doubleclick.net", "googlesyndication.com", "googleadservices.com",
+            "adservice.google.com", "adnxs.com", "adsafeprotected.com",
+            "taboola.com", "outbrain.com", "mgid.com", "revcontent.com",
+            "criteo.com", "adform.net", "smartadserver.com", "openx.net",
+            "pubmatic.com", "rubiconproject.com", "bidswitch.net",
+            "exoclick.com", "exosrv.com", "popads.net", "popcash.net",
+            "propellerads.com", "trafficjunky.com", "juicyads.com",
+            "hilltopads.com", "clickadu.com", "adsterra.com", "monetag.com",
+            "onclickalgo.com", "push.house", "pushwelcome.com",
+            "adskeeper.com", "adskeeper.co.uk", "adfox.ru", "adriver.ru",
+            "smi2.net", "betweendigital.com", "trafficstars.com", "adsrvr.org",
+            "intellitxt.com", "yadro.ru", "rotaban.ru", "teaser.cc",
+            "teaser-hp.com", "otclick-adv.ru", "1xclick.ru", "on-click.ru"
+    };
+    private static final String[] AD_PATH_SEGMENTS = {
+            "ad", "ads", "adserver", "adservice", "popunder", "popup", "banner"
     };
     private static final String CHANNEL = "gulrating-watch";
     private static final String UPDATE_CHANNEL = "gulrating-updates";
@@ -201,6 +224,9 @@ public class MainActivity extends Activity {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
                 Uri uri = request.getUrl();
+                if (isBlockedAdResource(uri)) {
+                    return blockedAdResponse();
+                }
                 if (useBundledWebApp && HOME_HOST.equals(uri.getHost())
                         && "https".equalsIgnoreCase(uri.getScheme())) {
                     return bundledWebResponse(uri.getPath());
@@ -213,6 +239,9 @@ public class MainActivity extends Activity {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
+                if (shouldBlockAdRequest(request)) {
+                    return blockedAdResponse();
+                }
                 if (useBundledWebApp && HOME_HOST.equals(uri.getHost())
                         && "https".equalsIgnoreCase(uri.getScheme())) {
                     WebResourceResponse bundled = bundledWebResponse(uri.getPath());
@@ -239,6 +268,11 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String host = uri.getHost();
+                // Block ad-network navigations/popunders before player-session
+                // routing can keep them inside the embedded WebView.
+                if (isBlockedAdHost(host) || (!request.isForMainFrame() && hasExplicitAdPath(uri))) {
+                    return true;
+                }
                 // Уход с плеера: снять позицию сразу, не дожидаясь тика опроса
                 if (onPlayer() && !isPlayerHost(uri.toString()) && !isPlayerSessionUrl(uri.toString())) {
                     probePlayer();
@@ -1023,6 +1057,46 @@ public class MainActivity extends Activity {
             // в сеть, а не подменяться пустым ответом.
             return null;
         }
+    }
+
+    private static boolean isBlockedAdHost(String host) {
+        if (host == null) return false;
+        String normalized = host.toLowerCase(Locale.ROOT);
+        for (String suffix : AD_HOST_SUFFIXES) {
+            if (normalized.equals(suffix) || normalized.endsWith("." + suffix)) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasExplicitAdPath(Uri uri) {
+        if (uri == null || uri.getPath() == null) return false;
+        String[] segments = uri.getPath().toLowerCase(Locale.ROOT).split("/");
+        for (String segment : segments) {
+            for (String marker : AD_PATH_SEGMENTS) {
+                if (segment.equals(marker) || segment.startsWith(marker + "-")
+                        || segment.startsWith(marker + "_") || segment.startsWith(marker + ".")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isBlockedAdResource(Uri uri) {
+        return uri != null && (isBlockedAdHost(uri.getHost()) || hasExplicitAdPath(uri));
+    }
+
+    private static boolean shouldBlockAdRequest(WebResourceRequest request) {
+        if (request == null) return false;
+        Uri uri = request.getUrl();
+        if (isBlockedAdHost(uri.getHost())) return true;
+        return !request.isForMainFrame() && hasExplicitAdPath(uri);
+    }
+
+    private static WebResourceResponse blockedAdResponse() {
+        return new WebResourceResponse("text/plain", "UTF-8", 204, "No Content",
+                Collections.singletonMap("Cache-Control", "no-store"),
+                new ByteArrayInputStream(new byte[0]));
     }
 
     private String mimeType(String path) {

@@ -53,11 +53,12 @@ assert.ok(indexHtml.includes('--theme-bg: 248 250 252; --theme-deep: 226 232 240
 assert.ok(indexHtml.includes('--theme-secondary: 37 99 235; --p-rgb: 79 70 229; color-scheme: light;'));
 assert.ok(indexHtml.includes('--theme-bg: 0 0 0; --theme-deep: 0 0 0; --theme-card: 24 24 24;'));
 assert.ok(indexHtml.includes('--theme-secondary: 142 142 142; --p-rgb: 235 235 235; --nothing-red: 215 25 33; color-scheme: dark;'));
-assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1') && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
-  'Nothing headings should remain crisp and readable');
-assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered .dot-text-glyph')
-  && indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
-  'all Nothing headings use the same 3-by-5 dot cells as score numerals');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1')
+  && indexHtml.includes('font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;')
+  && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
+  'Nothing headings use high-contrast, ordinary type for readability');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
+  'Nothing preserves the dot-matrix treatment for rating numerals without forcing it onto headings');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] #search-input')
   && indexHtml.includes('rgb(13 25 45 / .97)')
   && indexHtml.includes(':root[data-theme="glass"] #search-results'),
@@ -103,13 +104,15 @@ assert.ok(dotMatrixJs.includes('А: [\'010\', \'101\', \'111\', \'101\', \'101\'
   && dotMatrixJs.includes("const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role=\"heading\"]'")
   && dotMatrixJs.includes("heading.closest('.title-card, .catalog-item, .rec-card, .history-title, .search-result-item')")
   && dotMatrixJs.includes('new MutationObserver'),
-  'section headings use the shared Cyrillic dot font while dense card titles stay plain');
+  'the shared renderer keeps accessible source text while card headings remain plain');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .title-card h3')
   && indexHtml.includes('letter-spacing: 0 !important;')
   && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
   'Nothing card titles use high-contrast, normal type for legibility');
-assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered'),
-  'Nothing theme displays dot glyphs and visually hides duplicate plain text while preserving accessibility');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered')
+  && indexHtml.includes('display: none !important;')
+  && indexHtml.includes('position: static !important;'),
+  'Nothing displays readable plain heading text while retaining the hidden decorative matrix for accessibility-safe rendering');
 const { renderDotMatrixText } = await import('../src/lib/dotMatrix.js');
 const matrixA = renderDotMatrixText('А');
 assert.equal((matrixA.match(/<i /g) || []).length, 15);
