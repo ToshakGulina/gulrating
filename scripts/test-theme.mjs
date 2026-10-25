@@ -54,11 +54,12 @@ assert.ok(indexHtml.includes('--theme-secondary: 37 99 235; --p-rgb: 79 70 229; 
 assert.ok(indexHtml.includes('--theme-bg: 0 0 0; --theme-deep: 0 0 0; --theme-card: 24 24 24;'));
 assert.ok(indexHtml.includes('--theme-secondary: 142 142 142; --p-rgb: 235 235 235; --nothing-red: 215 25 33; color-scheme: dark;'));
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1')
-  && indexHtml.includes('font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;')
+  && indexHtml.includes('font-family: "Roboto Mono", "Noto Sans Mono", ui-monospace, monospace;')
+  && indexHtml.includes('grid-template-columns: repeat(3, 4px);')
   && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
-  'Nothing headings use high-contrast, ordinary type for readability');
+  'Nothing headings retain a larger, higher-contrast dot-matrix treatment');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
-  'Nothing preserves the dot-matrix treatment for rating numerals without forcing it onto headings');
+  'Nothing keeps the dotted display language across headings and rating numerals');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] #search-input')
   && indexHtml.includes('rgb(13 25 45 / .97)')
   && indexHtml.includes(':root[data-theme="glass"] #search-results'),
@@ -110,9 +111,10 @@ assert.ok(indexHtml.includes(':root[data-theme="nothing"] .title-card h3')
   && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
   'Nothing card titles use high-contrast, normal type for legibility');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered')
-  && indexHtml.includes('display: none !important;')
-  && indexHtml.includes('position: static !important;'),
-  'Nothing displays readable plain heading text while retaining the hidden decorative matrix for accessibility-safe rendering');
+  && indexHtml.includes('display: inline !important;')
+  && indexHtml.includes('position: absolute !important;')
+  && indexHtml.includes('grid-template-rows: repeat(5, 4px);'),
+  'Nothing displays the larger dot matrix while keeping plain accessible heading text');
 const { renderDotMatrixText } = await import('../src/lib/dotMatrix.js');
 const matrixA = renderDotMatrixText('А');
 assert.equal((matrixA.match(/<i /g) || []).length, 15);
