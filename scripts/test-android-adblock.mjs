@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const java = await readFile(new URL('../android/app/src/main/java/dev/gulrating/app/MainActivity.java', import.meta.url), 'utf8');
 const gradle = await readFile(new URL('../android/app/build.gradle', import.meta.url), 'utf8');
+const workflow = await readFile(new URL('../.github/workflows/android-apk.yml', import.meta.url), 'utf8');
 const list = java.match(/AD_HOST_SUFFIXES\s*=\s*\{([\s\S]*?)\n\s*\};/)?.[1];
 assert.ok(list, 'the Android WebView has a bundled ad-host blocklist');
 const domains = [...list.matchAll(/"([a-z0-9.-]+)"/gi)].map(match => match[1]);
@@ -36,5 +37,9 @@ for (const playerHost of ['kinokino.vip', 'alloha.cool', 'kodik.info']) {
 }
 assert.match(gradle, /versionCode 31[\s\S]*?versionName '1\.0\.31'/,
   'the ad-filtered APK has a new installable version');
+assert.match(gradle, /debug\s*\{[\s\S]*?applicationIdSuffix '\.preview'[\s\S]*?versionNameSuffix '-preview'/,
+  'the preview APK uses a separate package and cannot replace production or touch its local data');
+assert.match(workflow, /assembleDebug[\s\S]*?app-debug\.apk[\s\S]*?-preview\.apk/,
+  'the PR build publishes an installable, side-by-side debug-signed APK');
 
 console.log('Android WebView ad filtering preserves player hosts and blocks common ad networks: OK');

@@ -1,7 +1,8 @@
 name: android-apk
 
-# APK для sideload. PR/manual branch builds are unsigned previews;
-# only version tags are signed and published as releases.
+# APK для sideload. PR/manual branch builds use the debug key and a separate
+# .preview package ID, so they can be installed beside production without touching its data.
+# Only version tags are signed with the release key and published as releases.
 on:
   workflow_dispatch:
   push:
@@ -64,9 +65,9 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: cd android && gradle --no-daemon -q assembleRelease
 
-      - name: Build unsigned preview APK
+      - name: Build installable side-by-side preview APK
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cd android && gradle --no-daemon -q assembleRelease
+        run: cd android && gradle --no-daemon -q assembleDebug
 
       - name: Prepare release assets
         run: |
@@ -75,7 +76,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             cp android/app/build/outputs/apk/release/app-release.apk "release/gulrating-${SAFE_REF}.apk"
           else
-            cp android/app/build/outputs/apk/release/app-release-unsigned.apk "release/gulrating-${SAFE_REF}-unsigned.apk"
+            cp android/app/build/outputs/apk/debug/app-debug.apk "release/gulrating-${SAFE_REF}-preview.apk"
           fi
           scripts/release-notes.sh "${GITHUB_REF_NAME}" > release/release-notes.md
 
