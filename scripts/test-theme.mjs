@@ -54,10 +54,10 @@ assert.ok(indexHtml.includes('--theme-secondary: 37 99 235; --p-rgb: 79 70 229; 
 assert.ok(indexHtml.includes('--theme-bg: 0 0 0; --theme-deep: 0 0 0; --theme-card: 24 24 24;'));
 assert.ok(indexHtml.includes('--theme-secondary: 142 142 142; --p-rgb: 235 235 235; --nothing-red: 215 25 33; color-scheme: dark;'));
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1')
-  && indexHtml.includes('font-family: "Roboto Mono", "Noto Sans Mono", ui-monospace, monospace;')
-  && indexHtml.includes('grid-template-columns: repeat(3, 4px);')
-  && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
-  'Nothing headings retain a larger, higher-contrast dot-matrix treatment');
+  && indexHtml.includes('font-weight: 700;')
+  && indexHtml.includes('background-image: radial-gradient(circle, rgb(var(--theme-text-100)) .06em, transparent .075em);')
+  && indexHtml.includes('-webkit-text-stroke: .35px rgb(var(--theme-text-100));'),
+  'Nothing headings keep the dotted style over familiar bold letterforms for legibility');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
   'Nothing keeps the dotted display language across headings and rating numerals');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] #search-input')
@@ -104,6 +104,7 @@ assert.ok(mainJs.includes('installDotMatrixHeadings();'), 'the app installs matr
 assert.ok(dotMatrixJs.includes('А: [\'010\', \'101\', \'111\', \'101\', \'101\']')
   && dotMatrixJs.includes("const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role=\"heading\"]'")
   && dotMatrixJs.includes("heading.closest('.title-card, .catalog-item, .rec-card, .history-title, .search-result-item')")
+  && dotMatrixJs.includes('matrix.textContent = renderDotHeadingText')
   && dotMatrixJs.includes('new MutationObserver'),
   'the shared renderer keeps accessible source text while card headings remain plain');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .title-card h3')
@@ -113,8 +114,8 @@ assert.ok(indexHtml.includes(':root[data-theme="nothing"] .title-card h3')
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered')
   && indexHtml.includes('display: inline !important;')
   && indexHtml.includes('position: absolute !important;')
-  && indexHtml.includes('grid-template-rows: repeat(5, 4px);'),
-  'Nothing displays the larger dot matrix while keeping plain accessible heading text');
+  && indexHtml.includes('background-size: .18em .18em;'),
+  'Nothing displays dot-textured headings while keeping plain accessible heading text');
 const { renderDotMatrixText } = await import('../src/lib/dotMatrix.js');
 const matrixA = renderDotMatrixText('А');
 assert.equal((matrixA.match(/<i /g) || []).length, 15);

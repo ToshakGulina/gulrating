@@ -717,9 +717,9 @@
     :root[data-theme="nothing"] h5,
     :root[data-theme="nothing"] h6,
     :root[data-theme="nothing"] [role="heading"] {
-      font-family: "Roboto Mono", "Noto Sans Mono", ui-monospace, monospace;
-      font-weight: 600;
-      line-height: 1.4;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      font-weight: 700;
+      line-height: 1.3;
       letter-spacing: .02em;
       color: rgb(var(--theme-text-100)) !important;
       -webkit-text-fill-color: currentColor;
@@ -739,26 +739,25 @@
     }
     :root[data-theme="nothing"] .dot-matrix-rendered {
       display: inline !important;
-      color: inherit;
+      font-family: inherit;
+      font-weight: inherit;
+      line-height: inherit;
+      letter-spacing: inherit;
+      text-transform: uppercase;
+      color: rgb(var(--theme-text-100)) !important;
       -webkit-text-fill-color: currentColor;
     }
-    :root[data-theme="nothing"] .dot-matrix-rendered .dot-text-glyph {
-      display: inline-grid;
-      grid-template-columns: repeat(3, 4px);
-      grid-template-rows: repeat(5, 4px);
-      gap: 1px;
-      margin-right: 3px;
-      vertical-align: middle;
-    }
-    :root[data-theme="nothing"] .dot-matrix-rendered .dot-text-glyph .rating-dot-cell {
-      width: 4px;
-      height: 4px;
-    }
-    :root[data-theme="nothing"] .dot-matrix-rendered .dot-text-space {
-      display: inline-block;
-      width: 8px;
-      height: 1px;
-      vertical-align: middle;
+    @supports (-webkit-background-clip: text) {
+      :root[data-theme="nothing"] .dot-matrix-rendered {
+        color: transparent !important;
+        -webkit-text-fill-color: transparent !important;
+        -webkit-text-stroke: .35px rgb(var(--theme-text-100));
+        background-image: radial-gradient(circle, rgb(var(--theme-text-100)) .06em, transparent .075em);
+        background-size: .18em .18em;
+        background-position: .02em .02em;
+        -webkit-background-clip: text;
+        background-clip: text;
+      }
     }
     :root[data-theme="nothing"] .dot-text-symbol::before {
       content: attr(data-symbol);

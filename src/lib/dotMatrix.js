@@ -121,6 +121,10 @@ export function renderDotMatrixText(value, { unsupported = 'question' } = {}) {
 
 const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
 
+function renderDotHeadingText(value) {
+  return String(value ?? '').toLocaleUpperCase('ru-RU');
+}
+
 function enhanceHeading(heading) {
   // Card titles are dense, frequently truncated metadata—not decorative section
   // headings. Keep them in the normal font so the Nothing theme remains readable.
@@ -142,7 +146,7 @@ function enhanceHeading(heading) {
     const matrix = document.createElement('span');
     matrix.className = 'dot-matrix-rendered';
     matrix.setAttribute('aria-hidden', 'true');
-    matrix.innerHTML = renderDotMatrixText(textNode.nodeValue, { unsupported: 'plain' });
+    matrix.textContent = renderDotHeadingText(textNode.nodeValue);
 
     textNode.replaceWith(source, matrix);
   }
@@ -171,7 +175,7 @@ export function installDotMatrixHeadings(root = document.body) {
         const source = record.target.parentElement?.closest('.dot-matrix-plain');
         const matrix = source?.nextElementSibling;
         if (matrix?.classList.contains('dot-matrix-rendered')) {
-          matrix.innerHTML = renderDotMatrixText(record.target.nodeValue, { unsupported: 'plain' });
+          matrix.textContent = renderDotHeadingText(record.target.nodeValue);
         } else {
           enhanceSubtree(record.target);
         }
@@ -180,7 +184,7 @@ export function installDotMatrixHeadings(root = document.body) {
       if (record.target.nodeType === Node.ELEMENT_NODE && record.target.matches('.dot-matrix-plain')) {
         const matrix = record.target.nextElementSibling;
         if (matrix?.classList.contains('dot-matrix-rendered')) {
-          matrix.innerHTML = renderDotMatrixText(record.target.textContent, { unsupported: 'plain' });
+          matrix.textContent = renderDotHeadingText(record.target.textContent);
           continue;
         }
       }
