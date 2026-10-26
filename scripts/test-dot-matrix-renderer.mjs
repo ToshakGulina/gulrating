@@ -8,6 +8,9 @@ for (const [character, rows] of Object.entries(DOT_TEXT_GLYPHS)) {
 assert.deepEqual(DOT_TEXT_GLYPHS.Д,
   ['00110', '01001', '01001', '01001', '01001', '10001', '11111'],
   'the Cyrillic Д roof is centered and its legs join a complete baseline');
+assert.deepEqual(DOT_TEXT_GLYPHS.Ц,
+  ['10010', '10010', '10010', '10010', '10010', '11110', '00010'],
+  'the Cyrillic Ц has a distinct right descender and a clear trailing margin');
 
 const heading = renderDotHeadingText('Настройки');
 const glyphs = [...heading.matchAll(/<span class="dot-matrix-text-glyph dot-text-glyph" aria-hidden="true">([\s\S]*?)<\/span>/g)];
