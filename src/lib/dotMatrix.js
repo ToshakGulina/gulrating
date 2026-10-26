@@ -108,23 +108,27 @@ function escapeHtml(value) {
 }
 
 export function renderDotMatrixText(value, { unsupported = 'question' } = {}) {
-  return [...String(value ?? '').toLocaleUpperCase('ru-RU')].map(character => {
-    if (/\s/u.test(character)) return '<span class="dot-text-space" aria-hidden="true"></span><wbr>';
-    const rows = DOT_TEXT_GLYPHS[character];
-    if (!rows) {
-      if (unsupported === 'plain') {
-        return `<span class="dot-text-symbol" data-symbol="${escapeHtml(character)}" aria-hidden="true"></span>`;
+  const tokens = String(value ?? '').toLocaleUpperCase('ru-RU').match(/\s+|[^\s]+/gu) || [];
+  return tokens.map(token => {
+    if (/^\s+$/u.test(token)) return '<span class="dot-text-space" aria-hidden="true"></span><wbr>';
+    const glyphs = [...token].map(character => {
+      const rows = DOT_TEXT_GLYPHS[character];
+      if (!rows) {
+        if (unsupported === 'plain') {
+          return `<span class="dot-text-symbol" data-symbol="${escapeHtml(character)}" aria-hidden="true"></span>`;
+        }
+        return '<span class="dot-matrix-text-glyph dot-text-glyph" aria-hidden="true">'
+          + DOT_TEXT_GLYPHS['?'].join('').split('').map(dot =>
+            `<i class="dot-matrix-dot${dot === '1' ? ' is-on' : ''}"></i>`
+          ).join('')
+          + '</span>';
       }
-      return '<span class="dot-matrix-text-glyph dot-text-glyph" aria-hidden="true">'
-        + DOT_TEXT_GLYPHS['?'].join('').split('').map(dot =>
-          `<i class="dot-matrix-dot${dot === '1' ? ' is-on' : ''}"></i>`
-        ).join('')
-        + '</span>';
-    }
-    const cells = rows.join('').split('').map(dot =>
-      `<i class="dot-matrix-dot${dot === '1' ? ' is-on' : ''}"></i>`
-    ).join('');
-    return `<span class="dot-matrix-text-glyph dot-text-glyph" aria-hidden="true">${cells}</span>`;
+      const cells = rows.join('').split('').map(dot =>
+        `<i class="dot-matrix-dot${dot === '1' ? ' is-on' : ''}"></i>`
+      ).join('');
+      return `<span class="dot-matrix-text-glyph dot-text-glyph" aria-hidden="true">${cells}</span>`;
+    }).join('');
+    return `<span class="dot-text-word">${glyphs}</span>`;
   }).join('');
 }
 

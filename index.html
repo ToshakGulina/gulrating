@@ -772,8 +772,37 @@
       width: .44em;
       height: .1em;
     }
+    :root[data-theme="nothing"] .dot-text-word {
+      display: inline-block;
+      max-width: 100%;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      vertical-align: baseline;
+    }
+    :root[data-theme="nothing"] .top-header-title {
+      max-width: 100%;
+      min-width: 0;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      white-space: normal !important;
+    }
     :root[data-theme="nothing"] .dot-text-symbol::before {
       content: attr(data-symbol);
+    }
+    @media (max-width: 480px) {
+      :root[data-theme="nothing"] h1.dot-matrix-heading,
+      :root[data-theme="nothing"] h2.dot-matrix-heading {
+        font-size: clamp(1.25rem, 6vw, 1.5rem) !important;
+      }
+      :root[data-theme="nothing"] h3.dot-matrix-heading {
+        font-size: clamp(1.125rem, 5.3vw, 1.375rem) !important;
+      }
+      :root[data-theme="nothing"] h4.dot-matrix-heading,
+      :root[data-theme="nothing"] h5.dot-matrix-heading,
+      :root[data-theme="nothing"] h6.dot-matrix-heading,
+      :root[data-theme="nothing"] [role="heading"].dot-matrix-heading {
+        font-size: clamp(1rem, 4.8vw, 1.25rem) !important;
+      }
     }
     :root[data-theme="nothing"] h3,
     :root[data-theme="nothing"] .nav-btn span {

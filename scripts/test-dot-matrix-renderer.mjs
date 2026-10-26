@@ -13,8 +13,11 @@ for (const [, cells] of glyphs) {
   assert.equal((cells.match(/<i class="dot-matrix-dot/g) || []).length, 35,
     'each character uses a full 5-by-7 round-dot grid');
 }
-assert.match(renderDotHeadingText('Настройки ленты'), /dot-text-space[\s\S]*?<wbr>/,
+const spacedHeading = renderDotHeadingText('Настройки ленты');
+assert.match(spacedHeading, /dot-text-space[\s\S]*?<wbr>/,
   'word spaces remain wrap opportunities in longer headings');
+assert.equal((spacedHeading.match(/class="dot-text-word"/g) || []).length, 2,
+  'letters stay grouped by word so a line never breaks arbitrarily inside short words');
 assert.match(renderDotHeadingText('Привет!'), /dot-matrix-text-glyph/,
   'mixed-case Russian text is mapped to uppercase display glyphs');
 assert.match(renderDotHeadingText('<'), /data-symbol="&lt;"/,
