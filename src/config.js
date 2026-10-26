@@ -68,7 +68,7 @@ export const CONFIG = {
 // Метка сборки: видна в профиле внизу и в консоли браузера.
 // Помогает мгновенно понять, какая версия кода реально крутится в браузере
 // (предпросмотр / локальная копия / продакшен).
-export const APP_BUILD = "2026.10.26-121 (7x9 Nothing dot glyphs)";
+export const APP_BUILD = "2026.10.26-122 (manual 5x7 Nothing glyphs)";
 
 export function saveLocalAnonKey(key) {
   try {

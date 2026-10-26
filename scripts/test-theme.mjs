@@ -54,11 +54,12 @@ assert.ok(indexHtml.includes('--theme-secondary: 37 99 235; --p-rgb: 79 70 229; 
 assert.ok(indexHtml.includes('--theme-bg: 0 0 0; --theme-deep: 0 0 0; --theme-card: 24 24 24;'));
 assert.ok(indexHtml.includes('--theme-secondary: 142 142 142; --p-rgb: 235 235 235; --nothing-red: 215 25 33; color-scheme: dark;'));
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-heading')
+  && indexHtml.includes('font-size: max(2rem, 1em) !important;')
   && indexHtml.includes('font-size: max(1.75rem, 1em) !important;')
-  && indexHtml.includes('font-size: max(1.5rem, 1em) !important;')
-  && indexHtml.includes('.dot-matrix-glyph {')
-  && indexHtml.includes('height: 1.08em;'),
-  'Nothing headings use larger, high-contrast, round-dot matrix glyphs');
+  && indexHtml.includes('.dot-matrix-text-glyph {')
+  && indexHtml.includes('grid-template-columns: repeat(5, .11em);')
+  && indexHtml.includes('grid-template-rows: repeat(7, .11em);'),
+  'Nothing headings use larger, legible 5-by-7 round-dot matrix glyphs');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
   'Nothing keeps the dotted display language across headings and rating numerals');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] #search-input')
@@ -102,11 +103,11 @@ assert.ok(feedJs.includes('top-header-title text-xl') && feedJs.includes('При
 const dotMatrixJs = await readFile(new URL('../src/lib/dotMatrix.js', import.meta.url), 'utf8');
 const mainJs = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
 assert.ok(mainJs.includes('installDotMatrixHeadings();'), 'the app installs matrix rendering globally, not only in the feed');
-assert.ok(dotMatrixJs.includes('А: [\'010\', \'101\', \'111\', \'101\', \'101\']')
+assert.ok(dotMatrixJs.includes('А: [\'01110\', \'10001\', \'10001\', \'11111\', \'10001\', \'10001\', \'10001\']')
   && dotMatrixJs.includes("const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role=\"heading\"]'")
   && dotMatrixJs.includes("heading.closest('.title-card, .catalog-item, .rec-card, .history-title, .search-result-item')")
-  && dotMatrixJs.includes('const DOT_GLYPH_COLUMNS = 7;')
-  && dotMatrixJs.includes('const DOT_GLYPH_ROWS = 9;')
+  && dotMatrixJs.includes("export const DOT_TEXT_GLYPHS = {")
+  && dotMatrixJs.includes('DOT_TEXT_GLYPHS[character]')
   && dotMatrixJs.includes('matrix.innerHTML = renderDotHeadingText')
   && dotMatrixJs.includes('new MutationObserver'),
   'the shared renderer builds high-resolution dotted glyphs while preserving accessible plain text');
@@ -117,14 +118,14 @@ assert.ok(indexHtml.includes(':root[data-theme="nothing"] .title-card h3')
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered')
   && indexHtml.includes('display: inline !important;')
   && indexHtml.includes('position: absolute !important;')
-  && indexHtml.includes('width: .42em;'),
-  'Nothing displays spaced dot-matrix SVG letters while keeping plain accessible heading text');
+  && indexHtml.includes('width: .44em;'),
+  'Nothing displays spaced round-dot letters while keeping plain accessible heading text');
 const { renderDotMatrixText } = await import('../src/lib/dotMatrix.js');
 const matrixA = renderDotMatrixText('А');
-assert.equal((matrixA.match(/<i /g) || []).length, 15);
-assert.equal((matrixA.match(/is-on/g) || []).length, 10);
+assert.equal((matrixA.match(/<i /g) || []).length, 35);
+assert.equal((matrixA.match(/is-on/g) || []).length, 18);
 assert.ok(renderDotMatrixText('🎬', { unsupported: 'plain' }).includes('data-symbol="🎬"'));
-assert.ok(renderDotMatrixText('🎬').includes('rating-dot-digit'), 'unsupported greeting characters use a visible fallback glyph');
+assert.ok(renderDotMatrixText('🎬').includes('dot-matrix-text-glyph'), 'unsupported greeting characters use a visible fallback glyph');
 assert.ok(feedJs.includes('rating-score-badge ${ratingScoreTone}'), 'feed rating badges should expose tone classes for Nothing theme styling');
 assert.ok(feedJs.includes('function renderRatingDots(value)') && dotMatrixJs.includes("'7': ['111', '001', '010', '010', '010']"),
   'feed should render ratings as readable five-row dot glyphs');

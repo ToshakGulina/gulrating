@@ -720,16 +720,16 @@
     }
     :root[data-theme="nothing"] h1.dot-matrix-heading,
     :root[data-theme="nothing"] h2.dot-matrix-heading {
-      font-size: max(1.75rem, 1em) !important;
+      font-size: max(2rem, 1em) !important;
     }
     :root[data-theme="nothing"] h3.dot-matrix-heading {
-      font-size: max(1.5rem, 1em) !important;
+      font-size: max(1.75rem, 1em) !important;
     }
     :root[data-theme="nothing"] h4.dot-matrix-heading,
     :root[data-theme="nothing"] h5.dot-matrix-heading,
     :root[data-theme="nothing"] h6.dot-matrix-heading,
     :root[data-theme="nothing"] [role="heading"].dot-matrix-heading {
-      font-size: max(1.25rem, 1em) !important;
+      font-size: max(1.5rem, 1em) !important;
     }
     .dot-matrix-rendered { display: none; }
     :root[data-theme="nothing"] .dot-matrix-ignore { display: none; }
@@ -749,22 +749,31 @@
       color: rgb(var(--theme-text-100)) !important;
       -webkit-text-fill-color: currentColor;
     }
-    :root[data-theme="nothing"] .dot-matrix-glyph {
-      display: inline-block;
-      height: 1.08em;
-      width: auto;
-      margin-inline-end: .12em;
-      overflow: visible;
+    :root[data-theme="nothing"] .dot-matrix-text-glyph {
+      display: inline-grid;
+      grid-template-columns: repeat(5, .11em);
+      grid-template-rows: repeat(7, .11em);
+      gap: .045em;
+      margin-inline-end: .1em;
       vertical-align: -.12em;
-      fill: currentColor;
     }
-    :root[data-theme="nothing"] .dot-matrix-glyph:last-child { margin-inline-end: 0; }
-    :root[data-theme="nothing"] .dot-matrix-space {
+    :root[data-theme="nothing"] .dot-matrix-dot {
+      width: .11em;
+      height: .11em;
+      border-radius: 50%;
+      background: transparent;
+    }
+    :root[data-theme="nothing"] .dot-matrix-dot.is-on {
+      background: currentColor;
+      box-shadow: 0 0 .025em currentColor;
+    }
+    :root[data-theme="nothing"] .dot-text-space {
       display: inline-block;
-      width: .42em;
+      width: .44em;
+      height: .1em;
     }
-    :root[data-theme="nothing"] .dot-matrix-fallback {
-      font-size: .8em;
+    :root[data-theme="nothing"] .dot-text-symbol::before {
+      content: attr(data-symbol);
     }
     :root[data-theme="nothing"] h3,
     :root[data-theme="nothing"] .nav-btn span {
