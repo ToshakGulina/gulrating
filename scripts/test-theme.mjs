@@ -53,11 +53,22 @@ assert.ok(indexHtml.includes('--theme-bg: 248 250 252; --theme-deep: 226 232 240
 assert.ok(indexHtml.includes('--theme-secondary: 37 99 235; --p-rgb: 79 70 229; color-scheme: light;'));
 assert.ok(indexHtml.includes('--theme-bg: 0 0 0; --theme-deep: 0 0 0; --theme-card: 24 24 24;'));
 assert.ok(indexHtml.includes('--theme-secondary: 142 142 142; --p-rgb: 235 235 235; --nothing-red: 215 25 33; color-scheme: dark;'));
-assert.ok(indexHtml.includes(':root[data-theme="nothing"] h1') && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
-  'Nothing headings should remain crisp and readable');
-assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered .dot-text-glyph')
-  && indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
-  'all Nothing headings use the same 3-by-5 dot cells as score numerals');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-heading')
+  && indexHtml.includes('font-size: max(2rem, 1em) !important;')
+  && indexHtml.includes('font-size: max(1.75rem, 1em) !important;')
+  && indexHtml.includes('.dot-matrix-text-glyph {')
+  && indexHtml.includes('max-width: 100%;')
+  && indexHtml.includes('overflow-wrap: anywhere;')
+  && indexHtml.includes('grid-template-columns: repeat(5, .11em);')
+  && indexHtml.includes('grid-template-rows: repeat(7, .11em);')
+  && indexHtml.includes('@media (max-width: 480px)')
+  && indexHtml.includes('font-size: clamp(1.25rem, 6vw, 1.5rem) !important;')
+  && indexHtml.includes('font-size: clamp(1.125rem, 5.3vw, 1.375rem) !important;')
+  && indexHtml.includes('font-size: clamp(1rem, 4.8vw, 1.25rem) !important;')
+  && indexHtml.includes('overflow-wrap: anywhere;'),
+  'Nothing headings retain the prior round-dot sizing and wrap on phones');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
+  'Nothing keeps the dotted display language across headings and rating numerals');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] #search-input')
   && indexHtml.includes('rgb(13 25 45 / .97)')
   && indexHtml.includes(':root[data-theme="glass"] #search-results'),
@@ -99,23 +110,29 @@ assert.ok(feedJs.includes('top-header-title text-xl') && feedJs.includes('При
 const dotMatrixJs = await readFile(new URL('../src/lib/dotMatrix.js', import.meta.url), 'utf8');
 const mainJs = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
 assert.ok(mainJs.includes('installDotMatrixHeadings();'), 'the app installs matrix rendering globally, not only in the feed');
-assert.ok(dotMatrixJs.includes('А: [\'010\', \'101\', \'111\', \'101\', \'101\']')
+assert.ok(dotMatrixJs.includes('А: [\'01110\', \'10001\', \'10001\', \'11111\', \'10001\', \'10001\', \'10001\']')
   && dotMatrixJs.includes("const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role=\"heading\"]'")
   && dotMatrixJs.includes("heading.closest('.title-card, .catalog-item, .rec-card, .history-title, .search-result-item')")
+  && dotMatrixJs.includes("export const DOT_TEXT_GLYPHS = {")
+  && dotMatrixJs.includes('DOT_TEXT_GLYPHS[character]')
+  && dotMatrixJs.includes('matrix.innerHTML = renderDotHeadingText')
   && dotMatrixJs.includes('new MutationObserver'),
-  'section headings use the shared Cyrillic dot font while dense card titles stay plain');
+  'the shared renderer builds high-resolution dotted glyphs while preserving accessible plain text');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .title-card h3')
   && indexHtml.includes('letter-spacing: 0 !important;')
   && indexHtml.includes('color: rgb(var(--theme-text-100)) !important;'),
   'Nothing card titles use high-contrast, normal type for legibility');
-assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered'),
-  'Nothing theme displays dot glyphs and visually hides duplicate plain text while preserving accessibility');
+assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-rendered')
+  && indexHtml.includes('display: inline !important;')
+  && indexHtml.includes('position: absolute !important;')
+  && indexHtml.includes('width: .44em;'),
+  'Nothing displays spaced round-dot letters while keeping plain accessible heading text');
 const { renderDotMatrixText } = await import('../src/lib/dotMatrix.js');
 const matrixA = renderDotMatrixText('А');
-assert.equal((matrixA.match(/<i /g) || []).length, 15);
-assert.equal((matrixA.match(/is-on/g) || []).length, 10);
+assert.equal((matrixA.match(/<i /g) || []).length, 35);
+assert.equal((matrixA.match(/is-on/g) || []).length, 18);
 assert.ok(renderDotMatrixText('🎬', { unsupported: 'plain' }).includes('data-symbol="🎬"'));
-assert.ok(renderDotMatrixText('🎬').includes('rating-dot-digit'), 'unsupported greeting characters use a visible fallback glyph');
+assert.ok(renderDotMatrixText('🎬').includes('dot-matrix-text-glyph'), 'unsupported greeting characters use a visible fallback glyph');
 assert.ok(feedJs.includes('rating-score-badge ${ratingScoreTone}'), 'feed rating badges should expose tone classes for Nothing theme styling');
 assert.ok(feedJs.includes('function renderRatingDots(value)') && dotMatrixJs.includes("'7': ['111', '001', '010', '010', '010']"),
   'feed should render ratings as readable five-row dot glyphs');

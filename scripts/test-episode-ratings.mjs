@@ -89,6 +89,10 @@ try {
     'a pending native score must not be assigned to a different account on the device');
   assert.equal(clearedNativeQueue.length, 0, 'the other account’s native queue remains intact');
 
+  const ratingModal = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+  assert.match(ratingModal, /id="episode-rating-score" type="range" min="1" max="10" step="0\.1"/,
+    'episode ratings use the same tenth-point precision supported by storage and the main rating slider');
+
   const schema = await readFile(new URL('../supabase-schema.sql', import.meta.url), 'utf8');
   assert.match(schema, /CREATE TABLE IF NOT EXISTS public\.episode_ratings/);
   assert.match(schema, /Оценки серий видны одобренным/);

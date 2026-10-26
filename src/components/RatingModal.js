@@ -1252,7 +1252,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
               </label>
             </div>
             <div class="mt-3 flex items-center gap-3">
-              <input id="episode-rating-score" type="range" min="1" max="10" step="0.5" value="8" class="w-full accent-sky-400" aria-label="Оценка серии от 1 до 10">
+              <input id="episode-rating-score" type="range" min="1" max="10" step="0.1" value="8" class="w-full accent-sky-400" aria-label="Оценка серии от 1 до 10">
               <output id="episode-rating-score-value" class="min-w-10 text-right text-sm font-bold text-sky-300">8.0</output>
               <button id="episode-rating-submit" type="submit" class="flex-shrink-0 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white">Сохранить</button>
             </div>
