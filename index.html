@@ -713,7 +713,7 @@
     :root[data-theme="nothing"] .dot-matrix-heading {
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
       font-weight: 700;
-      line-height: 1.4;
+      line-height: 1.28;
       letter-spacing: 0;
       max-width: 100%;
       min-width: 0;
@@ -757,15 +757,15 @@
     }
     :root[data-theme="nothing"] .dot-matrix-text-glyph {
       display: inline-grid;
-      grid-template-columns: repeat(5, .13em);
-      grid-template-rows: repeat(7, .13em);
-      gap: .05em;
-      margin-inline-end: .05em;
+      grid-template-columns: repeat(5, .11em);
+      grid-template-rows: repeat(7, .11em);
+      gap: .045em;
+      margin-inline-end: .1em;
       vertical-align: -.12em;
     }
     :root[data-theme="nothing"] .dot-matrix-dot {
-      width: .13em;
-      height: .13em;
+      width: .11em;
+      height: .11em;
       border-radius: 50%;
       background: transparent;
     }
@@ -798,16 +798,16 @@
     @media (max-width: 480px) {
       :root[data-theme="nothing"] h1.dot-matrix-heading,
       :root[data-theme="nothing"] h2.dot-matrix-heading {
-        font-size: clamp(1.375rem, 6vw, 1.5rem) !important;
+        font-size: clamp(1.25rem, 6vw, 1.5rem) !important;
       }
       :root[data-theme="nothing"] h3.dot-matrix-heading {
-        font-size: clamp(1.25rem, 5.3vw, 1.375rem) !important;
+        font-size: clamp(1.125rem, 5.3vw, 1.375rem) !important;
       }
       :root[data-theme="nothing"] h4.dot-matrix-heading,
       :root[data-theme="nothing"] h5.dot-matrix-heading,
       :root[data-theme="nothing"] h6.dot-matrix-heading,
       :root[data-theme="nothing"] [role="heading"].dot-matrix-heading {
-        font-size: clamp(1.125rem, 4.8vw, 1.25rem) !important;
+        font-size: clamp(1rem, 4.8vw, 1.25rem) !important;
       }
     }
     :root[data-theme="nothing"] h3,

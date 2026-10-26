@@ -5,6 +5,9 @@ for (const [character, rows] of Object.entries(DOT_TEXT_GLYPHS)) {
   assert.equal(rows.length, 7, `${character} must have seven dot rows`);
   for (const row of rows) assert.equal(row.length, 5, `${character} rows must use five dot columns`);
 }
+assert.deepEqual(DOT_TEXT_GLYPHS.Д,
+  ['00110', '01001', '01001', '01001', '01001', '10001', '11111'],
+  'the Cyrillic Д roof is centered and its legs join a complete baseline');
 
 const heading = renderDotHeadingText('Настройки');
 const glyphs = [...heading.matchAll(/<span class="dot-matrix-text-glyph dot-text-glyph" aria-hidden="true">([\s\S]*?)<\/span>/g)];

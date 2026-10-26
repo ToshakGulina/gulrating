@@ -59,14 +59,14 @@ assert.ok(indexHtml.includes(':root[data-theme="nothing"] .dot-matrix-heading')
   && indexHtml.includes('.dot-matrix-text-glyph {')
   && indexHtml.includes('max-width: 100%;')
   && indexHtml.includes('overflow-wrap: anywhere;')
-  && indexHtml.includes('grid-template-columns: repeat(5, .13em);')
-  && indexHtml.includes('grid-template-rows: repeat(7, .13em);')
+  && indexHtml.includes('grid-template-columns: repeat(5, .11em);')
+  && indexHtml.includes('grid-template-rows: repeat(7, .11em);')
   && indexHtml.includes('@media (max-width: 480px)')
-  && indexHtml.includes('font-size: clamp(1.375rem, 6vw, 1.5rem) !important;')
-  && indexHtml.includes('font-size: clamp(1.25rem, 5.3vw, 1.375rem) !important;')
-  && indexHtml.includes('font-size: clamp(1.125rem, 4.8vw, 1.25rem) !important;')
+  && indexHtml.includes('font-size: clamp(1.25rem, 6vw, 1.5rem) !important;')
+  && indexHtml.includes('font-size: clamp(1.125rem, 5.3vw, 1.375rem) !important;')
+  && indexHtml.includes('font-size: clamp(1rem, 4.8vw, 1.25rem) !important;')
   && indexHtml.includes('overflow-wrap: anywhere;'),
-  'Nothing headings use larger, legible 5-by-7 dot glyphs that scale and wrap on phones');
+  'Nothing headings retain the prior round-dot sizing and wrap on phones');
 assert.ok(indexHtml.includes(':root[data-theme="nothing"] .rating-dot-digit'),
   'Nothing keeps the dotted display language across headings and rating numerals');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] #search-input')
