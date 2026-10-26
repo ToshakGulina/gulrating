@@ -323,7 +323,7 @@ export function openWatchOverlay(opts) {
     slider.type = 'range';
     slider.min = '1';
     slider.max = '10';
-    slider.step = '.5';
+    slider.step = '0.1';
     slider.value = '8';
     slider.setAttribute('aria-label', 'Оценка от 1 до 10');
     slider.className = 'mb-5 w-full accent-sky-400';
