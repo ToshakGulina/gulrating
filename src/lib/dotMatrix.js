@@ -120,15 +120,70 @@ export function renderDotMatrixText(value, { unsupported = 'question' } = {}) {
 }
 
 const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
+const DOT_GLYPH_COLUMNS = 7;
+const DOT_GLYPH_ROWS = 9;
+const DOT_GLYPH_CACHE = new Map();
+let dotGlyphCanvas;
+let dotGlyphContext;
 
-function renderDotHeadingText(value) {
-  return String(value ?? '').toLocaleUpperCase('ru-RU');
+export function rasterizeDotGlyph(character) {
+  if (DOT_GLYPH_CACHE.has(character)) return DOT_GLYPH_CACHE.get(character);
+  if (typeof document === 'undefined') return null;
+  if (!dotGlyphCanvas) {
+    dotGlyphCanvas = document.createElement('canvas');
+    dotGlyphCanvas.width = DOT_GLYPH_COLUMNS * 10;
+    dotGlyphCanvas.height = DOT_GLYPH_ROWS * 10;
+    dotGlyphContext = dotGlyphCanvas.getContext('2d', { willReadFrequently: true });
+  }
+  if (!dotGlyphContext) return null;
+  const ctx = dotGlyphContext;
+  ctx.clearRect(0, 0, dotGlyphCanvas.width, dotGlyphCanvas.height);
+  ctx.fillStyle = '#fff';
+  ctx.font = '800 76px Inter, Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(character, dotGlyphCanvas.width / 2, dotGlyphCanvas.height / 2, dotGlyphCanvas.width - 4);
+  const pixels = ctx.getImageData(0, 0, dotGlyphCanvas.width, dotGlyphCanvas.height).data;
+  const dots = [];
+  for (let row = 0; row < DOT_GLYPH_ROWS; row += 1) {
+    for (let column = 0; column < DOT_GLYPH_COLUMNS; column += 1) {
+      let ink = 0;
+      for (let y = row * 10; y < (row + 1) * 10; y += 1) {
+        for (let x = column * 10; x < (column + 1) * 10; x += 1) {
+          if (pixels[(y * dotGlyphCanvas.width + x) * 4 + 3] > 64) ink += 1;
+        }
+      }
+      if (ink >= 9) dots.push([column, row]);
+    }
+  }
+  if (!dots.length) {
+    DOT_GLYPH_CACHE.set(character, null);
+    return null;
+  }
+  const minColumn = Math.min(...dots.map(([column]) => column));
+  const maxColumn = Math.max(...dots.map(([column]) => column));
+  const width = maxColumn - minColumn + 1;
+  const circles = dots.map(([column, row]) =>
+    `<circle cx="${column - minColumn + 0.5}" cy="${row + 0.5}" r=".36"/>`
+  ).join('');
+  const markup = `<svg class="dot-matrix-glyph" viewBox="0 0 ${width} ${DOT_GLYPH_ROWS}" aria-hidden="true" focusable="false">${circles}</svg>`;
+  DOT_GLYPH_CACHE.set(character, markup);
+  return markup;
+}
+
+export function renderDotHeadingText(value) {
+  return [...String(value ?? '').toLocaleUpperCase('ru-RU')].map(character => {
+    if (/\s/u.test(character)) return '<span class="dot-matrix-space"></span><wbr>';
+    return rasterizeDotGlyph(character)
+      || `<span class="dot-matrix-fallback">${escapeHtml(character)}</span>`;
+  }).join('');
 }
 
 function enhanceHeading(heading) {
   // Card titles are dense, frequently truncated metadata—not decorative section
   // headings. Keep them in the normal font so the Nothing theme remains readable.
   if (heading.closest('.title-card, .catalog-item, .rec-card, .history-title, .search-result-item')) return;
+  heading.classList.add('dot-matrix-heading');
   const showText = document.defaultView?.NodeFilter?.SHOW_TEXT ?? 4;
   const walker = document.createTreeWalker(heading, showText);
   const textNodes = [];
@@ -146,7 +201,7 @@ function enhanceHeading(heading) {
     const matrix = document.createElement('span');
     matrix.className = 'dot-matrix-rendered';
     matrix.setAttribute('aria-hidden', 'true');
-    matrix.textContent = renderDotHeadingText(textNode.nodeValue);
+    matrix.innerHTML = renderDotHeadingText(textNode.nodeValue);
 
     textNode.replaceWith(source, matrix);
   }
@@ -175,7 +230,7 @@ export function installDotMatrixHeadings(root = document.body) {
         const source = record.target.parentElement?.closest('.dot-matrix-plain');
         const matrix = source?.nextElementSibling;
         if (matrix?.classList.contains('dot-matrix-rendered')) {
-          matrix.textContent = renderDotHeadingText(record.target.nodeValue);
+          matrix.innerHTML = renderDotHeadingText(record.target.nodeValue);
         } else {
           enhanceSubtree(record.target);
         }
@@ -184,7 +239,7 @@ export function installDotMatrixHeadings(root = document.body) {
       if (record.target.nodeType === Node.ELEMENT_NODE && record.target.matches('.dot-matrix-plain')) {
         const matrix = record.target.nextElementSibling;
         if (matrix?.classList.contains('dot-matrix-rendered')) {
-          matrix.textContent = renderDotHeadingText(record.target.textContent);
+          matrix.innerHTML = renderDotHeadingText(record.target.textContent);
           continue;
         }
       }

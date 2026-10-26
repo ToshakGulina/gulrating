@@ -710,19 +710,26 @@
       mask-image: radial-gradient(ellipse 34% 18% at 100% 0%, #000 0%, transparent 100%);
       opacity: .14;
     }
-    :root[data-theme="nothing"] h1,
-    :root[data-theme="nothing"] h2,
-    :root[data-theme="nothing"] h3,
-    :root[data-theme="nothing"] h4,
-    :root[data-theme="nothing"] h5,
-    :root[data-theme="nothing"] h6,
-    :root[data-theme="nothing"] [role="heading"] {
+    :root[data-theme="nothing"] .dot-matrix-heading {
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
       font-weight: 700;
-      line-height: 1.3;
-      letter-spacing: .02em;
+      line-height: 1.28;
+      letter-spacing: 0;
       color: rgb(var(--theme-text-100)) !important;
       -webkit-text-fill-color: currentColor;
+    }
+    :root[data-theme="nothing"] h1.dot-matrix-heading,
+    :root[data-theme="nothing"] h2.dot-matrix-heading {
+      font-size: max(1.75rem, 1em) !important;
+    }
+    :root[data-theme="nothing"] h3.dot-matrix-heading {
+      font-size: max(1.5rem, 1em) !important;
+    }
+    :root[data-theme="nothing"] h4.dot-matrix-heading,
+    :root[data-theme="nothing"] h5.dot-matrix-heading,
+    :root[data-theme="nothing"] h6.dot-matrix-heading,
+    :root[data-theme="nothing"] [role="heading"].dot-matrix-heading {
+      font-size: max(1.25rem, 1em) !important;
     }
     .dot-matrix-rendered { display: none; }
     :root[data-theme="nothing"] .dot-matrix-ignore { display: none; }
@@ -739,28 +746,25 @@
     }
     :root[data-theme="nothing"] .dot-matrix-rendered {
       display: inline !important;
-      font-family: inherit;
-      font-weight: inherit;
-      line-height: inherit;
-      letter-spacing: inherit;
-      text-transform: uppercase;
       color: rgb(var(--theme-text-100)) !important;
       -webkit-text-fill-color: currentColor;
     }
-    @supports (-webkit-background-clip: text) {
-      :root[data-theme="nothing"] .dot-matrix-rendered {
-        color: transparent !important;
-        -webkit-text-fill-color: transparent !important;
-        -webkit-text-stroke: .35px rgb(var(--theme-text-100));
-        background-image: radial-gradient(circle, rgb(var(--theme-text-100)) .06em, transparent .075em);
-        background-size: .18em .18em;
-        background-position: .02em .02em;
-        -webkit-background-clip: text;
-        background-clip: text;
-      }
+    :root[data-theme="nothing"] .dot-matrix-glyph {
+      display: inline-block;
+      height: 1.08em;
+      width: auto;
+      margin-inline-end: .12em;
+      overflow: visible;
+      vertical-align: -.12em;
+      fill: currentColor;
     }
-    :root[data-theme="nothing"] .dot-text-symbol::before {
-      content: attr(data-symbol);
+    :root[data-theme="nothing"] .dot-matrix-glyph:last-child { margin-inline-end: 0; }
+    :root[data-theme="nothing"] .dot-matrix-space {
+      display: inline-block;
+      width: .42em;
+    }
+    :root[data-theme="nothing"] .dot-matrix-fallback {
+      font-size: .8em;
     }
     :root[data-theme="nothing"] h3,
     :root[data-theme="nothing"] .nav-btn span {
