@@ -12,6 +12,10 @@ assert.match(modal, /progress\.event === 'ended'\) showPostPlaybackRating/,
   'cross-origin players with an ended message open the same rating card');
 assert.match(modal, /id="watch-rate"/,
   'a manual post-watch button remains available for players that do not report ended');
+assert.match(modal, /function showPostPlaybackRating[\s\S]*?slider\.step = '0\.1'/,
+  'the browser post-episode prompt uses tenth-point increments');
+assert.match(tracker, /function showRatingPrompt[\s\S]*?slider\.step = '0\.1'/,
+  'the Android WebView post-episode prompt also uses tenth-point increments');
 assert.match(modal, /await saveRating\(currentUser\.id, titleId, 'movie'/,
   'movie ratings use the shared title ratings table');
 assert.match(modal, /submitEpisodeRating\(currentUser\.id, titleId/,

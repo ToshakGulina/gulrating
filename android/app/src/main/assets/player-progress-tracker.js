@@ -216,7 +216,7 @@
     slider.type = 'range';
     slider.min = '1';
     slider.max = '10';
-    slider.step = '.5';
+    slider.step = '0.1';
     slider.value = '8';
     slider.setAttribute('aria-label', 'Оценка от 1 до 10');
     slider.style.cssText = 'width:100%;accent-color:#38bdf8;margin:0 0 20px;';
