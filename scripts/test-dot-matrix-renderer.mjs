@@ -10,8 +10,8 @@ assert.deepEqual(DOT_TEXT_GLYPHS.Д,
   ['00110', '01001', '01001', '01001', '01001', '10001', '11111'],
   'the Cyrillic Д roof is centered and its legs join a complete baseline');
 assert.deepEqual(DOT_TEXT_GLYPHS.Ц,
-  ['10010', '10010', '10010', '10010', '10010', '11110', '00010', '00010'],
-  'the Cyrillic Ц has a clearly visible two-dot right descender and a trailing margin');
+  ['10001', '10001', '10001', '10001', '10001', '11111', '00001', '00001'],
+  'the Cyrillic Ц is full-width, with two right-descender dots below a closed baseline');
 const tsGlyph = renderDotHeadingText('Ц');
 assert.equal((tsGlyph.match(/<i class="dot-matrix-dot/g) || []).length, 40,
   'the renderer preserves the eighth descender row for Ц');
