@@ -4,7 +4,8 @@ import { DOT_TEXT_GLYPHS, renderDotHeadingText } from '../src/lib/dotMatrix.js';
 for (const [character, rows] of Object.entries(DOT_TEXT_GLYPHS)) {
   assert.equal(rows.length, ['Ц', 'Щ'].includes(character) ? 8 : 7,
     `${character} must use its intended dot-row count`);
-  for (const row of rows) assert.equal(row.length, 5, `${character} rows must use five dot columns`);
+  const columns = ['Ц', 'Щ'].includes(character) ? 6 : 5;
+  for (const row of rows) assert.equal(row.length, columns, `${character} rows must use ${columns} dot columns`);
 }
 assert.deepEqual(DOT_TEXT_GLYPHS.Д,
   ['00110', '01001', '01001', '01001', '01001', '10001', '11111'],
@@ -16,15 +17,17 @@ assert.deepEqual(DOT_TEXT_GLYPHS.Ы,
   ['10001', '10001', '11101', '10011', '10011', '10011', '11111'],
   'the Cyrillic Ы has both a complete soft-sign bowl and a full right stem');
 assert.deepEqual(DOT_TEXT_GLYPHS.Ц,
-  ['10001', '10001', '10001', '10001', '10001', '11111', '00001', '00001'],
-  'the Cyrillic Ц is full-width, with two right-descender dots below a closed baseline');
+  ['100010', '100010', '100010', '100010', '100010', '111110', '000010', '000011'],
+  'the Cyrillic Ц has a full U body and a hooked right descender');
 assert.deepEqual(DOT_TEXT_GLYPHS.Щ,
-  ['10101', '10101', '10101', '10101', '10101', '11111', '00001', '00001'],
-  'the Cyrillic Щ retains its three-stem body and gets a clear two-dot descender');
+  ['101010', '101010', '101010', '101010', '101010', '111110', '000010', '000011'],
+  'the Cyrillic Щ retains its three-stem body and gets a hooked right descender');
 for (const character of ['Ц', 'Щ']) {
   const glyph = renderDotHeadingText(character);
-  assert.equal((glyph.match(/<i class="dot-matrix-dot/g) || []).length, 40,
-    `the renderer preserves the eighth descender row for ${character}`);
+  assert.equal((glyph.match(/<i class="dot-matrix-dot/g) || []).length, 48,
+    `the renderer preserves the eighth descender row and sixth column for ${character}`);
+  assert.match(glyph, /dot-text-glyph-six/,
+    `${character} receives the six-column grid needed for its descender hook`);
 }
 
 const heading = renderDotHeadingText('Настройки');
