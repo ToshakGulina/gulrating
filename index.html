@@ -759,9 +759,13 @@
       display: inline-grid;
       grid-template-columns: repeat(5, .11em);
       grid-template-rows: repeat(7, .11em);
+      grid-auto-rows: .11em;
       gap: .045em;
       margin-inline-end: .1em;
       vertical-align: -.12em;
+    }
+    :root[data-theme="nothing"] .dot-matrix-text-glyph.dot-text-glyph-six {
+      grid-template-columns: repeat(6, .11em);
     }
     :root[data-theme="nothing"] .dot-matrix-dot {
       width: .11em;
