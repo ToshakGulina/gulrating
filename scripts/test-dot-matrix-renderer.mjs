@@ -17,11 +17,11 @@ assert.deepEqual(DOT_TEXT_GLYPHS.Ы,
   ['10001', '10001', '11101', '10011', '10011', '10011', '11111'],
   'the Cyrillic Ы has both a complete soft-sign bowl and a full right stem');
 assert.deepEqual(DOT_TEXT_GLYPHS.Ц,
-  ['100010', '100010', '100010', '100010', '100010', '111110', '000010', '000011'],
-  'the Cyrillic Ц has a full U body and a hooked right descender');
+  ['100010', '100010', '100010', '100010', '100010', '111111', '000001', '000001'],
+  'the Cyrillic Ц has a full U body and a right descender beyond its upright');
 assert.deepEqual(DOT_TEXT_GLYPHS.Щ,
-  ['101010', '101010', '101010', '101010', '101010', '111110', '000010', '000011'],
-  'the Cyrillic Щ retains its three-stem body and gets a hooked right descender');
+  ['101010', '101010', '101010', '101010', '101010', '111111', '000001', '000001'],
+  'the Cyrillic Щ retains its three-stem body and has a descending rightmost stroke');
 for (const character of ['Ц', 'Щ']) {
   const glyph = renderDotHeadingText(character);
   assert.equal((glyph.match(/<i class="dot-matrix-dot/g) || []).length, 48,
