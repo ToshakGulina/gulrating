@@ -2,15 +2,19 @@ import assert from 'node:assert/strict';
 import { DOT_TEXT_GLYPHS, renderDotHeadingText } from '../src/lib/dotMatrix.js';
 
 for (const [character, rows] of Object.entries(DOT_TEXT_GLYPHS)) {
-  assert.equal(rows.length, 7, `${character} must have seven dot rows`);
+  assert.equal(rows.length, character === 'Ц' ? 8 : 7,
+    `${character} must use its intended dot-row count`);
   for (const row of rows) assert.equal(row.length, 5, `${character} rows must use five dot columns`);
 }
 assert.deepEqual(DOT_TEXT_GLYPHS.Д,
   ['00110', '01001', '01001', '01001', '01001', '10001', '11111'],
   'the Cyrillic Д roof is centered and its legs join a complete baseline');
 assert.deepEqual(DOT_TEXT_GLYPHS.Ц,
-  ['10010', '10010', '10010', '10010', '10010', '11110', '00010'],
-  'the Cyrillic Ц has a distinct right descender and a clear trailing margin');
+  ['10010', '10010', '10010', '10010', '10010', '11110', '00010', '00010'],
+  'the Cyrillic Ц has a clearly visible two-dot right descender and a trailing margin');
+const tsGlyph = renderDotHeadingText('Ц');
+assert.equal((tsGlyph.match(/<i class="dot-matrix-dot/g) || []).length, 40,
+  'the renderer preserves the eighth descender row for Ц');
 
 const heading = renderDotHeadingText('Настройки');
 const glyphs = [...heading.matchAll(/<span class="dot-matrix-text-glyph dot-text-glyph" aria-hidden="true">([\s\S]*?)<\/span>/g)];
