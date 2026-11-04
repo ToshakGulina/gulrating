@@ -33,6 +33,14 @@ assert.deepEqual(parsePlayerProgressMessage({
   data: { event: 'seeked', currentTime: 90, duration: 900 },
 }), { kind: 'progress', event: 'seeked', t: 90, d: 900, playerJs: false });
 
+assert.deepEqual(parsePlayerProgressMessage({
+  type: 'PLAYER_EVENT',
+  data: { event: 'timeupdate', currentTime: 90, duration: 900, season_number: 2, episode_number: 5 },
+}), {
+  kind: 'progress', event: 'timeupdate', t: 90, d: 900, playerJs: false,
+  episode: { season: 2, episode: 5, key: 's02e05' },
+}, 'structured provider season_number/episode_number metadata survives progress parsing');
+
 // Actual documented VidAPI event shape (status/progress fields rather than event/currentTime).
 assert.deepEqual(parsePlayerProgressMessage({
   type: 'PLAYER_EVENT',

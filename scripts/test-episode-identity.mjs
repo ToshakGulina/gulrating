@@ -13,6 +13,18 @@ assert.deepEqual(extractEpisodeIdentity('Тайтл — 2 сезон 5 сери�
 assert.deepEqual(extractEpisodeIdentity('Episode 9 / Season 1'), {
   season: 1, episode: 9, key: 's01e09',
 });
+assert.deepEqual(extractEpisodeIdentity('Сериал · 1-й сезон, 2-я серия'), {
+  season: 1, episode: 2, key: 's01e02',
+});
+assert.deepEqual(extractEpisodeIdentity('https://player.example/embed?season-number=2&episode-num=4'), {
+  season: 2, episode: 4, key: 's02e04',
+});
+assert.deepEqual(extractEpisodeIdentity({ season_number: 3, episode_number: 12 }), {
+  season: 3, episode: 12, key: 's03e12',
+});
+assert.deepEqual(extractEpisodeIdentity('https://player.example/watch/S02%20E07'), {
+  season: 2, episode: 7, key: 's02e07',
+});
 assert.deepEqual(extractEpisodeIdentity('The.Show.4x03.WEB-DL'), {
   season: 4, episode: 3, key: 's04e03',
 });

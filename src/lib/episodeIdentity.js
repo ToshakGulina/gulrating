@@ -1,7 +1,9 @@
 const EPISODE_KEY_PATTERN = /(?:^|[^a-z0-9])s(\d{1,3})[ ._-]*e(\d{1,4})(?:$|[^a-z0-9])/i;
 const X_EPISODE_PATTERN = /(?:^|[^\d])(\d{1,3})\s*x\s*(\d{1,4})(?:$|[^\d])/i;
+const ABBREVIATED_EPISODE_PATTERN = /(?:^|[^a-z0-9])(?:season|сезон|s)\s*#?\s*(\d{1,3})[^\d]{0,32}(?:episode|эпизод|сер(?:ия|ии|ию)|ep|e)\s*#?\s*(\d{1,4})(?:$|[^\d])/i;
 const NAMED_EPISODE_PATTERN = /(?:season|сезон)\s*#?\s*(\d{1,3})[^\d]{0,32}(?:episode|эпизод|сер(?:ия|ии|ию))\s*#?\s*(\d{1,4})/i;
-const NUMBERED_RUSSIAN_EPISODE_PATTERN = /(?:^|[^\d])(\d{1,3})\s*сезон[^\d]{0,24}(\d{1,4})\s*сер(?:ия|ии|ию)(?:$|[^а-яё])/i;
+const NUMBERED_RUSSIAN_EPISODE_PATTERN = /(?:^|[^\d])(\d{1,3})(?:\s*[-–]?\s*(?:й|го|ый|ая|ой))?\s*сезон[^\d]{0,32}(\d{1,4})(?:\s*[-–]?\s*(?:я|й|ая|ой))?\s*сер(?:ия|ии|ию)(?:$|[^а-яё])/i;
+const NUMBERED_RUSSIAN_EPISODE_WORD_PATTERN = /(?:^|[^\d])(\d{1,3})(?:\s*[-–]?\s*(?:й|го|ый|ая|ой))?\s*сезон[^\d]{0,32}(\d{1,4})(?:\s*[-–]?\s*(?:я|й|ая|ой))?\s*эпизод(?:$|[^а-яё])/i;
 const REVERSED_NAMED_EPISODE_PATTERN = /(?:episode|эпизод|сер(?:ия|ии|ию))\s*#?\s*(\d{1,4})[^\d]{0,32}(?:season|сезон)\s*#?\s*(\d{1,3})/i;
 
 function normalizePair(season, episode) {
@@ -17,16 +19,27 @@ function normalizePair(season, episode) {
 }
 
 function fromSearchParams(url) {
-  const params = url.searchParams;
-  const season = ['season', 'season_number', 'seasonnumber', 's'].map(key => params.get(key)).find(Boolean);
-  const episode = ['episode', 'episode_number', 'episodenumber', 'ep', 'e'].map(key => params.get(key)).find(Boolean);
-  if (season && episode) return normalizePair(season, episode);
+  const params = new Map([...url.searchParams.entries()]
+    .map(([key, value]) => [key.toLowerCase().replace(/[-_]/g, ''), value]));
+  const season = ['season', 'seasonnumber', 'seasonnum', 'seasonno', 's', 'sn']
+    .map(key => params.get(key)).find(value => value != null && value !== '');
+  const episode = ['episode', 'episodenumber', 'episodenum', 'episodeno', 'ep', 'e']
+    .map(key => params.get(key)).find(value => value != null && value !== '');
+  if (season != null && episode != null) return normalizePair(season, episode);
   return null;
 }
 
 function fromText(text) {
-  const value = String(text || '').replace(/[?#&]/g, ' ');
-  for (const pattern of [EPISODE_KEY_PATTERN, X_EPISODE_PATTERN, NAMED_EPISODE_PATTERN, NUMBERED_RUSSIAN_EPISODE_PATTERN]) {
+  let value = String(text || '').replace(/[?#&]/g, ' ');
+  try { value = decodeURIComponent(value); } catch (error) { /* malformed percent escapes are harmless */ }
+  for (const pattern of [
+    EPISODE_KEY_PATTERN,
+    X_EPISODE_PATTERN,
+    ABBREVIATED_EPISODE_PATTERN,
+    NAMED_EPISODE_PATTERN,
+    NUMBERED_RUSSIAN_EPISODE_PATTERN,
+    NUMBERED_RUSSIAN_EPISODE_WORD_PATTERN,
+  ]) {
     const match = pattern.exec(value);
     if (match) return normalizePair(match[1], match[2]);
   }
@@ -45,7 +58,10 @@ export function extractEpisodeIdentity(...sources) {
     if (typeof source === 'string' || typeof source === 'number') return [String(source)];
     if (Array.isArray(source)) return source.flatMap(value => value == null ? [] : [String(value)]);
     if (typeof source === 'object') {
-      const direct = normalizePair(source.season ?? source.seasonNumber, source.episode ?? source.episodeNumber);
+      const direct = normalizePair(
+        source.season ?? source.seasonNumber ?? source.season_number ?? source.seasonNum ?? source.season_num,
+        source.episode ?? source.episodeNumber ?? source.episode_number ?? source.episodeNum ?? source.episode_num
+      );
       if (direct) return [direct.key];
       return [source.href, source.url, source.title, source.name, source.text, source.src, source.episodeKey]
         .filter(value => value != null).map(String);

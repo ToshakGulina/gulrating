@@ -35,7 +35,7 @@ assert.match(java, /if \(isBlockedAdHost\(host\)[\s\S]*?return true;/,
 for (const playerHost of ['kinokino.vip', 'alloha.cool', 'kodik.info']) {
   assert(java.includes(`"${playerHost}"`), `${playerHost} remains an allowed playback provider`);
 }
-assert.match(gradle, /versionCode 31[\s\S]*?versionName '1\.0\.31'/,
+assert.match(gradle, /versionCode 33[\s\S]*?versionName '1\.0\.33'/,
   'the ad-filtered APK has a new installable version');
 assert.match(gradle, /debug\s*\{[\s\S]*?applicationIdSuffix '\.preview'[\s\S]*?versionNameSuffix '-preview'/,
   'the preview APK uses a separate package and cannot replace production or touch its local data');

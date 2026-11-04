@@ -1,6 +1,5 @@
 import { supabase } from './supabase.js';
 import { ensureTitleInDatabase, saveRating } from './ratings.js';
-import { getTitleDetails } from './tmdb.js';
 
 const PENDING_KEY = 'gulrating:pending_episode_ratings';
 const CACHE_PREFIX = 'gulrating:episode_ratings_cache:';
@@ -74,9 +73,6 @@ async function saveEpisodeRatingRemote(item) {
 
 export async function maybeUpdateSeriesRating(userId, titleId) {
   if (!userId || !titleId || !supabase) return null;
-  const details = await getTitleDetails(titleId, 'tv');
-  const expectedEpisodes = Number(details?.episodes);
-  if (!Number.isInteger(expectedEpisodes) || expectedEpisodes < 1) return null;
 
   const { data, error } = await supabase.from('episode_ratings')
     .select('season_number,episode_number,rating')
@@ -85,18 +81,22 @@ export async function maybeUpdateSeriesRating(userId, titleId) {
   if (error) throw error;
   const rows = Array.isArray(data) ? data : [];
   const unique = new Map(rows.map(row => [`${row.season_number}:${row.episode_number}`, row]));
-  if (unique.size < expectedEpisodes) return null;
-
-  const ratings = [...unique.values()].map(row => Number(row.rating)).filter(value => Number.isFinite(value));
+  // Update from the scores the user has actually submitted; waiting for every
+  // episode in a long-running or unfinished series left the series unrated.
+  const ratings = [...unique.values()].map(row => Number(row.rating))
+    .filter(value => Number.isFinite(value) && value >= 1 && value <= 10);
   if (!ratings.length) return null;
   const average = Math.round((ratings.reduce((sum, value) => sum + value, 0) / ratings.length) * 10) / 10;
   const { data: existingRating } = await supabase.from('ratings')
-    .select('comment')
+    .select('rating,comment')
     .eq('user_id', userId)
     .eq('title_id', titleId)
     .maybeSingle();
   // The automatic average replaces the series score but never erases the user's own comment.
-  await saveRating(userId, titleId, 'tv', average, existingRating?.comment || '');
+  // Avoid a redundant write/realtime event when opening an already-up-to-date series card.
+  if (Math.round(Number(existingRating?.rating) * 10) / 10 !== average) {
+    await saveRating(userId, titleId, 'tv', average, existingRating?.comment || '');
+  }
   return { rating: average, episodes: ratings.length };
 }
 

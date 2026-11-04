@@ -32,8 +32,8 @@ assert.match(modal, /if \(episode\) savedPosition = episodePosition;/,
   'a recognized new episode does not inherit the previous episode’s resume point');
 assert.match(modal, /const latest = episode \? episodePosition :/,
   'the extension handshake resumes by episode when identity is available');
-assert.match(episodeRatings, /unique\.size < expectedEpisodes/,
-  'the automatic series score waits until every currently listed episode has a rating');
+assert.match(episodeRatings, /Update from the scores the user has actually submitted/,
+  'the series average updates from watched episodes instead of waiting for the entire series to finish airing');
 assert.match(main, /syncNativePlaybackRatings\(user\.id\)/,
   'native playback ratings synchronize after returning to the authenticated app shell');
 assert.match(tracker, /savePendingPlaybackRating\(JSON\.stringify\(payload\)\)/,

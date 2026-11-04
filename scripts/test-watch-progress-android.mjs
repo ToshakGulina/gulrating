@@ -24,7 +24,7 @@ class FakeVideo {
   }
 }
 
-function runTracker({ active = true, savedTime = 180, episodeSavedTime = 0, episodeUrl = 'https://player.example/watch/movie', watchKey = 'movie:42' } = {}) {
+function runTracker({ active = true, savedTime = 180, episodeSavedTime = 0, episodeUrl = 'https://player.example/watch/movie', watchKey = 'movie:42', documentTitle = 'Movie', pageText = '' } = {}) {
   const video = new FakeVideo();
   const writes = [];
   const intervals = [];
@@ -41,7 +41,8 @@ function runTracker({ active = true, savedTime = 180, episodeSavedTime = 0, epis
     savePlaybackPosition: (value) => writes.push(JSON.parse(value)),
   };
   const document = {
-    title: 'Movie',
+    title: documentTitle,
+    body: { innerText: pageText, textContent: pageText },
     visibilityState: 'visible',
     addEventListener: (name, fn) => documentEvents.set(name, fn),
     querySelectorAll: (selector) => selector === 'video' ? [video] : [],
@@ -89,6 +90,29 @@ const nextEpisode = runTracker({
   watchKey: 'tv:42',
 });
 assert.equal(nextEpisode.video.currentTime, 0, 'a new episode starts at zero instead of inheriting the previous episode resume point');
+
+const titleDetectedEpisode = runTracker({
+  savedTime: 0,
+  episodeUrl: 'https://alloha.tv/embed/show',
+  watchKey: 'tv:42',
+  documentTitle: 'Сериал — 1-й сезон, 2-я серия',
+});
+titleDetectedEpisode.video.paused = false;
+titleDetectedEpisode.video.currentTime = 120;
+titleDetectedEpisode.video.emit('timeupdate');
+assert.equal(titleDetectedEpisode.writes.at(-1)?.episode?.key, 's01e02',
+  'the Android tracker can recover an episode from localized player document titles');
+
+const queryDetectedEpisode = runTracker({
+  savedTime: 0,
+  episodeUrl: 'https://alloha.tv/embed/show?season-number=2&episode-num=4',
+  watchKey: 'tv:42',
+});
+queryDetectedEpisode.video.paused = false;
+queryDetectedEpisode.video.currentTime = 120;
+queryDetectedEpisode.video.emit('timeupdate');
+assert.equal(queryDetectedEpisode.writes.at(-1)?.episode?.key, 's02e04',
+  'the Android tracker accepts provider-specific season/episode query aliases');
 
 const inactive = runTracker({ active: false });
 assert.equal(inactive.intervals.length, 0, 'the tracker is dormant outside an active player session');

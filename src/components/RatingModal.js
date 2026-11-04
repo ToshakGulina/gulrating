@@ -2,7 +2,7 @@ import { saveRating, getUserTitleStatus, getCachedUserTitleStatus, deleteRating,
 import { getTitleDetails, getCachedTitleDetails, getFranchiseTitles } from '../lib/tmdb.js';
 import { openCatalog } from './Catalog.js';
 import { getKinopoiskRatings, kinopoiskPageUrl } from '../lib/kinopoisk.js';
-import { submitEpisodeRating, getEpisodeRatings } from '../lib/episodeRatings.js';
+import { submitEpisodeRating, getEpisodeRatings, maybeUpdateSeriesRating } from '../lib/episodeRatings.js';
 import { extractEpisodeIdentity, episodePositionKey } from '../lib/episodeIdentity.js';
 import { supabase } from '../lib/supabase.js';
 import { addRecentTitle } from '../lib/history.js';
@@ -14,7 +14,7 @@ import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
 import { friendRatingsLabel } from '../lib/ratingLabels.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
 import { formatCompactMoney } from '../lib/money.js';
-import { animateOverlayExit, animateFranchiseModalEnter, animateScoreBubble } from '../lib/motion.js';
+import { animateOverlayExit, animateFranchiseModalEnter, animateScoreBubble, cancelScoreBubbleAnimation } from '../lib/motion.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 
@@ -389,7 +389,7 @@ export function openWatchOverlay(opts) {
               ? `Оценка видна друзьям · среднее серии ${friendAverage}/10 (${sameEpisode.length})`
               : 'Оценка серии сохранена и будет общей с друзьями.';
             if (result.seriesRating) {
-              showToast(`Оценки всех ${result.seriesRating.episodes} серий усреднены: ${result.seriesRating.rating.toFixed(1)}/10 для сериала.`, 'success', 5000);
+              showToast(`Средняя оценка по ${result.seriesRating.episodes} оценённым сериям: ${result.seriesRating.rating.toFixed(1)}/10 для сериала.`, 'success', 5000);
             }
           }
         }
@@ -1144,6 +1144,12 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const year = releaseYear(title.release_date);
     const runtime = mediaType === 'movie' ? formatRuntime(title.runtime) : '';
 
+    // Backfill the series score from episode ratings saved before automatic
+    // averaging was introduced, so opening a series can repair its missing score.
+    if (mediaType === 'tv' && !useOfflineData) {
+      await maybeUpdateSeriesRating(currentUser.id, titleId).catch(() => null);
+    }
+
     const [status, allRatings, kpRatings, allEpisodeRatings] = useOfflineData
       ? [(() => {
         const cachedStatus = getCachedUserTitleStatus(currentUser.id, titleId);
@@ -1460,7 +1466,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           modal.querySelector('#episode-rating-count').textContent = String(rendered.count);
           modal.querySelector('#episode-rating-list').innerHTML = rendered.html;
           if (result.seriesRating) {
-            showToast(`Оценки всех ${result.seriesRating.episodes} серий усреднены: ${result.seriesRating.rating.toFixed(1)}/10 для сериала.`, 'success', 5000);
+            showToast(`Средняя оценка по ${result.seriesRating.episodes} оценённым сериям: ${result.seriesRating.rating.toFixed(1)}/10 для сериала.`, 'success', 5000);
             onSaveCallback?.();
           }
         } catch (error) {
@@ -1708,6 +1714,9 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     // --- Логика слайдера оценки ---
     const slider = modal.querySelector('#rating-slider');
     const bubble = modal.querySelector('#rating-bubble');
+    const bubbleValue = document.createElement('span');
+    bubbleValue.className = 'rating-bubble-value';
+    bubble.appendChild(bubbleValue);
     let selectedScore = status.hasRating ? Math.round(Number(status.rating.rating) * 10) / 10 : null;
 
     function valueColor(n) {
@@ -1729,13 +1738,14 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       const val = selectedScore === null ? Number(slider.value) : selectedScore;
       const pct = (Math.min(10, Math.max(1, val)) - 1) / 9;
       bubble.style.left = `calc(${(pct * 100).toFixed(2)}% + ${((0.5 - pct) * THUMB_PX).toFixed(1)}px)`;
-      bubble.textContent = formatRating(val);
+      bubbleValue.textContent = formatRating(val);
       bubble.className = selectedScore === null
         ? 'absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400'
         : `absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-transparent text-white ${valueBg(selectedScore)}`;
-      if (pop && !animateScoreBubble(bubble, selectedScore ?? val)) {
-        void bubble.offsetWidth; // Commit the updated score before the CSS fallback animation.
-        bubble.classList.add('rating-value-pop');
+      bubbleValue.classList.remove('rating-value-pop');
+      if (pop && !animateScoreBubble(bubbleValue, selectedScore ?? val)) {
+        void bubbleValue.offsetWidth; // Restart the fallback animation even after consecutive taps.
+        bubbleValue.classList.add('rating-value-pop');
       }
     }
 
@@ -1746,6 +1756,32 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     }
 
     slider.addEventListener('input', () => setScore(parseFloat(slider.value), true));
+    const stopSliderPulse = () => {
+      window.removeEventListener('pointerup', stopSliderPulse);
+      window.removeEventListener('pointercancel', stopSliderPulse);
+      window.removeEventListener('keyup', stopSliderPulse);
+      bubbleValue.classList.remove('rating-slider-pulsing');
+      cancelScoreBubbleAnimation(bubbleValue);
+    };
+    const startSliderPulse = () => {
+      cancelScoreBubbleAnimation(bubbleValue);
+      bubbleValue.classList.remove('rating-value-pop');
+      bubbleValue.classList.add('rating-slider-pulsing');
+    };
+    slider.addEventListener('pointerdown', () => {
+      startSliderPulse();
+      window.addEventListener('pointerup', stopSliderPulse);
+      window.addEventListener('pointercancel', stopSliderPulse);
+    });
+    slider.addEventListener('pointerup', stopSliderPulse);
+    slider.addEventListener('pointercancel', stopSliderPulse);
+    slider.addEventListener('blur', stopSliderPulse);
+    slider.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) return;
+      startSliderPulse();
+      window.addEventListener('keyup', stopSliderPulse);
+    });
+    slider.addEventListener('keyup', stopSliderPulse);
     // Кнопки ± step'ают от ТОГО значения, что показывает пузырёк
     // (до первого касания это позиция бегунка), иначе был скачок 5.5 → 5
     modal.querySelector('#rating-minus').addEventListener('click', () => {
