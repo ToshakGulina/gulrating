@@ -9,7 +9,7 @@
 // 3. Новая версия не перезагружает открытые вкладки: service worker ждёт,
 //    пока текущие окна закроются, затем обновляет кэш для следующего запуска.
 
-const CACHE_VERSION = 'gulrating-v89';
+const CACHE_VERSION = 'gulrating-v90';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -70,6 +70,7 @@ const SHELL_ASSETS = [
   '/src/lib/kinopoiskWatchLinks.js',
   '/src/lib/feedPeople.js',
   '/src/lib/ratingLabels.js',
+  '/src/lib/ratingTone.js',
   '/src/components/Auth.js',
   '/src/components/Setup.js',
   '/src/components/AccessDenied.js',

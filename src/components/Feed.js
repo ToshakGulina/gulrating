@@ -15,6 +15,7 @@ import { feedUserOptions, selectedFeedUserId, feedRatingsCacheKey } from '../lib
 import { getCachedUserTitleStatus } from '../lib/ratings.js';
 import { DOT_RATING_DIGITS } from '../lib/dotMatrix.js';
 import { transitionAppPage } from '../lib/motion.js';
+import { ratingTone, ratingBadgeColor, ratingTextColor } from '../lib/ratingTone.js';
 
 // Текущий фильтр ленты и канал реалтайма храним на уровне модуля,
 // чтобы при уходе со страницы закрыть канал и не копить подписки.
@@ -35,18 +36,13 @@ function renderRatingDots(value) {
   }).join('');
 }
 
-function ratingTone(value) {
-  const score = Number(value);
-  return score >= 8 ? 'rating-score-high' : score >= 5 ? 'rating-score-mid' : 'rating-score-low';
-}
-
 function renderSearchRatings(rows = []) {
   if (!rows.length) return '';
   const average = rows.reduce((sum, row) => sum + Number(row.rating), 0) / rows.length;
   const score = rows.length > 1 ? average : Number(rows[0].rating);
   const label = escapeHtml(formatRating(score));
   const tone = ratingTone(score);
-  const ratingColor = score >= 8 ? 'bg-green-600' : score >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+  const ratingColor = ratingBadgeColor(score);
   const summary = rows.length > 1
     ? `<div role="img" aria-label="Средняя оценка: ${label}, ${escapeHtml(ratingCountLabel(rows.length))}" class="group-average-badge rating-score-badge ${tone} ${ratingColor} flex flex-col items-center justify-center rounded-lg px-2 py-1 text-white text-center shrink-0">
         <span class="rating-score-label text-[9px] font-semibold uppercase tracking-wide opacity-80">средняя</span>
@@ -811,7 +807,7 @@ async function loadRatings(currentUser, filter = 'all') {
     primeTitleCache(title.media_type, title.id, title);
 
     const year = releaseYear(title.release_date);
-    const ratingColor = item.rating >= 8 ? 'bg-green-600' : item.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+    const ratingColor = ratingBadgeColor(item.rating);
     const ratingScoreTone = ratingTone(item.rating);
     const groupRows = item.groupedRatings || [];
     const visibleGroupRows = groupRows.slice(0, 4);
@@ -849,7 +845,7 @@ async function loadRatings(currentUser, filter = 'all') {
               <div class="grouped-ratings-list mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2" aria-label="Оценки друзей и ваша">
                 ${visibleGroupRows.map((r, index) => {
                   const score = Number(r.rating || 0);
-                  const scoreColor = score >= 8 ? 'text-green-300' : score >= 5 ? 'text-yellow-300' : 'text-red-300';
+                  const scoreColor = ratingTextColor(score, '300');
                   return `<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg bg-slate-900/40 px-2 py-1">
                     <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, r.profiles?.username))}" alt="" class="h-5 w-5 flex-shrink-0 rounded-full bg-slate-700 object-cover">
                     <span class="max-w-[160px] truncate text-xs font-medium text-gray-200">${escapeHtml(r.profiles?.username || 'Участник')}</span>

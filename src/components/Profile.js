@@ -16,6 +16,7 @@ import { THEMES, getThemeId, setTheme } from '../lib/theme.js';
 import { animateProfilePanel } from '../lib/motion.js';
 import { primeTitleCache, getCachedTitleDetails, getTitleDetails } from '../lib/tmdb.js';
 import { estimateSeriesProgress } from '../lib/seriesProgress.js';
+import { ratingTone, ratingBadgeColor } from '../lib/ratingTone.js';
 
 // Полная тема оформления задаётся data-theme на корне документа.
 let installBoxUpdateHandler = null;
@@ -1155,7 +1156,8 @@ function renderMyRatings(ratings, statusByTitleId, currentUser) {
     const title = r.titles;
     if (!title) return '';
     const year = releaseYear(title.release_date);
-    const ratingColor = r.rating >= 8 ? 'bg-green-600' : r.rating >= 5 ? 'bg-yellow-600' : 'bg-red-600';
+    const ratingColor = ratingBadgeColor(r.rating);
+    const ratingScoreTone = ratingTone(r.rating);
     const savedStatus = statusByTitleId.get(String(title.id));
     const currentTitleStatus = !savedStatus || savedStatus === 'watchlist' ? 'watched' : savedStatus;
 
@@ -1180,7 +1182,7 @@ function renderMyRatings(ratings, statusByTitleId, currentUser) {
               <h3 class="font-semibold leading-tight">${escapeHtml(title.title)}</h3>
               <p class="text-sm text-gray-400">${year ? escapeHtml(year) + ' • ' : ''}${title.media_type === 'movie' ? 'фильм' : 'сериал'}</p>
             </div>
-            <div class="${ratingColor} px-2 py-1 rounded-lg text-white font-bold min-w-[40px] text-center">${escapeHtml(formatRating(r.rating))}</div>
+            <div class="rating-score-indicator ${ratingScoreTone} ${ratingColor} px-2 py-1 rounded-lg text-white font-bold min-w-[40px] text-center">${escapeHtml(formatRating(r.rating))}</div>
           </div>
           ${r.comment ? `<p class="mt-1 text-sm text-gray-300 line-clamp-2">${escapeHtml(r.comment)}</p>` : ''}
           <p class="text-xs text-gray-500 mt-1">${formatDistanceToNow(new Date(r.created_at))}</p>

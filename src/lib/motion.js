@@ -1,4 +1,5 @@
 import * as anime from '../../vendor/anime.esm.min.js';
+import { ratingTone } from './ratingTone.js';
 
 const { animate, createTimeline, spring, stagger } = anime;
 
@@ -250,7 +251,8 @@ export function animateScoreBubble(bubble, score) {
   if (!bubble) return false;
   cancelScoreBubbleAnimation(bubble);
   if (!isMotionEnabled()) return false;
-  const glow = Number(score) >= 8 ? '52 211 153' : Number(score) >= 5 ? '251 191 36' : '251 113 133';
+  const glow = ratingTone(score) === 'rating-score-perfect' ? '234 179 8'
+    : Number(score) >= 8 ? '52 211 153' : Number(score) >= 5 ? '251 191 36' : '251 113 133';
   let animation;
   animation = animate(bubble, {
     scale: [.84, 1.18, 1],

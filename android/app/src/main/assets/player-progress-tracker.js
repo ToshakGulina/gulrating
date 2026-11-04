@@ -231,7 +231,7 @@
     ratingLabel.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px;font-size:14px;color:#dbeafe;';
     var ratingOutput = document.createElement('strong');
     ratingOutput.textContent = '8.0';
-    ratingOutput.style.cssText = 'font-size:24px;color:#7dd3fc;';
+    ratingOutput.style.cssText = 'font-size:24px;color:#4ade80;transition:color 140ms ease;';
     ratingLabel.appendChild(ratingOutput);
     var slider = document.createElement('input');
     slider.type = 'range';
@@ -241,7 +241,16 @@
     slider.value = '8';
     slider.setAttribute('aria-label', 'Оценка от 1 до 10');
     slider.style.cssText = 'width:100%;accent-color:#38bdf8;margin:0 0 20px;';
-    slider.addEventListener('input', function () { ratingOutput.textContent = Number(slider.value).toFixed(1); });
+    function reflectRatingOutput() {
+      var value = Number(slider.value);
+      var rounded = Math.round(value * 10) / 10;
+      ratingOutput.textContent = value.toFixed(1);
+      var color = rounded >= 10 ? '#d4af37' : rounded >= 8 ? '#4ade80' : rounded >= 5 ? '#facc15' : '#fb7185';
+      ratingOutput.style.color = color;
+      slider.style.accentColor = color;
+    }
+    slider.addEventListener('input', reflectRatingOutput);
+    reflectRatingOutput();
     card.appendChild(ratingLabel);
     card.appendChild(slider);
 

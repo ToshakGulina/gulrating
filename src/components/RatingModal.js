@@ -14,6 +14,7 @@ import { getOfficialWatchUrl } from '../lib/kinopoiskWatchLinks.js';
 import { friendRatingsLabel } from '../lib/ratingLabels.js';
 import { fitSmallHorizontalOverflow } from '../lib/horizontalOverflow.js';
 import { formatCompactMoney } from '../lib/money.js';
+import { ratingAccentRgb, ratingTextColor } from '../lib/ratingTone.js';
 import { animateOverlayExit, animateFranchiseModalEnter, animateScoreBubble, cancelScoreBubbleAnimation } from '../lib/motion.js';
 import { CONFIG } from '../config.js';
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
@@ -316,7 +317,7 @@ export function openWatchOverlay(opts) {
     scoreRow.className = 'mb-2 flex items-center justify-between text-sm text-slate-200';
     scoreRow.textContent = 'Ваша оценка';
     const score = document.createElement('strong');
-    score.className = 'text-2xl text-sky-300';
+    score.className = `text-2xl ${ratingTextColor(8, '300')}`;
     score.textContent = '8.0';
     scoreRow.appendChild(score);
     const slider = document.createElement('input');
@@ -327,7 +328,14 @@ export function openWatchOverlay(opts) {
     slider.value = '8';
     slider.setAttribute('aria-label', 'Оценка от 1 до 10');
     slider.className = 'mb-5 w-full accent-sky-400';
-    slider.addEventListener('input', () => { score.textContent = Number(slider.value).toFixed(1); });
+    const reflectPlaybackRating = () => {
+      const value = Number(slider.value);
+      score.textContent = value.toFixed(1);
+      score.className = `text-2xl ${ratingTextColor(value, '300')}`;
+      slider.style.accentColor = `rgb(${ratingAccentRgb(value)})`;
+    };
+    slider.addEventListener('input', reflectPlaybackRating);
+    reflectPlaybackRating();
     const status = document.createElement('p');
     status.className = 'mb-3 min-h-4 text-xs text-slate-300';
     const actions = document.createElement('div');
@@ -1032,7 +1040,7 @@ function renderEpisodeRatingRows(rows, userId) {
       const names = episodeRows.map(row => typeof row.profiles === 'object' ? row.profiles?.username : '').filter(Boolean);
       return `<li class="flex items-center gap-2 rounded-lg bg-slate-800/70 px-3 py-2 text-xs" data-episode-rating="${season}:${episode}">
         <span class="min-w-0 flex-1 text-gray-300">${season} сезон · ${episode} серия</span>
-        <span class="font-semibold text-sky-300">${average.toFixed(1)}/10</span>
+        <span class="font-semibold ${ratingTextColor(average, '300')}">${average.toFixed(1)}/10</span>
         <span class="text-gray-500">${formatRatingCount(episodeRows.length)}</span>
         ${mine ? `<span class="text-gray-400">· вы ${escapeHtml(formatRating(mine.rating))}</span>` : ''}
         ${names.length ? `<span class="hidden sm:inline truncate text-gray-500">${escapeHtml(names.join(', '))}</span>` : ''}
@@ -1190,7 +1198,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     const friendRatingRows = sharedRatings.map((r) => {
       const username = r.profiles?.username || 'Участник';
       const score = Number(r.rating);
-      const scoreColor = score >= 8 ? 'text-green-300' : score >= 5 ? 'text-yellow-300' : 'text-red-300';
+      const scoreColor = ratingTextColor(score, '300');
       return `<li class="flex min-w-0 items-center gap-2 rounded-lg bg-slate-800/80 px-2 py-1.5">
         <img src="${escapeHtml(safeAvatarUrl(r.profiles?.avatar_url, username))}" alt="" class="h-6 w-6 flex-shrink-0 rounded-full bg-slate-700 object-cover">
         <span class="min-w-0 flex-1 truncate text-xs text-gray-200">${escapeHtml(username)}</span>
@@ -1259,7 +1267,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
             </div>
             <div class="mt-3 flex items-center gap-3">
               <input id="episode-rating-score" type="range" min="1" max="10" step="0.1" value="8" class="w-full accent-sky-400" aria-label="Оценка серии от 1 до 10">
-              <output id="episode-rating-score-value" class="min-w-10 text-right text-sm font-bold text-sky-300">8.0</output>
+              <output id="episode-rating-score-value" class="min-w-10 text-right text-sm font-bold ${ratingTextColor(8, '300')}">8.0</output>
               <button id="episode-rating-submit" type="submit" class="flex-shrink-0 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white">Сохранить</button>
             </div>
             <p id="episode-rating-status" class="mt-2 min-h-4 text-xs text-gray-400" role="status" aria-live="polite"></p>
@@ -1402,7 +1410,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center justify-between gap-2">
                     <span class="font-medium text-xs truncate">${escapeHtml(r.profiles.username)}</span>
-                    <span class="font-bold text-xs ${Number(r.rating) >= 8 ? 'text-green-400' : Number(r.rating) >= 5 ? 'text-yellow-400' : 'text-red-400'}">${escapeHtml(formatRating(r.rating))}</span>
+                    <span class="font-bold text-xs ${ratingTextColor(r.rating)}">${escapeHtml(formatRating(r.rating))}</span>
                   </div>
                   ${r.comment ? `<p class="text-xs text-gray-400 mt-0.5 line-clamp-2">${escapeHtml(r.comment)}</p>` : ''}
                 </div>
@@ -1422,6 +1430,11 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       const scoreValue = modal.querySelector('#episode-rating-score-value');
       const saveButton = modal.querySelector('#episode-rating-submit');
       const status = modal.querySelector('#episode-rating-status');
+      const reflectScoreValue = value => {
+        scoreValue.textContent = Number(value).toFixed(1);
+        scoreValue.className = `min-w-10 text-right text-sm font-bold ${ratingTextColor(value, '300')}`;
+        scoreInput.style.accentColor = `rgb(${ratingAccentRgb(value)})`;
+      };
       const reflectExistingScore = () => {
         const season = Number(seasonInput.value);
         const episode = Number(episodeInput.value);
@@ -1430,15 +1443,15 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           && Number(row.season_number) === season && Number(row.episode_number) === episode);
         if (mine) {
           scoreInput.value = String(mine.rating);
-          scoreValue.textContent = Number(mine.rating).toFixed(1);
+          reflectScoreValue(mine.rating);
           status.textContent = 'Ваша сохранённая оценка загружена — её можно изменить.';
         } else {
           scoreInput.value = '8';
-          scoreValue.textContent = '8.0';
+          reflectScoreValue(8);
           status.textContent = '';
         }
       };
-      scoreInput.addEventListener('input', () => { scoreValue.textContent = Number(scoreInput.value).toFixed(1); });
+      scoreInput.addEventListener('input', () => reflectScoreValue(scoreInput.value));
       seasonInput.addEventListener('change', reflectExistingScore);
       episodeInput.addEventListener('change', reflectExistingScore);
       episodeRatingForm.addEventListener('submit', async event => {
@@ -1725,9 +1738,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     function renderValue(pop = false) {
       const val = selectedScore === null ? Number(slider.value) : selectedScore;
       const pct = (Math.min(10, Math.max(1, val)) - 1) / 9;
-      const accent = val >= 8 ? '34 197 94' : val >= 5 ? '245 158 11' : '244 63 94';
       slider.style.setProperty('--rating-fill', `${(pct * 100).toFixed(2)}%`);
-      slider.style.setProperty('--rating-accent', accent);
+      slider.style.setProperty('--rating-accent', ratingAccentRgb(val));
       bubble.style.left = `calc(${(pct * 100).toFixed(2)}% + ${((0.5 - pct) * THUMB_PX).toFixed(1)}px)`;
       bubbleValue.textContent = formatRating(val);
       bubble.className = selectedScore === null
