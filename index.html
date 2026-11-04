@@ -181,6 +181,7 @@
     .rating-modal-slide-out-forward .rating-modal-panel { animation: franchise-tab-exit-left .3s ease-in both; }
     .rating-modal-slide-out-backward .rating-modal-panel { animation: franchise-tab-exit-right .3s ease-in both; }
     .rating-value-pop { animation: rating-value-pop .22s var(--ease-spring-out); }
+    .rating-slider-pulsing { animation: rating-value-pulse .42s ease-in-out infinite alternate; }
     .rating-bubble-value { display: inline-block; transform-origin: center; }
     #rating-bubble { transition: left 45ms linear, background-color 140ms ease, color 140ms ease; }
     .rating-modal-panel .poster-frame { border-radius: .75rem; }
@@ -363,6 +364,7 @@
     @keyframes rating-modal-overlay-leave { to { opacity: 0; } }
     @keyframes rating-modal-panel-leave { to { opacity: 0; transform: translateY(7px) scale(.985); } }
     @keyframes rating-value-pop { 0% { scale: .88; } 68% { scale: 1.12; } 100% { scale: 1; } }
+    @keyframes rating-value-pulse { from { scale: 1; filter: brightness(1); } to { scale: 1.14; filter: brightness(1.22); } }
 
     /* Уважаем системную настройку доступности «Уменьшить движение». */
     @media (prefers-reduced-motion: reduce) {

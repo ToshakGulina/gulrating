@@ -88,12 +88,15 @@ export async function maybeUpdateSeriesRating(userId, titleId) {
   if (!ratings.length) return null;
   const average = Math.round((ratings.reduce((sum, value) => sum + value, 0) / ratings.length) * 10) / 10;
   const { data: existingRating } = await supabase.from('ratings')
-    .select('comment')
+    .select('rating,comment')
     .eq('user_id', userId)
     .eq('title_id', titleId)
     .maybeSingle();
   // The automatic average replaces the series score but never erases the user's own comment.
-  await saveRating(userId, titleId, 'tv', average, existingRating?.comment || '');
+  // Avoid a redundant write/realtime event when opening an already-up-to-date series card.
+  if (Math.round(Number(existingRating?.rating) * 10) / 10 !== average) {
+    await saveRating(userId, titleId, 'tv', average, existingRating?.comment || '');
+  }
   return { rating: average, episodes: ratings.length };
 }
 

@@ -118,6 +118,12 @@ assert.match(ratingModal, /bubbleValue\.classList\.remove\('rating-value-pop'\)[
   'the CSS fallback pop restarts reliably on consecutive button presses');
 assert.match(motion, /scoreBubbleAnimations\.get\(bubble\)\?\.cancel\?\.\(\)/,
   'a new score pulse cancels the previous in-flight animation on that bubble');
+assert.match(ratingModal, /slider\.addEventListener\('pointerdown',[\s\S]*?startSliderPulse\(\)/,
+  'dragging the rating slider with a pointer starts a visible continuous pulse');
+assert.match(ratingModal, /slider\.addEventListener\('pointerup', stopSliderPulse\)[\s\S]*?pointercancel/,
+  'the drag pulse is reliably stopped on pointer release or cancellation');
+assert.match(html, /\.rating-slider-pulsing\s*\{\s*animation:\s*rating-value-pulse \.42s ease-in-out infinite alternate/,
+  'the drag pulse repeats for the entire slider interaction');
 assert.match(html, /#rating-bubble\s*\{\s*transition:\s*left 45ms linear/,
   'the score label tracks thumb movement smoothly rather than jumping between slider values');
 assert.match(ratingModal, /prefers-reduced-motion:\s*reduce[\s\S]*?removeModal\(\)/,
@@ -128,7 +134,7 @@ assert.match(ratingModal, /renderValue\(!fromSlider\)/,
   'the score feedback is reserved for deliberate stepper taps, not continuous slider movement');
 assert.match(html, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation-duration:\s*\.01ms/,
   'global CSS motion is reduced for accessibility');
-assert.match(sw, /gulrating-v87[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
+assert.match(sw, /gulrating-v88[\s\S]*?\/vendor\/anime\.esm\.min\.js[\s\S]*?\/src\/lib\/motion\.js/,
   'the offline shell precaches the animation engine and app motion module under a fresh cache version');
 assert.doesNotMatch(motion, /from ['"]animejs['"]|from ['"]motion['"]|from ['"]framer-motion['"]|https?:\/\/.*animejs/,
   'the offline-first app does not import or download an animation dependency remotely');

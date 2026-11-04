@@ -48,7 +48,7 @@ try {
     .replace("import { supabase } from './supabase.js';", 'const supabase = globalThis.__mockEpisodeSupabase;')
     .replace("import { ensureTitleInDatabase, saveRating } from './ratings.js';", 'const ensureTitleInDatabase = globalThis.__mockEnsureEpisodeTitle; const saveRating = globalThis.__mockSaveSeriesRating;');
   const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
-  const { submitEpisodeRating, getEpisodeRatings, syncPendingEpisodeRatings, syncNativePlaybackRatings } = await import(moduleUrl);
+  const { submitEpisodeRating, maybeUpdateSeriesRating, getEpisodeRatings, syncPendingEpisodeRatings, syncNativePlaybackRatings } = await import(moduleUrl);
 
   const first = await submitEpisodeRating('friend-a', 321, 1, 1, 8);
   assert.deepEqual(first.seriesRating, { rating: 8, episodes: 1 },
@@ -62,6 +62,15 @@ try {
   assert.deepEqual(savedSeriesRatings.map(args => args[3]), [8, 7.3, 7.8]);
   assert.equal(savedSeriesRatings[0][0], 'friend-a');
   assert.equal(savedSeriesRatings[0][2], 'tv');
+
+  [7, 8, 9, 10, 6, 8].forEach((rating, index) => {
+    episodeRows.set(`friend-c:777:1:${index + 1}`, {
+      user_id: 'friend-c', title_id: 777, season_number: 1, episode_number: index + 1, rating,
+    });
+  });
+  assert.deepEqual(await maybeUpdateSeriesRating('friend-c', 777), { rating: 8, episodes: 6 },
+    'opening an older series with six existing episode ratings can backfill its missing series score');
+  assert.equal(savedSeriesRatings.at(-1)[3], 8);
 
   const shared = await getEpisodeRatings(321);
   assert.equal(shared.length, 3, 'episode scores are retrievable for the shared friends view');
@@ -90,6 +99,8 @@ try {
   assert.equal(clearedNativeQueue.length, 0, 'the other account’s native queue remains intact');
 
   const ratingModal = await readFile(new URL('../src/components/RatingModal.js', import.meta.url), 'utf8');
+  assert.match(ratingModal, /await maybeUpdateSeriesRating\(currentUser\.id, titleId\)\.catch\(\(\) => null\)/,
+    'opening a series card backfills the average from episode ratings saved before the feature was added');
   assert.match(ratingModal, /id="episode-rating-score" type="range" min="1" max="10" step="0\.1"/,
     'episode ratings use the same tenth-point precision supported by storage and the main rating slider');
 

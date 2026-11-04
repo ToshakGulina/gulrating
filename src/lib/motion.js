@@ -238,10 +238,17 @@ export function animateProfilePanel(panel) {
   return true;
 }
 
-export function animateScoreBubble(bubble, score) {
-  if (!bubble) return false;
+export function cancelScoreBubbleAnimation(bubble) {
+  if (!bubble) return;
   scoreBubbleAnimations.get(bubble)?.cancel?.();
   scoreBubbleAnimations.delete(bubble);
+  bubble.style.removeProperty('scale');
+  bubble.style.removeProperty('box-shadow');
+}
+
+export function animateScoreBubble(bubble, score) {
+  if (!bubble) return false;
+  cancelScoreBubbleAnimation(bubble);
   if (!isMotionEnabled()) return false;
   const glow = Number(score) >= 8 ? '52 211 153' : Number(score) >= 5 ? '251 191 36' : '251 113 133';
   let animation;
