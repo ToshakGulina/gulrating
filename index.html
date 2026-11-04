@@ -686,6 +686,12 @@
       color: rgb(248 251 255 / .78);
       opacity: 1;
     }
+    :root[data-theme="glass"] .rating-score-badge.rating-score-perfect,
+    :root[data-theme="glass"] .search-rating-score.rating-score-perfect {
+      --glass-score-rgb: 234 179 8;
+      --glass-score-text: #fff0bf;
+    }
+    :root[data-theme="glass"] .rating-score-perfect-text { color: #ffe08a !important; }
     :root[data-theme="glass"] .rating-score-badge.rating-score-high,
     :root[data-theme="glass"] .search-rating-score.rating-score-high {
       --glass-score-rgb: 52 211 153;
@@ -918,6 +924,7 @@
       height: 76px;
       padding: 4px 12px;
     }
+    :root[data-theme="nothing"] .rating-score-badge.rating-score-perfect { --rating-score-color: #d4af37; }
     :root[data-theme="nothing"] .rating-score-badge.rating-score-high { --rating-score-color: #00c878; }
     :root[data-theme="nothing"] .rating-score-badge.rating-score-mid { --rating-score-color: #d69e16; }
     :root[data-theme="nothing"] .rating-score-badge.rating-score-low { --rating-score-color: #f05a67; }
@@ -933,6 +940,16 @@
     .search-rating-score.rating-score-high { color: #00c878; }
     .search-rating-score.rating-score-mid { color: #d69e16; }
     .search-rating-score.rating-score-low { color: #f05a67; }
+    :root[data-theme="nothing"] .search-rating-score.rating-score-perfect {
+      --rating-score-color: #d4af37;
+      color: #d4af37;
+    }
+    .rating-score-perfect-text { color: #f5cf5b !important; }
+    .rating-score-badge.rating-score-perfect,
+    .rating-score-indicator.rating-score-perfect { background-color: #8c6b13 !important; }
+    .search-rating-score.rating-score-perfect { color: #f5cf5b; }
+    :root[data-theme="light"] .rating-score-perfect-text,
+    :root[data-theme="light"] .search-rating-score.rating-score-perfect { color: #806000 !important; }
     .search-rating-score .rating-score-value { width: auto; }
     :root[data-theme="nothing"] .search-rating-score.rating-score-high { --rating-score-color: #00c878; }
     :root[data-theme="nothing"] .search-rating-score.rating-score-mid { --rating-score-color: #d69e16; }
