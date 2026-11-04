@@ -1719,29 +1719,20 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     bubble.appendChild(bubbleValue);
     let selectedScore = status.hasRating ? Math.round(Number(status.rating.rating) * 10) / 10 : null;
 
-    function valueColor(n) {
-      if (n >= 8) return 'text-green-400';
-      if (n >= 5) return 'text-yellow-400';
-      return 'text-red-400';
-    }
-
-    function valueBg(n) {
-      if (n >= 8) return 'bg-green-600';
-      if (n >= 5) return 'bg-yellow-600';
-      return 'bg-red-600';
-    }
-
     // Пузырёк с значением ездит над бегунком: до первого касания он серый
     // (это позиция бегунка, а не оценка), после — окрашен по оценке
-    const THUMB_PX = 28; // ширина бегунка из стилей .rating-slider
+    const THUMB_PX = 22; // ширина бегунка из стилей .rating-slider
     function renderValue(pop = false) {
       const val = selectedScore === null ? Number(slider.value) : selectedScore;
       const pct = (Math.min(10, Math.max(1, val)) - 1) / 9;
+      const accent = val >= 8 ? '34 197 94' : val >= 5 ? '245 158 11' : '244 63 94';
+      slider.style.setProperty('--rating-fill', `${(pct * 100).toFixed(2)}%`);
+      slider.style.setProperty('--rating-accent', accent);
       bubble.style.left = `calc(${(pct * 100).toFixed(2)}% + ${((0.5 - pct) * THUMB_PX).toFixed(1)}px)`;
       bubbleValue.textContent = formatRating(val);
       bubble.className = selectedScore === null
         ? 'absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400'
-        : `absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-transparent text-white ${valueBg(selectedScore)}`;
+        : 'absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border rating-bubble-selected';
       bubbleValue.classList.remove('rating-value-pop');
       if (pop && !animateScoreBubble(bubbleValue, selectedScore ?? val)) {
         void bubbleValue.offsetWidth; // Restart the fallback animation even after consecutive taps.
@@ -1760,13 +1751,12 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       window.removeEventListener('pointerup', stopSliderPulse);
       window.removeEventListener('pointercancel', stopSliderPulse);
       window.removeEventListener('keyup', stopSliderPulse);
-      bubbleValue.classList.remove('rating-slider-pulsing');
+      slider.classList.remove('rating-slider-dragging');
       cancelScoreBubbleAnimation(bubbleValue);
     };
     const startSliderPulse = () => {
       cancelScoreBubbleAnimation(bubbleValue);
-      bubbleValue.classList.remove('rating-value-pop');
-      bubbleValue.classList.add('rating-slider-pulsing');
+      slider.classList.add('rating-slider-dragging');
     };
     slider.addEventListener('pointerdown', () => {
       startSliderPulse();
