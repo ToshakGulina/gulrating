@@ -389,7 +389,7 @@ export function openWatchOverlay(opts) {
               ? `Оценка видна друзьям · среднее серии ${friendAverage}/10 (${sameEpisode.length})`
               : 'Оценка серии сохранена и будет общей с друзьями.';
             if (result.seriesRating) {
-              showToast(`Оценки всех ${result.seriesRating.episodes} серий усреднены: ${result.seriesRating.rating.toFixed(1)}/10 для сериала.`, 'success', 5000);
+              showToast(`Средняя оценка по ${result.seriesRating.episodes} оценённым сериям: ${result.seriesRating.rating.toFixed(1)}/10 для сериала.`, 'success', 5000);
             }
           }
         }
@@ -1460,7 +1460,7 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           modal.querySelector('#episode-rating-count').textContent = String(rendered.count);
           modal.querySelector('#episode-rating-list').innerHTML = rendered.html;
           if (result.seriesRating) {
-            showToast(`Оценки всех ${result.seriesRating.episodes} серий усреднены: ${result.seriesRating.rating.toFixed(1)}/10 для сериала.`, 'success', 5000);
+            showToast(`Средняя оценка по ${result.seriesRating.episodes} оценённым сериям: ${result.seriesRating.rating.toFixed(1)}/10 для сериала.`, 'success', 5000);
             onSaveCallback?.();
           }
         } catch (error) {
@@ -1708,6 +1708,9 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
     // --- Логика слайдера оценки ---
     const slider = modal.querySelector('#rating-slider');
     const bubble = modal.querySelector('#rating-bubble');
+    const bubbleValue = document.createElement('span');
+    bubbleValue.className = 'rating-bubble-value';
+    bubble.appendChild(bubbleValue);
     let selectedScore = status.hasRating ? Math.round(Number(status.rating.rating) * 10) / 10 : null;
 
     function valueColor(n) {
@@ -1729,13 +1732,14 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       const val = selectedScore === null ? Number(slider.value) : selectedScore;
       const pct = (Math.min(10, Math.max(1, val)) - 1) / 9;
       bubble.style.left = `calc(${(pct * 100).toFixed(2)}% + ${((0.5 - pct) * THUMB_PX).toFixed(1)}px)`;
-      bubble.textContent = formatRating(val);
+      bubbleValue.textContent = formatRating(val);
       bubble.className = selectedScore === null
         ? 'absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-slate-600 bg-slate-800 text-gray-400'
         : `absolute -top-8 -translate-x-1/2 px-2.5 py-1 rounded-xl text-sm font-bold pointer-events-none whitespace-nowrap border border-transparent text-white ${valueBg(selectedScore)}`;
-      if (pop && !animateScoreBubble(bubble, selectedScore ?? val)) {
-        void bubble.offsetWidth; // Commit the updated score before the CSS fallback animation.
-        bubble.classList.add('rating-value-pop');
+      bubbleValue.classList.remove('rating-value-pop');
+      if (pop && !animateScoreBubble(bubbleValue, selectedScore ?? val)) {
+        void bubbleValue.offsetWidth; // Restart the fallback animation even after consecutive taps.
+        bubbleValue.classList.add('rating-value-pop');
       }
     }
 

@@ -101,10 +101,11 @@ export function parsePlayerProgressMessage(raw) {
   const d = numberFrom(payload.duration, payload.player_duration, message.duration);
   if (t === null || d === null || d <= 0 || t > d + 30) return null;
   const episode = extractEpisodeIdentity(
-    payload.episode, payload.season && payload.episodeNumber != null
-      ? { season: payload.season, episode: payload.episodeNumber }
-      : null,
-    payload.url, payload.href, payload.title, message.episode, message.url, message.href
+    payload.episode,
+    payload,
+    message.episode,
+    message,
+    payload.url, payload.href, payload.title, message.url, message.href
   );
   return { kind: 'progress', event, t, d, playerJs, ...(episode ? { episode } : {}) };
 }

@@ -19,6 +19,7 @@ const seenSurfaces = new WeakSet();
 const seenCards = new WeakSet();
 const seenOverlays = new WeakSet();
 const transitioningApps = new WeakSet();
+const scoreBubbleAnimations = new WeakMap();
 
 function isMotionEnabled() {
   return motionInstalled && !motionQuery?.matches;
@@ -238,9 +239,13 @@ export function animateProfilePanel(panel) {
 }
 
 export function animateScoreBubble(bubble, score) {
-  if (!bubble || !isMotionEnabled()) return false;
+  if (!bubble) return false;
+  scoreBubbleAnimations.get(bubble)?.cancel?.();
+  scoreBubbleAnimations.delete(bubble);
+  if (!isMotionEnabled()) return false;
   const glow = Number(score) >= 8 ? '52 211 153' : Number(score) >= 5 ? '251 191 36' : '251 113 133';
-  track(animate(bubble, {
+  let animation;
+  animation = animate(bubble, {
     scale: [.84, 1.18, 1],
     boxShadow: [
       '0 3px 10px rgb(2 8 23 / .2)',
@@ -249,7 +254,12 @@ export function animateScoreBubble(bubble, score) {
     ],
     duration: 440,
     ease: spring({ bounce: .36 }),
-  }));
+    onComplete: () => {
+      if (scoreBubbleAnimations.get(bubble) === animation) scoreBubbleAnimations.delete(bubble);
+    },
+  });
+  scoreBubbleAnimations.set(bubble, animation);
+  track(animation);
   return true;
 }
 

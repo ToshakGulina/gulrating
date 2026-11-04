@@ -181,6 +181,8 @@
     .rating-modal-slide-out-forward .rating-modal-panel { animation: franchise-tab-exit-left .3s ease-in both; }
     .rating-modal-slide-out-backward .rating-modal-panel { animation: franchise-tab-exit-right .3s ease-in both; }
     .rating-value-pop { animation: rating-value-pop .22s var(--ease-spring-out); }
+    .rating-bubble-value { display: inline-block; transform-origin: center; }
+    #rating-bubble { transition: left 45ms linear, background-color 140ms ease, color 140ms ease; }
     .rating-modal-panel .poster-frame { border-radius: .75rem; }
     .watch-header {
       display: grid;
@@ -394,6 +396,7 @@
       border: 3px solid rgb(var(--p-rgb));
       box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
       cursor: grab;
+      transition: transform 120ms ease, box-shadow 120ms ease;
     }
     .rating-slider::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.08); }
     .rating-slider::-moz-range-thumb {
@@ -404,6 +407,7 @@
       border: 3px solid rgb(var(--p-rgb));
       box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
       cursor: grab;
+      transition: transform 120ms ease, box-shadow 120ms ease;
     }
     .rating-slider::-moz-range-track {
       height: 10px;

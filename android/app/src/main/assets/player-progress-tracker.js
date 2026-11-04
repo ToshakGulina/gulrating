@@ -38,17 +38,26 @@
 
   function episodeFromText(value) {
     var text = String(value || '').replace(/[?#&]/g, ' ');
-    var query;
+    try { text = decodeURIComponent(text); } catch (error) { /* malformed escapes are harmless */ }
     try {
-      query = new URL(value, window.location.href).searchParams;
-      var season = query.get('season') || query.get('season_number') || query.get('s');
-      var episode = query.get('episode') || query.get('episode_number') || query.get('ep') || query.get('e');
-      if (season && episode) return normalizeEpisode(season, episode);
+      var params = new URL(value, window.location.href).searchParams;
+      var values = {};
+      params.forEach(function (paramValue, key) {
+        values[String(key).toLowerCase().replace(/[-_]/g, '')] = paramValue;
+      });
+      var season = values.season || values.seasonnumber || values.seasonnum || values.seasonno || values.s || values.sn;
+      var episode = values.episode || values.episodenumber || values.episodenum || values.episodeno || values.ep || values.e;
+      if (season !== undefined && season !== '' && episode !== undefined && episode !== '') {
+        var queryEpisode = normalizeEpisode(season, episode);
+        if (queryEpisode) return queryEpisode;
+      }
     } catch (error) { /* text may not be a URL */ }
     var match = /(?:^|[^a-z0-9])s(\d{1,3})[ ._-]*e(\d{1,4})(?:$|[^a-z0-9])/i.exec(text)
       || /(?:^|[^\d])(\d{1,3})\s*x\s*(\d{1,4})(?:$|[^\d])/i.exec(text)
+      || /(?:^|[^a-z0-9])(?:season|сезон|s)\s*#?\s*(\d{1,3})[^\d]{0,32}(?:episode|эпизод|сер(?:ия|ии|ию)|ep|e)\s*#?\s*(\d{1,4})(?:$|[^\d])/i.exec(text)
       || /(?:season|сезон)\s*#?\s*(\d{1,3})[^\d]{0,32}(?:episode|эпизод|сер(?:ия|ии|ию))\s*#?\s*(\d{1,4})/i.exec(text)
-      || /(?:^|[^\d])(\d{1,3})\s*сезон[^\d]{0,24}(\d{1,4})\s*сер(?:ия|ии|ию)(?:$|[^а-яё])/i.exec(text);
+      || /(?:^|[^\d])(\d{1,3})(?:\s*[-–]?\s*(?:й|го|ый|ая|ой))?\s*сезон[^\d]{0,32}(\d{1,4})(?:\s*[-–]?\s*(?:я|й|ая|ой))?\s*сер(?:ия|ии|ию)(?:$|[^а-яё])/i.exec(text)
+      || /(?:^|[^\d])(\d{1,3})(?:\s*[-–]?\s*(?:й|го|ый|ая|ой))?\s*сезон[^\d]{0,32}(\d{1,4})(?:\s*[-–]?\s*(?:я|й|ая|ой))?\s*эпизод(?:$|[^а-яё])/i.exec(text);
     if (match) return normalizeEpisode(match[1], match[2]);
     match = /(?:episode|эпизод|сер(?:ия|ии|ию))\s*#?\s*(\d{1,4})[^\d]{0,32}(?:season|сезон)\s*#?\s*(\d{1,3})/i.exec(text);
     return match ? normalizeEpisode(match[2], match[1]) : null;
@@ -58,10 +67,22 @@
     var candidates = [window.location.href, document.title];
     if (video) {
       candidates.push(video.currentSrc, video.src);
-      if (typeof video.getAttribute === 'function') candidates.push(video.getAttribute('title'), video.getAttribute('aria-label'));
+      if (typeof video.getAttribute === 'function') {
+        candidates.push(video.getAttribute('title'), video.getAttribute('aria-label'));
+      }
+      var parent = video.parentElement;
+      if (parent) candidates.push(parent.getAttribute && parent.getAttribute('aria-label'), parent.innerText || parent.textContent);
     }
-    for (var i = 0; i < candidates.length; i += 1) {
-      var episode = episodeFromText(candidates[i]);
+    try {
+      var headings = document.querySelectorAll('h1,h2,[aria-label],[data-season],[data-episode]');
+      for (var i = 0; i < Math.min(headings.length, 24); i += 1) {
+        var node = headings[i];
+        candidates.push(node.getAttribute('aria-label'), node.getAttribute('data-season'), node.getAttribute('data-episode'), node.textContent);
+      }
+      if (document.body) candidates.push(String(document.body.innerText || document.body.textContent || '').slice(0, 12000));
+    } catch (error) { /* player DOM is optional and may be restricted */ }
+    for (var j = 0; j < candidates.length; j += 1) {
+      var episode = episodeFromText(candidates[j]);
       if (episode) return episode;
     }
     return null;
