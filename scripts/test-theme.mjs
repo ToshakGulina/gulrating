@@ -88,8 +88,9 @@ assert.ok(indexHtml.includes(':root[data-theme="glass"] .title-card')
   'Glass uses one highly transparent shared surface material while search stays dense and readable');
 assert.ok(indexHtml.includes(':root[data-theme="glass"] .rating-score-badge')
   && indexHtml.includes('--glass-score-rgb: 52 211 153;')
-  && indexHtml.includes(':root[data-theme="glass"] .rating-slider::-webkit-slider-thumb'),
-  'Glass rating badges, score colors, and slider use the translucent material treatment');
+  && indexHtml.includes(':root[data-theme="glass"] .rating-slider::-webkit-slider-thumb')
+  && indexHtml.includes(':root[data-theme="glass"] .rating-slider::-webkit-slider-runnable-track'),
+  'Glass rating badges, score colors, and the updated filled slider track use the translucent material treatment');
 assert.ok(indexHtml.includes('.app-header {') && indexHtml.includes('border-radius: 1.5rem;'),
   'site headers use softened rounded corners');
 assert.ok(indexHtml.includes("glass: '#080f1f'"), 'Glass browser chrome color matches the updated theme base');
