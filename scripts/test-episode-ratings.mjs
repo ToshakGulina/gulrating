@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const episodeRows = new Map();
-const savedSeriesRatings = [];
+const seriesRatings = new Map();
+const titleStatusWrites = [];
+const watchlistWrites = [];
 const originalSupabase = globalThis.__mockEpisodeSupabase;
 const originalEnsureTitle = globalThis.__mockEnsureEpisodeTitle;
-const originalSaveRating = globalThis.__mockSaveSeriesRating;
 let failEpisodeWrites = false;
 const storage = new Map();
 globalThis.localStorage = {
@@ -14,22 +15,36 @@ globalThis.localStorage = {
   removeItem: key => storage.delete(key),
 };
 globalThis.__mockEnsureEpisodeTitle = async () => {};
-globalThis.__mockSaveSeriesRating = async (...args) => { savedSeriesRatings.push(args); };
+seriesRatings.set('friend-a:321', {
+  user_id: 'friend-a', title_id: 321, rating: 6, comment: 'My series note',
+});
 globalThis.__mockEpisodeSupabase = {
   from(table) {
-    assert(['episode_ratings', 'ratings'].includes(table));
+    assert(['episode_ratings', 'ratings', 'title_statuses', 'watchlist'].includes(table));
     const filters = {};
     const builder = {
       upsert(row) {
-        assert.equal(table, 'episode_ratings');
-        if (failEpisodeWrites) return Promise.resolve({ error: new Error('NetworkError') });
-        episodeRows.set(`${row.user_id}:${row.title_id}:${row.season_number}:${row.episode_number}`, row);
+        if (table === 'episode_ratings') {
+          if (failEpisodeWrites) return Promise.resolve({ error: new Error('NetworkError') });
+          episodeRows.set(`${row.user_id}:${row.title_id}:${row.season_number}:${row.episode_number}`, row);
+        } else if (table === 'ratings') {
+          seriesRatings.set(`${row.user_id}:${row.title_id}`, row);
+        } else if (table === 'title_statuses') {
+          titleStatusWrites.push(row);
+        }
         return Promise.resolve({ error: null });
       },
       select() { return builder; },
       eq(key, value) { filters[key] = value; return builder; },
       order() { return builder; },
-      maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+      maybeSingle() {
+        const key = `${filters.user_id}:${filters.title_id}`;
+        return Promise.resolve({ data: table === 'ratings' ? seriesRatings.get(key) || null : null, error: null });
+      },
+      delete() {
+        watchlistWrites.push({ table, filters: { ...filters } });
+        return builder;
+      },
       then(resolve, reject) {
         if (table === 'ratings') return Promise.resolve({ data: null, error: null }).then(resolve, reject);
         let rows = [...episodeRows.values()].filter(row =>
@@ -46,7 +61,7 @@ try {
   let source = await readFile(new URL('../src/lib/episodeRatings.js', import.meta.url), 'utf8');
   source = source
     .replace("import { supabase } from './supabase.js';", 'const supabase = globalThis.__mockEpisodeSupabase;')
-    .replace("import { ensureTitleInDatabase, saveRating } from './ratings.js';", 'const ensureTitleInDatabase = globalThis.__mockEnsureEpisodeTitle; const saveRating = globalThis.__mockSaveSeriesRating;');
+    .replace("import { ensureTitleInDatabase } from './ratings.js';", 'const ensureTitleInDatabase = globalThis.__mockEnsureEpisodeTitle;');
   const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
   const { submitEpisodeRating, maybeUpdateSeriesRating, getEpisodeRatings, syncPendingEpisodeRatings, syncNativePlaybackRatings } = await import(moduleUrl);
 
@@ -58,10 +73,13 @@ try {
     'the average is recalculated from all episode scores actually submitted');
   const final = await submitEpisodeRating('friend-a', 321, 1, 3, 9);
   assert.deepEqual(final.seriesRating, { rating: 7.8, episodes: 3 });
-  assert.equal(savedSeriesRatings.length, 3);
-  assert.deepEqual(savedSeriesRatings.map(args => args[3]), [8, 7.3, 7.8]);
-  assert.equal(savedSeriesRatings[0][0], 'friend-a');
-  assert.equal(savedSeriesRatings[0][2], 'tv');
+  assert.equal(seriesRatings.get('friend-a:321').rating, 7.8);
+  assert.equal(seriesRatings.get('friend-a:321').comment, 'My series note',
+    'updating the automatic series average preserves the user’s existing comment');
+  assert.equal(titleStatusWrites.length, 0,
+    'rating episodes only updates the series score and never marks the entire series watched');
+  assert.equal(watchlistWrites.length, 0,
+    'episode rating averages do not mutate the title watchlist');
 
   [7, 8, 9, 10, 6, 8].forEach((rating, index) => {
     episodeRows.set(`friend-c:777:1:${index + 1}`, {
@@ -70,7 +88,7 @@ try {
   });
   assert.deepEqual(await maybeUpdateSeriesRating('friend-c', 777), { rating: 8, episodes: 6 },
     'opening an older series with six existing episode ratings can backfill its missing series score');
-  assert.equal(savedSeriesRatings.at(-1)[3], 8);
+  assert.equal(seriesRatings.get('friend-c:777').rating, 8);
 
   const shared = await getEpisodeRatings(321);
   assert.equal(shared.length, 3, 'episode scores are retrievable for the shared friends view');
@@ -113,5 +131,4 @@ try {
 } finally {
   globalThis.__mockEpisodeSupabase = originalSupabase;
   globalThis.__mockEnsureEpisodeTitle = originalEnsureTitle;
-  globalThis.__mockSaveSeriesRating = originalSaveRating;
 }
