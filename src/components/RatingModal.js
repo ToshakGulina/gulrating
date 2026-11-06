@@ -1817,7 +1817,12 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
         const queuedStatus = getPendingTitleStatuses(currentUser.id)
           .find(item => String(item.title_id) === String(titleId))?.status;
         const playbackStatus = queuedStatus || status.currentStatus;
-        if (!status.hasRating && !['in_progress', 'watched', 'dropped'].includes(playbackStatus)) {
+        // A rated series can still be actively watched: its score may be only an
+        // average of episode ratings, and resuming playback should restore In progress.
+        const shouldMarkInProgress = mediaType === 'tv'
+          ? playbackStatus !== 'in_progress'
+          : !status.hasRating && !['in_progress', 'watched', 'dropped'].includes(playbackStatus);
+        if (shouldMarkInProgress) {
           try {
             queueUserTitleStatus(currentUser.id, titleId, mediaType, 'in_progress');
             status.currentStatus = 'in_progress';

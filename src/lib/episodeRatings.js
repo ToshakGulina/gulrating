@@ -1,5 +1,5 @@
 import { supabase } from './supabase.js';
-import { ensureTitleInDatabase, saveRating } from './ratings.js';
+import { ensureTitleInDatabase } from './ratings.js';
 
 const PENDING_KEY = 'gulrating:pending_episode_ratings';
 const CACHE_PREFIX = 'gulrating:episode_ratings_cache:';
@@ -93,9 +93,19 @@ export async function maybeUpdateSeriesRating(userId, titleId) {
     .eq('title_id', titleId)
     .maybeSingle();
   // The automatic average replaces the series score but never erases the user's own comment.
+  // It is not a declaration that the whole series is finished: update only the rating row,
+  // leaving title_statuses/watchlist untouched so an in-progress series stays resumable.
   // Avoid a redundant write/realtime event when opening an already-up-to-date series card.
   if (Math.round(Number(existingRating?.rating) * 10) / 10 !== average) {
-    await saveRating(userId, titleId, 'tv', average, existingRating?.comment || '');
+    await ensureTitleInDatabase(titleId, 'tv');
+    const { error: saveError } = await supabase.from('ratings').upsert({
+      user_id: userId,
+      title_id: titleId,
+      rating: average,
+      comment: existingRating?.comment || '',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,title_id' });
+    if (saveError) throw saveError;
   }
   return { rating: average, episodes: ratings.length };
 }
