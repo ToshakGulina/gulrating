@@ -34,6 +34,10 @@ assert.match(modal, /const latest = episode \? episodePosition :/,
   'the extension handshake resumes by episode when identity is available');
 assert.match(episodeRatings, /Update from the scores the user has actually submitted/,
   'the series average updates from watched episodes instead of waiting for the entire series to finish airing');
+assert.match(episodeRatings, /update only the rating row,[\s\S]*?leaving title_statuses\/watchlist untouched/,
+  'episode-derived averages never mark the whole series watched or remove it from a list');
+assert.match(modal, /const shouldMarkInProgress = mediaType === 'tv'[\s\S]*?playbackStatus !== 'in_progress'/,
+  'resuming a series marks it In progress even when it already has an aggregate score');
 assert.match(main, /syncNativePlaybackRatings\(user\.id\)/,
   'native playback ratings synchronize after returning to the authenticated app shell');
 assert.match(tracker, /savePendingPlaybackRating\(JSON\.stringify\(payload\)\)/,
