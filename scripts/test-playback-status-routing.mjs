@@ -26,8 +26,12 @@ assert.match(profile, /for \(const item of getUnfinishedWatchHistory\(\)\)[\s\S]
   'legacy unfinished entries are migrated to the personal In Progress status');
 assert.match(profile, /const history = getCompletedWatchHistory\(\)/,
   'the playback-history section excludes unfinished entries');
-assert.match(profile, /const resumableItems = new Map\(getUnfinishedWatchHistory\(\)[\s\S]*?profile-continue-watch/,
-  'unfinished entries get a Continue action on their In Progress cards');
+assert.match(profile, /function renderContinueButton[\s\S]*?data-watch-key=/,
+  'In Progress cards can render a Continue action from title metadata even if history data is incomplete');
+assert.match(profile, /ratedTitles\.length \? renderMyRatings\(ratedTitles, statusByTitleId, currentUser, \{ showContinue: tab === 'in_progress' \}\)/,
+  'rated series keep a Continue action in the In Progress tab');
+assert.match(profile, /const item = getWatchHistory\(\)\.find\(entry => entry\.key === key\) \|\| \{/,
+  'Continue falls back to title details when there is no saved playback-history entry');
 assert.match(modal, /addWatchEntry\([\s\S]*?queueUserTitleStatus\(currentUser\.id, titleId, mediaType, 'in_progress'\)/,
   'starting playback assigns In Progress unless the title is already rated or explicitly completed/dropped');
 console.log('Unfinished playback routes to In Progress; completed playback remains in its separate history section: OK');

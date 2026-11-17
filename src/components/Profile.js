@@ -9,7 +9,7 @@ import { FEED_SECTIONS, getFeedOrder, getVisibleFeedSections, saveFeedOrder, sav
 import { escapeHtml, safeAvatarUrl, releaseYear, showToast, formatRating, posterImg } from '../lib/dom.js';
 import { getCatalogSizeSetting, setCatalogSizeSetting, syncOfflineCatalog, getOfflineCatalogStats, isAppContext } from '../lib/offlineCatalog.js';
 import { getFullCatalogMeta, getFullCatalogPendingMeta, fetchFullManifest, downloadFullCatalog, deleteFullCatalog } from '../lib/fullCatalog.js';
-import { getWatchHistory, getUnfinishedWatchHistory, getCompletedWatchHistory, getPositions, getEpisodeWatchPositions, removeWatchEntry, markWatchDone, unmarkWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
+import { getWatchHistory, getUnfinishedWatchHistory, getCompletedWatchHistory, getPositions, getEpisodeWatchPositions, addWatchEntry, removeWatchEntry, markWatchDone, unmarkWatchDone, reportWatchNative, isApk } from '../lib/watchHistory.js';
 import { openWatchOverlay } from './RatingModal.js';
 import { getKpCacheTtlDays } from '../lib/kinopoisk.js';
 import { THEMES, getThemeId, setTheme } from '../lib/theme.js';
@@ -31,20 +31,36 @@ function formatPlaybackTime(value) {
 }
 
 function continuePlaybackItem(item, currentUser) {
-  if (!item || !(item.kp_url || item.kpId || item.query)) return;
-  reportWatchNative(item.id, item.media_type, currentUser.id, item.title);
+  if (!item) return;
+  const title = String(item.title || item.name || '');
+  const query = String(item.query || title).trim();
+  if (!query) return;
+  const playbackItem = {
+    ...item,
+    key: item.key || `${item.media_type}:${item.id}`,
+    title,
+    query,
+    last_at: new Date().toISOString(),
+  };
+  addWatchEntry(playbackItem);
+  reportWatchNative(playbackItem.id, playbackItem.media_type, currentUser.id, title);
   openWatchOverlay({
-    kpId: item.kpId,
-    query: item.query || item.title,
-    titleText: item.title,
-    mirrorUrl: item.kp_url,
-    watchKey: item.key,
+    kpId: playbackItem.kpId,
+    query,
+    titleText: title,
+    mirrorUrl: playbackItem.kp_url,
+    watchKey: playbackItem.key,
     resumeFromHistory: true,
     currentUser,
-    titleId: item.id,
-    mediaType: item.media_type,
-    posterPath: item.poster_path,
+    titleId: playbackItem.id,
+    mediaType: playbackItem.media_type,
+    posterPath: playbackItem.poster_path,
   });
+}
+
+function renderContinueButton(id, mediaType, title, posterPath, query) {
+  const watchKey = `${mediaType}:${id}`;
+  return `<button type="button" class="profile-continue-watch mt-2 rounded-lg bg-primary px-3 py-1.5 text-xs text-white" data-watch-key="${escapeHtml(watchKey)}" data-title-id="${escapeHtml(id)}" data-media-type="${escapeHtml(mediaType)}" data-title="${escapeHtml(title)}" data-poster="${escapeHtml(posterPath || '')}" data-query="${escapeHtml(query || title)}">Продолжить</button>`;
 }
 
 const PROFILE_SNAPSHOT_PREFIX = 'gulrating:profile_snapshot:';
@@ -1142,7 +1158,7 @@ export async function renderProfilePage(app, currentUser, { force = false } = {}
   }
 }
 
-function renderMyRatings(ratings, statusByTitleId, currentUser) {
+function renderMyRatings(ratings, statusByTitleId, currentUser, { showContinue = false } = {}) {
   if (!ratings || ratings.length === 0) {
     return `
       <div class="col-span-full text-center py-12 text-gray-500">
@@ -1160,6 +1176,11 @@ function renderMyRatings(ratings, statusByTitleId, currentUser) {
     const ratingScoreTone = ratingTone(r.rating);
     const savedStatus = statusByTitleId.get(String(title.id));
     const currentTitleStatus = !savedStatus || savedStatus === 'watchlist' ? 'watched' : savedStatus;
+    const resumable = getWatchHistory().find(item => item.key === `${title.media_type}:${title.id}`);
+    const continueButton = showContinue
+      ? renderContinueButton(title.id, title.media_type, title.title || title.name, title.poster_path,
+        resumable?.query || `${title.title || title.name || ''} ${year || ''}`.trim())
+      : '';
 
     return `
       <div class="title-card bg-card rounded-xl border border-slate-700/50 p-3 flex gap-3 hover:bg-slate-800 transition-colors cursor-pointer" data-title-id="${escapeHtml(title.id)}" data-media-type="${escapeHtml(title.media_type)}">
@@ -1186,6 +1207,7 @@ function renderMyRatings(ratings, statusByTitleId, currentUser) {
           </div>
           ${r.comment ? `<p class="mt-1 text-sm text-gray-300 line-clamp-2">${escapeHtml(r.comment)}</p>` : ''}
           <p class="text-xs text-gray-500 mt-1">${formatDistanceToNow(new Date(r.created_at))}</p>
+          ${continueButton}
         </div>
       </div>
     `;
@@ -1214,7 +1236,7 @@ function renderProfileStatusTab(tab, ratings, watchlist, titleStatuses, statusBy
   }
 
   return [
-    ratedTitles.length ? renderMyRatings(ratedTitles, statusByTitleId, currentUser) : '',
+    ratedTitles.length ? renderMyRatings(ratedTitles, statusByTitleId, currentUser, { showContinue: tab === 'in_progress' }) : '',
     unratedStatuses.length ? renderTitleStatuses(unratedStatuses, [], currentUser) : ''
   ].join('');
 }
@@ -1299,8 +1321,9 @@ function renderTitleStatuses(items, ratings, currentUser) {
         ${seriesProgress ? `<span class="mt-1 block text-[10px] text-sky-300">Весь сериал: ${formatPlaybackTime(seriesProgress.watchedSeconds)} из ~${formatPlaybackTime(seriesProgress.estimatedTotalSeconds)} · ${seriesProgress.percent}%${seriesProgress.estimated ? ' (оценка)' : ''}</span><span class="mt-1 block h-1.5 overflow-hidden rounded-full bg-slate-700"><span class="block h-full rounded-full bg-sky-400" style="width:${seriesProgress.percent}%"></span></span>` : (episodePositions.length ? '<span class="mt-1 block text-[10px] text-gray-500">Оценочная длительность сериала пока недоступна.</span>' : '')}
         ${percent !== null ? `<span class="mt-1 block h-1 overflow-hidden rounded bg-slate-700"><span class="block h-full bg-red-500" style="width:${percent}%"></span></span>` : ''}
         ${savedTime !== null ? `<span class="block text-[10px] text-gray-500">Запомнено: ${savedTime}${percent !== null ? ` · ${percent}%` : ''}</span>` : ''}
-        ${resumable && (resumable.kp_url || resumable.kpId || resumable.query)
-          ? `<button type="button" class="profile-continue-watch mt-2 rounded-lg bg-primary px-3 py-1.5 text-xs text-white" data-watch-key="${escapeHtml(watchKey)}">Продолжить</button>`
+        ${item.status === 'in_progress'
+          ? renderContinueButton(item.titles.id, item.titles.media_type, item.titles.title, item.titles.poster_path,
+            resumable?.query || `${item.titles.title || ''} ${releaseYear(item.titles.release_date) || ''}`.trim())
           : ''}
       </div>
     </div>
@@ -1369,7 +1392,15 @@ function initTitleCards(pageRoot, currentUser, onStatusUpdated) {
   pageRoot.querySelectorAll('.profile-continue-watch').forEach(button => {
     button.addEventListener('click', event => {
       event.stopPropagation();
-      const item = getUnfinishedWatchHistory().find(entry => entry.key === button.dataset.watchKey);
+      const key = button.dataset.watchKey;
+      const item = getWatchHistory().find(entry => entry.key === key) || {
+        id: button.dataset.titleId,
+        media_type: button.dataset.mediaType,
+        title: button.dataset.title,
+        poster_path: button.dataset.poster,
+        query: button.dataset.query,
+        key,
+      };
       continuePlaybackItem(item, currentUser);
     });
   });

@@ -24,7 +24,7 @@ class FakeVideo {
   }
 }
 
-function runTracker({ active = true, savedTime = 180, episodeSavedTime = 0, episodeUrl = 'https://player.example/watch/movie', watchKey = 'movie:42', documentTitle = 'Movie', pageText = '' } = {}) {
+function runTracker({ active = true, savedTime = 180, episodeSavedTime = 0, episodeSavedTimes = {}, episodeUrl = 'https://player.example/watch/movie', watchKey = 'movie:42', documentTitle = 'Movie', pageText = '' } = {}) {
   const video = new FakeVideo();
   const writes = [];
   const intervals = [];
@@ -35,9 +35,10 @@ function runTracker({ active = true, savedTime = 180, episodeSavedTime = 0, epis
     isPlaybackTrackingActive: () => active,
     getCurrentWatchKey: () => watchKey,
     getCurrentPosition: () => JSON.stringify({ t: savedTime, d: 1200, at: 1 }),
-    getCurrentEpisodePosition: (episodeKey) => episodeSavedTime
-      ? JSON.stringify({ t: episodeSavedTime, d: 1200, at: 2, episodeKey })
-      : '{}',
+    getCurrentEpisodePosition: (episodeKey) => {
+      const position = episodeSavedTimes[episodeKey] ?? episodeSavedTime;
+      return position ? JSON.stringify({ t: position, d: 1200, at: 2, episodeKey }) : '{}';
+    },
     savePlaybackPosition: (value) => writes.push(JSON.parse(value)),
   };
   const document = {
@@ -58,7 +59,7 @@ function runTracker({ active = true, savedTime = 180, episodeSavedTime = 0, epis
   new Function('window', 'document', 'setInterval', 'clearInterval', 'Date', tracker)(
     window, document, setInterval, clearInterval, Clock
   );
-  return { video, writes, intervals, documentEvents, windowEvents, advance: (ms) => { now += ms; } };
+  return { video, document, writes, intervals, documentEvents, windowEvents, advance: (ms) => { now += ms; } };
 }
 
 const active = runTracker();
@@ -90,6 +91,22 @@ const nextEpisode = runTracker({
   watchKey: 'tv:42',
 });
 assert.equal(nextEpisode.video.currentTime, 0, 'a new episode starts at zero instead of inheriting the previous episode resume point');
+
+const reusedVideo = runTracker({
+  savedTime: 0,
+  episodeSavedTimes: { s01e02: 420, s01e03: 210 },
+  episodeUrl: 'https://alloha.tv/embed/show',
+  watchKey: 'tv:42',
+  documentTitle: 'Series S01E02',
+});
+assert.equal(reusedVideo.video.currentTime, 420, 'the reused player starts from the saved position for its first detected episode');
+reusedVideo.document.title = 'Series S01E03';
+reusedVideo.video.currentTime = 0;
+reusedVideo.intervals[0]();
+assert.equal(reusedVideo.video.currentTime, 210,
+  'a reused video element re-detects episode changes and resumes the matching per-episode position');
+assert.equal(reusedVideo.writes.at(-1)?.episode?.key, 's01e03',
+  'progress from the switched episode is saved under its new identity');
 
 const titleDetectedEpisode = runTracker({
   savedTime: 0,

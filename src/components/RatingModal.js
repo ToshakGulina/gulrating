@@ -248,15 +248,25 @@ export function openWatchOverlay(opts) {
     const frame = stage.querySelector('#watch-frame');
     let documentUrl = '';
     let documentTitle = '';
+    let playerContext = '';
     try {
-      documentUrl = video?.ownerDocument?.location?.href || '';
-      documentTitle = video?.ownerDocument?.title || '';
-    } catch (error) { /* cross-origin player is identified from its frame URL */ }
+      const ownerDocument = video?.ownerDocument;
+      documentUrl = ownerDocument?.location?.href || '';
+      documentTitle = ownerDocument?.title || '';
+      const parent = video?.parentElement;
+      const nearbyText = parent?.innerText || parent?.textContent || '';
+      const markers = ownerDocument?.querySelectorAll?.('h1,h2,[aria-label],[data-season],[data-episode]') || [];
+      playerContext = [...markers].slice(0, 24).map(node => [
+        node.getAttribute?.('data-season'), node.getAttribute?.('data-episode'),
+        node.getAttribute?.('aria-label'), node.textContent,
+      ].filter(Boolean).join(' ')).join(' ') + ` ${nearbyText} ${String(ownerDocument?.body?.innerText || '').slice(0, 12000)}`;
+    } catch (error) { /* cross-origin player is identified from its frame URL or progress event */ }
     return extractEpisodeIdentity(
-      progress?.episode, progress?.season != null && progress?.episodeNumber != null
-        ? { season: progress.season, episode: progress.episodeNumber }
+      progress?.episode, progress,
+      progress?.season != null && (progress?.episodeNumber ?? progress?.episode_number) != null
+        ? { season: progress.season, episode: progress.episodeNumber ?? progress.episode_number }
         : null,
-      documentUrl, documentTitle, video?.currentSrc, video?.src,
+      documentUrl, documentTitle, playerContext, video?.currentSrc, video?.src,
       frame?.src, frame?.getAttribute('src')
     );
   }
@@ -480,7 +490,7 @@ export function openWatchOverlay(opts) {
     if (!frame || !origin || origin === 'null' || !source) return;
     const state = remotePlayerProgress.get(frame) || { methods: new Set(), events: new Set() };
     if (state.ready) return;
-    const episode = extractEpisodeIdentity(frame.src, frame.getAttribute('src'));
+    const episode = extractEpisodeIdentity(message.src, frame.src, frame.getAttribute('src'));
     if (episode) {
       state.episode = episode;
       savedPosition = getPositions()[episodePositionKey(watchKey, episode)] || null;
@@ -570,8 +580,20 @@ export function openWatchOverlay(opts) {
     if (message.kind === 'progress') saveRemoteProgress(message);
   }
 
+  function refreshVideoEpisodeIdentity(video, state) {
+    if (!watchKey || !state) return;
+    const episode = resolveEpisodeIdentity(null, video);
+    if (!episode || episode.key === state.episode?.key) return;
+    state.episode = episode;
+    savedPosition = getPositions()[episodePositionKey(watchKey, episode)] || null;
+    state.resumeAttempted = !savedPosition || Number(savedPosition.t) < 30;
+    state.lastSavedAt = Number(savedPosition?.at) || 0;
+  }
+
   function saveVideoPosition(video, state, force = false) {
-    if (!watchKey || !state.resumeAttempted || !video) return;
+    if (!watchKey || !video) return;
+    refreshVideoEpisodeIdentity(video, state);
+    if (!state.resumeAttempted) return;
     const t = Number(video.currentTime);
     const d = Number(video.duration);
     if (t <= 0 || !Number.isFinite(t) || !Number.isFinite(d) || d <= 0) return;
@@ -584,6 +606,7 @@ export function openWatchOverlay(opts) {
   }
 
   function tryResumeVideo(video, state) {
+    refreshVideoEpisodeIdentity(video, state);
     if (state.resumeAttempted) return true;
     if (!savedPosition || !Number.isFinite(video.duration) || video.duration <= 0) return false;
     const target = Number(savedPosition.t);
@@ -1265,8 +1288,10 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
                 <input id="episode-rating-number" type="number" min="1" max="9999" step="1" required inputmode="numeric" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-gray-100" placeholder="Например, 1">
               </label>
             </div>
-            <div class="mt-3 flex items-center gap-3">
-              <input id="episode-rating-score" type="range" min="1" max="10" step="0.1" value="8" class="w-full accent-sky-400" aria-label="Оценка серии от 1 до 10">
+            <div class="mt-3 flex items-center gap-2">
+              <button id="episode-rating-minus" type="button" class="h-9 w-9 flex-shrink-0 rounded-full bg-slate-700 text-lg font-bold text-gray-100 hover:bg-slate-600" aria-label="Уменьшить оценку серии на 0.1">−</button>
+              <input id="episode-rating-score" type="range" min="1" max="10" step="0.1" value="8" class="min-w-0 flex-1 accent-sky-400" aria-label="Оценка серии от 1 до 10">
+              <button id="episode-rating-plus" type="button" class="h-9 w-9 flex-shrink-0 rounded-full bg-slate-700 text-lg font-bold text-gray-100 hover:bg-slate-600" aria-label="Увеличить оценку серии на 0.1">+</button>
               <output id="episode-rating-score-value" class="min-w-10 text-right text-sm font-bold ${ratingTextColor(8, '300')}">8.0</output>
               <button id="episode-rating-submit" type="submit" class="flex-shrink-0 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white">Сохранить</button>
             </div>
@@ -1428,6 +1453,8 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
       const episodeInput = modal.querySelector('#episode-rating-number');
       const scoreInput = modal.querySelector('#episode-rating-score');
       const scoreValue = modal.querySelector('#episode-rating-score-value');
+      const minusButton = modal.querySelector('#episode-rating-minus');
+      const plusButton = modal.querySelector('#episode-rating-plus');
       const saveButton = modal.querySelector('#episode-rating-submit');
       const status = modal.querySelector('#episode-rating-status');
       const reflectScoreValue = value => {
@@ -1451,7 +1478,14 @@ export async function openRatingModal(titleId, mediaType, currentUser, onSaveCal
           status.textContent = '';
         }
       };
+      const adjustEpisodeScore = delta => {
+        const next = Math.max(1, Math.min(10, Math.round((Number(scoreInput.value) + delta) * 10) / 10));
+        scoreInput.value = next.toFixed(1);
+        reflectScoreValue(next);
+      };
       scoreInput.addEventListener('input', () => reflectScoreValue(scoreInput.value));
+      minusButton.addEventListener('click', () => adjustEpisodeScore(-0.1));
+      plusButton.addEventListener('click', () => adjustEpisodeScore(0.1));
       seasonInput.addEventListener('change', reflectExistingScore);
       episodeInput.addEventListener('change', reflectExistingScore);
       episodeRatingForm.addEventListener('submit', async event => {
