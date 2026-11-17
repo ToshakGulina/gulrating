@@ -26,8 +26,22 @@ function write(key, value, limit) {
 
 // --- Недавние поисковые запросы ---
 
+function normalizeSearchQueries(values) {
+  const seen = new Set();
+  return values
+    .filter(value => typeof value === 'string')
+    .map(value => value.trim())
+    .filter(value => {
+      const normalized = value.toLocaleLowerCase();
+      if (value.length < 2 || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    })
+    .slice(0, MAX_SEARCH_QUERIES);
+}
+
 export function getSearchQueries() {
-  const queries = read(QUERIES_KEY).slice(0, MAX_SEARCH_QUERIES);
+  const queries = normalizeSearchQueries(read(QUERIES_KEY));
   // Сразу подчищаем старый список, чтобы недавние поиски не вытесняли плитки.
   write(QUERIES_KEY, queries, MAX_SEARCH_QUERIES);
   return queries;
@@ -36,8 +50,7 @@ export function getSearchQueries() {
 export function addSearchQuery(query) {
   const q = String(query || '').trim();
   if (q.length < 2) return;
-  const list = read(QUERIES_KEY).filter(item => item.toLowerCase() !== q.toLowerCase());
-  list.unshift(q);
+  const list = normalizeSearchQueries([q, ...read(QUERIES_KEY)]);
   write(QUERIES_KEY, list, MAX_SEARCH_QUERIES);
 }
 
