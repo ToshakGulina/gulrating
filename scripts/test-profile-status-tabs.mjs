@@ -51,7 +51,11 @@ const context = {
     { id: 'dropped', label: 'Заброшено' },
   ],
   renderWatchlist: items => `watchlist:${items.map(item => item.title_id).join('|')}`,
-  renderMyRatings: items => `rated:${items.map(item => item.title_id).join('|')}`,
+  renderMyRatings: (items, statusByTitleId, currentUser, options) => {
+    context.ratingRenderOptions.push(options);
+    return `rated:${items.map(item => item.title_id).join('|')}`;
+  },
+  ratingRenderOptions: [],
   renderTitleStatuses: items => `unrated:${items.map(item => item.title_id).join('|')}`,
   escapeHtml: value => String(value),
 };
@@ -83,4 +87,8 @@ assert.equal(render('watched'), 'rated:1unrated:4');
 assert.equal(render('in_progress'), 'rated:2unrated:5');
 assert.equal(render('dropped'), 'rated:3unrated:6');
 assert.equal(render('watchlist'), 'watchlist:7');
+assert.deepEqual(context.ratingRenderOptions.map(option => option.showContinue), [false, true, false],
+  'rated in-progress titles get Continue while other rated status tabs remain unchanged');
+assert.match(profileSource, /function renderContinueButton[\s\S]*?data-query=/,
+  'a Continue button can start playback from the title metadata even without a saved provider URL');
 console.log('Profile status tabs include rated and unrated titles without duplicates: OK');

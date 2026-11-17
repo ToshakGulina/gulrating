@@ -77,5 +77,11 @@ assert.match(ratingModal, /parsePlayerProgressMessage\(event\.data\)/);
 assert.match(ratingModal, /saveRemoteProgress\(message\)/);
 assert.match(ratingModal, /sendPlayerJsCommand\(frame, state, 'setCurrentTime', target\)/,
   'Player.js-compatible sources receive the saved resume time');
+assert.match(ratingModal, /function refreshVideoEpisodeIdentity\(video, state\)[\s\S]*?episodePositionKey\(watchKey, episode\)/,
+  'same-origin players that reuse a video element refresh episode identity and its matching saved position');
+assert.match(ratingModal, /playerContext = \[\.\.\.markers\][\s\S]*?ownerDocument\?\.body\?\.innerText/,
+  'same-origin player detection reads explicit episode markers and nearby page text');
+assert.match(ratingModal, /extractEpisodeIdentity\(message\.src, frame\.src, frame\.getAttribute\('src'\)\)/,
+  'Player.js ready metadata and player URLs participate in episode detection');
 
 console.log('Browser cross-origin iframe progress messages and Player.js resume adapter: OK');

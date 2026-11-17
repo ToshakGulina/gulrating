@@ -1,6 +1,6 @@
 # GulRating — прогресс плееров
 
-WebExtension сохраняет и восстанавливает позицию просмотра в HTML5-видео у поддерживаемых Kinobox-плееров. Это нужно в браузере: GulRating не может читать `<video>` внутри стороннего iframe из-за same-origin policy. Расширение читает только `currentTime` и `duration`, а историю сохраняет сама страница GulRating в своём локальном профиле.
+WebExtension сохраняет и восстанавливает время просмотра HTML5-видео у поддерживаемых Kinobox-плееров и старается определить текущие сезон/серию по адресу, метаданным, заголовкам и тексту страницы плеера. Это нужно в браузере: GulRating не может читать `<video>` внутри стороннего iframe из-за same-origin policy. Расширение читает только `currentTime` и `duration`, а историю и позицию серии сохраняет сама страница GulRating в своём локальном профиле.
 
 Расширение запускается только на перечисленных player-origin доменах, в том числе во вложенных iframe: `stravers.live`, `alloha.tv`, `alloha.cool`, `obrut.show`, `kodik.info`, `kodik.cc`, `kodik.club`, `kodik.ws`, `videocdn.net`, `videocdn.tv`, `collaps.me`, `collaps.so`, `bazon.cc`, `hdzo.fun`, `kurolesya.link`, `nextembed.ws`, `kinokino.vip`, `kinobox.tv` и `vidlink.pro` (включая их поддомены). Если у конкретного источника видео размещено на другом домене или он не использует доступный HTML5 `<video>`, источник потребует отдельной адаптации.
 

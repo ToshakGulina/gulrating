@@ -30,7 +30,7 @@
   function normalizeEpisode(season, episode) {
     const s = Number(season);
     const e = Number(episode);
-    if (!Number.isInteger(s) || !Number.isInteger(e) || s < 1 || s > 999 || e < 1 || e > 9999) return null;
+    if (!Number.isInteger(s) || !Number.isInteger(e) || s < 0 || s > 999 || e < 1 || e > 9999) return null;
     return { season: s, episode: e, key: `s${String(s).padStart(2, '0')}e${String(e).padStart(2, '0')}` };
   }
 
@@ -38,21 +38,43 @@
     const text = String(value || '').replace(/[?#&]/g, ' ');
     try {
       const params = new URL(value, window.location && window.location.href).searchParams;
-      const season = params.get('season') || params.get('season_number') || params.get('s');
-      const episode = params.get('episode') || params.get('episode_number') || params.get('ep') || params.get('e');
+      const values = new Map([...params.entries()].map(([key, entry]) => [key.toLowerCase().replace(/[-_]/g, ''), entry]));
+      const season = ['season', 'seasonnumber', 'seasonnum', 'seasonno', 's', 'sn'].map(key => values.get(key)).find(Boolean);
+      const episode = ['episode', 'episodenumber', 'episodenum', 'episodeno', 'ep', 'e'].map(key => values.get(key)).find(Boolean);
       if (season && episode) return normalizeEpisode(season, episode);
     } catch (error) { /* text may not be a URL */ }
     let match = /(?:^|[^a-z0-9])s(\d{1,3})[ ._-]*e(\d{1,4})(?:$|[^a-z0-9])/i.exec(text)
       || /(?:^|[^\d])(\d{1,3})\s*x\s*(\d{1,4})(?:$|[^\d])/i.exec(text)
+      || /(?:^|[^a-z0-9])(?:season|сезон|s)\s*#?\s*(\d{1,3})[^\d]{0,32}(?:episode|эпизод|сер(?:ия|ии|ию)|ep|e)\s*#?\s*(\d{1,4})(?:$|[^\d])/i.exec(text)
       || /(?:season|сезон)\s*#?\s*(\d{1,3})[^\d]{0,32}(?:episode|эпизод|сер(?:ия|ии|ию))\s*#?\s*(\d{1,4})/i.exec(text)
-      || /(?:^|[^\d])(\d{1,3})\s*сезон[^\d]{0,24}(\d{1,4})\s*сер(?:ия|ии|ию)(?:$|[^а-яё])/i.exec(text);
+      || /(?:^|[^\d])(\d{1,3})(?:\s*[-–]?\s*(?:й|го|ый|ая|ой))?\s*сезон[^\d]{0,32}(\d{1,4})(?:\s*[-–]?\s*(?:я|й|ая|ой))?\s*сер(?:ия|ии|ию)(?:$|[^а-яё])/i.exec(text)
+      || /(?:^|[^\d])(\d{1,3})(?:\s*[-–]?\s*(?:й|го|ый|ая|ой))?\s*сезон[^\d]{0,32}(\d{1,4})(?:\s*[-–]?\s*(?:я|й|ая|ой))?\s*эпизод(?:$|[^а-яё])/i.exec(text);
     if (match) return normalizeEpisode(match[1], match[2]);
     match = /(?:episode|эпизод|сер(?:ия|ии|ию))\s*#?\s*(\d{1,4})[^\d]{0,32}(?:season|сезон)\s*#?\s*(\d{1,3})/i.exec(text);
     return match ? normalizeEpisode(match[2], match[1]) : null;
   }
 
   function episodeOf(video) {
-    for (const value of [window.location && window.location.href, document.title, video && video.currentSrc, video && video.src]) {
+    const candidates = [window.location && window.location.href, document.title, video && video.currentSrc, video && video.src];
+    try {
+      const videoSeason = video?.getAttribute?.('data-season') || video?.getAttribute?.('data-season-number');
+      const videoEpisode = video?.getAttribute?.('data-episode') || video?.getAttribute?.('data-episode-number');
+      const directVideoEpisode = normalizeEpisode(videoSeason, videoEpisode);
+      if (directVideoEpisode) return directVideoEpisode;
+      candidates.push(video?.getAttribute?.('title'), video?.getAttribute?.('aria-label'));
+      const parent = video?.parentElement;
+      if (parent) candidates.push(parent.getAttribute?.('aria-label'), parent.innerText || parent.textContent);
+      const markers = document.querySelectorAll('h1,h2,[aria-label],[data-season],[data-episode]');
+      for (const node of [...markers].slice(0, 24)) {
+        const season = node.getAttribute('data-season') || node.getAttribute('data-season-number');
+        const episode = node.getAttribute('data-episode') || node.getAttribute('data-episode-number');
+        const direct = normalizeEpisode(season, episode);
+        if (direct) return direct;
+        candidates.push(node.getAttribute('aria-label'), node.textContent);
+      }
+      candidates.push(String(document.body?.innerText || document.body?.textContent || '').slice(0, 12000));
+    } catch (error) { /* optional player DOM may be unavailable */ }
+    for (const value of candidates) {
       const episode = episodeFromText(value);
       if (episode) return episode;
     }

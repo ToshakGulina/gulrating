@@ -24,6 +24,10 @@ assert.match(modal, /episodeRatingsPanel/,
   'series cards display friends’ episode-by-episode averages');
 assert.match(modal, /id="episode-rating-form"/,
   'episode ratings can be entered directly from the series card');
+assert.match(modal, /id="episode-rating-minus"[\s\S]*?id="episode-rating-score"[\s\S]*?id="episode-rating-plus"/,
+  'episode ratings in a title card have decrement and increment buttons beside the slider');
+assert.match(modal, /adjustEpisodeScore = delta[\s\S]*?Math\.max\(1, Math\.min\(10/,
+  'episode rating buttons step by tenths without crossing the 1–10 bounds');
 assert.match(modal, /submitEpisodeRating\(currentUser\.id, titleId, season, episode/,
   'the card form saves an episode score for the selected season and episode');
 assert.match(modal, /episode-rating-list/,

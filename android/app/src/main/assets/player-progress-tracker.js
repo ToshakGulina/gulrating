@@ -74,10 +74,21 @@
       if (parent) candidates.push(parent.getAttribute && parent.getAttribute('aria-label'), parent.innerText || parent.textContent);
     }
     try {
+      if (video && typeof video.getAttribute === 'function') {
+        var videoSeason = video.getAttribute('data-season') || video.getAttribute('data-season-number');
+        var videoEpisode = video.getAttribute('data-episode') || video.getAttribute('data-episode-number');
+        var videoPair = normalizeEpisode(videoSeason, videoEpisode);
+        if (videoPair) return videoPair;
+        candidates.push(video.getAttribute('data-title'), video.getAttribute('data-episode-title'));
+      }
       var headings = document.querySelectorAll('h1,h2,[aria-label],[data-season],[data-episode]');
       for (var i = 0; i < Math.min(headings.length, 24); i += 1) {
         var node = headings[i];
-        candidates.push(node.getAttribute('aria-label'), node.getAttribute('data-season'), node.getAttribute('data-episode'), node.textContent);
+        var seasonValue = node.getAttribute('data-season') || node.getAttribute('data-season-number');
+        var episodeValue = node.getAttribute('data-episode') || node.getAttribute('data-episode-number');
+        var markedPair = normalizeEpisode(seasonValue, episodeValue);
+        if (markedPair) return markedPair;
+        candidates.push(node.getAttribute('aria-label'), node.textContent);
       }
       if (document.body) candidates.push(String(document.body.innerText || document.body.textContent || '').slice(0, 12000));
     } catch (error) { /* player DOM is optional and may be restricted */ }
@@ -133,15 +144,21 @@
   }
 
   function resume(video) {
-    if (!video || video.__gulRatingResumeChecked) return;
+    if (!video) return;
+    var episode = detectEpisode(video);
+    var episodeKey = episode ? episode.key : '';
+    if (video.__gulRatingResumeChecked && video.__gulRatingResumeEpisodeKey === episodeKey) return;
     var key = getCurrentKey();
     if (!key) return;
+    // Players often reuse a single video element while switching episodes.
+    // Retry resume when the detected episode changes instead of sticking to the first one.
+    video.__gulRatingResumeEpisodeKey = episodeKey;
+    video.__gulRatingResumeChecked = false;
 
     var duration = getDuration(video);
     if (!Number.isFinite(duration) || duration <= 0) return;
 
     try {
-      var episode = detectEpisode(video);
       var storedPosition = episode && typeof bridge.getCurrentEpisodePosition === 'function'
         ? bridge.getCurrentEpisodePosition(episode.key)
         : bridge.getCurrentPosition();
@@ -309,7 +326,11 @@
   }
 
   function attach(video) {
-    if (!video || hookedVideos.has(video)) return;
+    if (!video) return;
+    if (hookedVideos.has(video)) {
+      resume(video);
+      return;
+    }
     hookedVideos.add(video);
     video.addEventListener('loadedmetadata', function () { resume(video); save(video, true); });
     video.addEventListener('durationchange', function () { resume(video); });

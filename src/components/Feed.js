@@ -1424,6 +1424,9 @@ function initSearch(currentUser) {
       document.removeEventListener('keydown', onKeydown);
       overlay.remove();
       document.body.style.overflow = previousOverflow;
+      // The query is already retained in search history and shown in the results
+      // page header. Return to an empty field so focus reveals the recent-query list.
+      searchInput.value = '';
       searchInput.focus();
     };
     const onKeydown = event => {
